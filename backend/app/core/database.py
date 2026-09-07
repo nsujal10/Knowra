@@ -5,7 +5,7 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres_password@localhost:5432/enterprise_ai")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Sipl%4012345@localhost:5432/knowra")
 
 try:
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)

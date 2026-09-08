@@ -4,8 +4,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from app.core.storage import MinIOStorage
 
 def test_storage():
-    storage = MinIOStorage("localhost:9000", "minioadmin", "minioadmin", secure=False)
-    bucket = "enterprise-media"
+    storage = MinIOStorage("localhost:9000", "minioadmin", "Sipl@12345", secure=False)
+    bucket = "knowra"
     
     # Create a dummy file
     with open("dummy.txt", "w") as f:

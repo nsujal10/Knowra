@@ -1,5 +1,9 @@
 from fastapi import FastAPI
 from app.api.v1.router import api_router
+from app.core.database import engine, Base
+
+# Create tables for simple script execution without alembic overhead in tests
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Knowra API", version="0.1.0")
 

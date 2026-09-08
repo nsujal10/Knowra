@@ -1,32 +1,47 @@
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import sessionmaker, declarative_base
-import os
-import structlog
+# from sqlalchemy import create_engine, text
+# from sqlalchemy.orm import sessionmaker, declarative_base
+# import os
+# import structlog
 
-logger = structlog.get_logger(__name__)
+# logger = structlog.get_logger(__name__)
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Sipl%4012345@localhost:5432/knowra")
+# DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:Sipl%4012345@localhost:5432/knowra")
 
-try:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    Base = declarative_base()
-except Exception as e:
-    logger.error("Database initialization failed", error=str(e))
-    raise
+# try:
+#     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
+#     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+#     Base = declarative_base()
+# except Exception as e:
+#     logger.error("Database initialization failed", error=str(e))
+#     raise
 
-def init_vector_extension():
+# def init_vector_extension():
+#     try:
+#         with engine.begin() as conn:
+#             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+#             conn.execute(text("""
+#                 CREATE TABLE IF NOT EXISTS smoke_test_vectors (
+#                     id SERIAL PRIMARY KEY,
+#                     text TEXT,
+#                     embedding vector(384)
+#                 );
+#             """))
+#             logger.info("Vector extension and test table initialized successfully")
+#     except Exception as e:
+#         logger.error("Failed to initialize pgvector", error=str(e))
+#         raise
+
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
+
+engine = create_engine(settings.DATABASE_URL, connect_args={"check_same_thread": False})
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db():
+    db = SessionLocal()
     try:
-        with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS smoke_test_vectors (
-                    id SERIAL PRIMARY KEY,
-                    text TEXT,
-                    embedding vector(384)
-                );
-            """))
-            logger.info("Vector extension and test table initialized successfully")
-    except Exception as e:
-        logger.error("Failed to initialize pgvector", error=str(e))
-        raise
+        yield db
+    finally:
+        db.close()

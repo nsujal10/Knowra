@@ -1,4 +1,7 @@
 from app.core.celery_app import celery_app
+from app.core.database import SessionLocal
+from app.repositories.meeting_repository import MeetingRepository
+from uuid import UUID
 import structlog
 import time
 
@@ -33,3 +36,21 @@ def extract_intelligence_task(self, data: dict):
 def index_embeddings_task(self, data: dict):
     logger.info("Indexing embeddings to pgvector")
     return {"status": "indexed"}
+
+@celery_app.task(bind=True)
+def process_meeting_task(self, tenant_id: str, meeting_id: str):
+    logger = structlog.get_logger(__name__).bind(tenant_id=tenant_id, meeting_id=meeting_id, job_id=self.request.id)
+    
+    db = SessionLocal()
+    try:
+        repo = MeetingRepository(db, UUID(tenant_id))
+        meeting = repo.get_by_id(UUID(meeting_id))
+        
+        if not meeting:
+            logger.error("Tenant isolation check failed in worker: Meeting not found or access denied")
+            raise ValueError("Meeting access denied or not found for tenant")
+            
+        logger.info("Tenant isolation passed. Processing meeting...")
+        return {"status": "success", "meeting": str(meeting.id)}
+    finally:
+        db.close()

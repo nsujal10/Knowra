@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.api.v1.auth import router as auth_router
 from app.api.v1.security_test import router as security_router
+from app.api.v1.meetings import router as meetings_router
 
 api_router = APIRouter()
 
@@ -10,3 +11,4 @@ async def test_endpoint():
 
 api_router.include_router(auth_router, prefix="/auth", tags=["Auth"])
 api_router.include_router(security_router, prefix="/security", tags=["Security"])
+api_router.include_router(meetings_router, prefix="/meetings", tags=["Meetings"])

@@ -9,7 +9,9 @@ from app.security.exceptions import CredentialsException, ForbiddenException
 from app.schemas.auth import CurrentUserContext
 from app.repositories.membership_repository import MembershipRepository
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"/api/v1/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/api/v1/auth/login/token"
+)
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> CurrentUserContext:
     payload = decode_access_token(token)

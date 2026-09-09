@@ -1,7 +1,8 @@
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from app.core.database import SessionLocal, Base, engine
+from app.core.database import SessionLocal, engine
+from app.models.base import Base
 from app.models.role import Role
 from app.models.permission import Permission
 from app.models.role_permission import RolePermission

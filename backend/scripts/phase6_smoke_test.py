@@ -5,7 +5,8 @@ import time
 import subprocess
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from app.core.database import Base, engine, SessionLocal
+from app.core.database import engine, SessionLocal
+from app.models.base import Base
 from app.models.refresh_session import RefreshSession
 
 # Reset Database

@@ -1,6 +1,11 @@
+from sqlalchemy.orm import Session
+
+
 class BaseRepository:
     """
-    Minimal repository interface boundary.
-    Domain-specific repositories will inherit this to implement CRUD ops.
+    Base repository providing a SQLAlchemy session.
+    Domain-specific repositories inherit from this class.
     """
-    pass
+
+    def __init__(self, db: Session):
+        self.session = db

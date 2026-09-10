@@ -25,11 +25,11 @@ def print_step(msg):
 
 try:
     print_step("1. Provision Tenant A & Tenant B")
-    resA = requests.post(f"{BASE_URL}/auth/register", json={"email": "a@tenant.com", "password": "pass", "full_name": "A", "organization_name": "Org A"})
-    resB = requests.post(f"{BASE_URL}/auth/register", json={"email": "b@tenant.com", "password": "pass", "full_name": "B", "organization_name": "Org B"})
+    resA = requests.post(f"{BASE_URL}/auth/register", json={"email": "a@tenant.com", "password": "Sipl@12345", "full_name": "A", "organization_name": "Org A"})
+    resB = requests.post(f"{BASE_URL}/auth/register", json={"email": "b@tenant.com", "password": "Sipl@12345", "full_name": "B", "organization_name": "Org B"})
     
-    tokenA = requests.post(f"{BASE_URL}/auth/login", json={"email": "a@tenant.com", "password": "pass"}).json()["access_token"]
-    tokenB = requests.post(f"{BASE_URL}/auth/login", json={"email": "b@tenant.com", "password": "pass"}).json()["access_token"]
+    tokenA = requests.post(f"{BASE_URL}/auth/login", json={"email": "a@tenant.com", "password": "Sipl@12345"}).json()["access_token"]
+    tokenB = requests.post(f"{BASE_URL}/auth/login", json={"email": "b@tenant.com", "password": "Sipl@12345"}).json()["access_token"]
     
     print_step("2. Create Meeting under Tenant A")
     res = requests.post(f"{BASE_URL}/meetings", headers={"Authorization": f"Bearer {tokenA}"}, json={"title": "Secret Strategy A"})

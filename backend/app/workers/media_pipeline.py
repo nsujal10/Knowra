@@ -12,6 +12,7 @@ from app.media.normalization import normalize_to_wav
 import structlog
 import tempfile
 import os
+import hashlib
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +21,16 @@ def update_status(db, media_id, status: MediaStatus):
     if media:
         media.status = status.value
         db.commit()
+
+
+def calculate_sha256(file_path: str) -> str:
+    sha256 = hashlib.sha256()
+
+    with open(file_path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            sha256.update(chunk)
+
+    return sha256.hexdigest()
 
 @celery_app.task(bind=True, max_retries=3)
 def scan_media_task(self, tenant_id: str, media_id: str):
@@ -119,10 +130,10 @@ def normalize_audio_task(self, tenant_id: str, media_id: str):
             artifact = MediaArtifact(
                 tenant_id=media.tenant_id,
                 media_asset_id=media.id,
-                artifact_type=ArtifactType.NORMALIZED_AUDIO.value,
+                artifact_type=ArtifactType.NORMALIZED_AUDIO,
                 storage_key=derived_key,
-                content_type="audio/wav",
-                byte_size=os.path.getsize(output_path)
+                byte_size=os.path.getsize(output_path),
+                checksum_sha256=calculate_sha256(output_path),
             )
             db.add(artifact)
             db.commit()

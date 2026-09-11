@@ -11,9 +11,11 @@ celery_app = Celery(
     "enterprise_worker",
     broker=broker_url,
     backend=result_backend,
-    include=["app.tasks.pipeline"]
+    include=[
+        "app.tasks.pipeline",
+        "app.workers.media_pipeline",
+    ],
 )
-
 celery_app.conf.update(
     task_serializer="json",
     accept_content=["json"],

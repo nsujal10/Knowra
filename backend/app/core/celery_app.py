@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.tasks.pipeline",
         "app.workers.media_pipeline",
         "app.workers.transcription_worker",
+        "app.workers.diarization_worker",
     ],
 )
 celery_app.conf.update(

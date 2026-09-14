@@ -6,6 +6,7 @@ from app.api.v1.media import router as media_router
 from app.api.v1.transcription import router as transcription_router
 from app.api.v1.diarization import router as diarization_router
 from app.api.v1.transcripts import router as transcripts_router
+from app.api.v1.speaker_identity import router as speaker_identity_router
 
 
 api_router = APIRouter()
@@ -46,4 +47,9 @@ api_router.include_router(
 api_router.include_router(
     transcripts_router,
     tags=["Transcript"],
+)
+
+api_router.include_router(
+    speaker_identity_router,
+    tags=["Speaker Identity"],
 )

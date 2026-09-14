@@ -23,6 +23,13 @@ from app.models.diarization_run import DiarizationRun
 # Phase 13 – Canonical Transcript Format
 from app.models.transcript_version import TranscriptVersion
 
+# Phase 14 – Speaker Identification
+from app.models.speaker_identity import (
+    SpeakerProfile,
+    SpeakerIdentityAssignment,
+    SpeakerIdentityHistory,
+)
+
 __all__ = [
     "Transcript",
     "TranscriptSegment",
@@ -32,4 +39,7 @@ __all__ = [
     "Speaker",
     "SpeakerSegment",
     "DiarizationRun",
+    "SpeakerProfile",
+    "SpeakerIdentityAssignment",
+    "SpeakerIdentityHistory",
 ]

@@ -48,6 +48,7 @@ from app.actions.models import (
     ActionItemComment,
 )
 
+
 __all__ = [
     "Transcript",
     "TranscriptSegment",
@@ -70,4 +71,4 @@ __all__ = [
     "ActionItemEvidence",
     "ActionItemEvent",
     "ActionItemComment",
-]
+]

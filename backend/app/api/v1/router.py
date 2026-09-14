@@ -7,6 +7,8 @@ from app.api.v1.transcription import router as transcription_router
 from app.api.v1.diarization import router as diarization_router
 from app.api.v1.transcripts import router as transcripts_router
 from app.api.v1.speaker_identity import router as speaker_identity_router
+from app.api.v1.intelligence import router as intelligence_router
+from app.api.v1.actions import router as actions_router
 
 
 api_router = APIRouter()
@@ -52,4 +54,14 @@ api_router.include_router(
 api_router.include_router(
     speaker_identity_router,
     tags=["Speaker Identity"],
+)
+
+api_router.include_router(
+    intelligence_router,
+    tags=["Meeting Intelligence"],
+)
+
+api_router.include_router(
+    actions_router,
+    tags=["Action Items"],
 )

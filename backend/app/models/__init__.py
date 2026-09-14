@@ -30,6 +30,24 @@ from app.models.speaker_identity import (
     SpeakerIdentityHistory,
 )
 
+# Phase 15 – Meeting Intelligence
+from app.intelligence.models import (
+    IntelligenceRun,
+    Topic,
+    Decision,
+    Risk,
+    Question,
+    Commitment,
+)
+
+# Phase 16 – Action Item Lifecycle
+from app.actions.models import (
+    ActionItem,
+    ActionItemEvidence,
+    ActionItemEvent,
+    ActionItemComment,
+)
+
 __all__ = [
     "Transcript",
     "TranscriptSegment",
@@ -42,4 +60,14 @@ __all__ = [
     "SpeakerProfile",
     "SpeakerIdentityAssignment",
     "SpeakerIdentityHistory",
+    "IntelligenceRun",
+    "Topic",
+    "Decision",
+    "Risk",
+    "Question",
+    "Commitment",
+    "ActionItem",
+    "ActionItemEvidence",
+    "ActionItemEvent",
+    "ActionItemComment",
 ]

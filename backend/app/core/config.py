@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "sqlite:///./knowra.db" # Using SQLite for standalone execution, switch to postgres URL for prod
 
+    # LLM Settings (Phase 15 & 16)
+    LLM_PROVIDER: str = "mock"
+    LLM_API_KEY: str = ""
+    LLM_MODEL: str = "gpt-4o-mini"
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=ENV_FILE,

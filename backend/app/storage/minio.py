@@ -13,7 +13,11 @@ logger = structlog.get_logger(__name__)
 
 class MinIOStorage(ObjectStorage):
     def __init__(self, endpoint: str, access_key: str, secret_key: str, secure: bool = False):
-        self.client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure)
+        http_client = urllib3.PoolManager(
+            timeout=urllib3.Timeout(connect=0.5, read=1.0),
+            retries=urllib3.Retry(total=1, connect=1, read=0),
+        )
+        self.client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure, http_client=http_client)
         self._ensure_buckets(["knowra-raw", "knowra-derived", "knowra-quarantine"])
 
     def _ensure_buckets(self, buckets: List[str]):

@@ -5,6 +5,7 @@ from app.api.v1.meetings import router as meetings_router
 from app.api.v1.media import router as media_router
 from app.api.v1.transcription import router as transcription_router
 from app.api.v1.diarization import router as diarization_router
+from app.api.v1.transcripts import router as transcripts_router
 
 
 api_router = APIRouter()
@@ -40,4 +41,9 @@ api_router.include_router(
 api_router.include_router(
     diarization_router,
     tags=["Diarization"],
+)
+
+api_router.include_router(
+    transcripts_router,
+    tags=["Transcript"],
 )

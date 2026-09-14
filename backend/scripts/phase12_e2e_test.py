@@ -38,7 +38,7 @@ celery_worker = subprocess.Popen(
     cwd=backend_dir,
     env=env,
 )
-for _ in range(20):
+for _ in range(45):
     try:
         import urllib.request
         with urllib.request.urlopen("http://localhost:8000/health", timeout=1) as resp:

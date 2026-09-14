@@ -50,8 +50,8 @@ def get_transcription_status(meeting_id: UUID, db: Session = Depends(get_tenant_
         
     return {"job_id": str(job.id), "status": job.status, "metadata": job.metadata_json}
 
-@router.get("/meetings/{meeting_id}/transcript", response_model=TranscriptResponse)
-def get_transcript(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
+@router.get("/meetings/{meeting_id}/transcript/raw", response_model=TranscriptResponse)
+def get_transcript_raw(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
     transcript = db.query(Transcript).options(
         selectinload(Transcript.segments).selectinload(TranscriptSegment.words)
     ).filter(

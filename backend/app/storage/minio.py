@@ -22,8 +22,9 @@ class MinIOStorage(ObjectStorage):
                 if not self.client.bucket_exists(bucket):
                     self.client.make_bucket(bucket)
                     logger.info("Bucket created", bucket=bucket)
-            except S3Error as e:
-                logger.error("Bucket creation failed", error=str(e))
+            except Exception as e:
+                logger.warning("Bucket check/creation failed or storage offline", error=str(e))
+                break
 
     def initialize_multipart_upload(self, bucket: str, key: str, content_type: str) -> str:
         # MinIO Python SDK does not expose _create_multipart_upload publicly.

@@ -11,6 +11,7 @@ from app.api.v1.intelligence import router as intelligence_router
 from app.api.v1.actions import router as actions_router
 from app.api.v1.decisions import router as decisions_router
 from app.api.v1.knowledge import router as knowledge_router
+from app.api.v1.search import router as search_router
 
 
 api_router = APIRouter()
@@ -76,4 +77,9 @@ api_router.include_router(
 api_router.include_router(
     knowledge_router,
     tags=["Knowledge & Search"],
+)
+
+api_router.include_router(
+    search_router,
+    tags=["Enterprise Search"],
 )

@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = ""
     LLM_MODEL: str = "gpt-4o-mini"
 
+    # Embedding Settings (Phase 18)
+    EMBEDDING_PROVIDER: str = "deterministic"
+    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
+    EMBEDDING_DIMENSIONS: int = 384
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=ENV_FILE,

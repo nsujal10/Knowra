@@ -102,7 +102,7 @@ class IntelligenceRun(TenantMixin, Base):
     # Relationships
     meeting = relationship("Meeting")
     topics = relationship("Topic", back_populates="run", cascade="all, delete-orphan")
-    decisions = relationship("Decision", back_populates="run", cascade="all, delete-orphan")
+    decisions = relationship("app.intelligence.models.Decision", back_populates="run", cascade="all, delete-orphan")
     risks = relationship("Risk", back_populates="run", cascade="all, delete-orphan")
     questions = relationship("Question", back_populates="run", cascade="all, delete-orphan")
     commitments = relationship("Commitment", back_populates="run", cascade="all, delete-orphan")

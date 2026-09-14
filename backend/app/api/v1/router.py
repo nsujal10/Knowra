@@ -9,6 +9,8 @@ from app.api.v1.transcripts import router as transcripts_router
 from app.api.v1.speaker_identity import router as speaker_identity_router
 from app.api.v1.intelligence import router as intelligence_router
 from app.api.v1.actions import router as actions_router
+from app.api.v1.decisions import router as decisions_router
+from app.api.v1.knowledge import router as knowledge_router
 
 
 api_router = APIRouter()
@@ -64,4 +66,14 @@ api_router.include_router(
 api_router.include_router(
     actions_router,
     tags=["Action Items"],
+)
+
+api_router.include_router(
+    decisions_router,
+    tags=["Decision Intelligence"],
+)
+
+api_router.include_router(
+    knowledge_router,
+    tags=["Knowledge & Search"],
 )

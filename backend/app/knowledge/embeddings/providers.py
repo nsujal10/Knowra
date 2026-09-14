@@ -29,10 +29,18 @@ class DeterministicEmbeddingProvider:
 
     def __init__(self, dimensions: int = 384) -> None:
         self._dimensions = dimensions
+        self.provider_name = "deterministic"
+        self.model_name = "deterministic-v1"
+        self.model_version = "1.0"
 
     @property
     def dimensions(self) -> int:
         return self._dimensions
+
+    @property
+    def dimension(self) -> int:
+        return self._dimensions
+
 
     def _hash_token(self, token: str) -> int:
         return int(hashlib.md5(token.encode("utf-8")).hexdigest(), 16)
@@ -87,6 +95,8 @@ class SentenceTransformerProvider:
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         self.model_name = model_name
+        self.provider_name = "sentence_transformers"
+        self.model_version = "1.0"
         self._dimensions = 384
         try:
             from sentence_transformers import SentenceTransformer
@@ -99,6 +109,11 @@ class SentenceTransformerProvider:
     @property
     def dimensions(self) -> int:
         return self._dimensions
+
+    @property
+    def dimension(self) -> int:
+        return self._dimensions
+
 
     def embed_text(self, text: str) -> List[float]:
         if self._has_st:

@@ -15,6 +15,9 @@ from app.api.v1.search import router as search_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.cross_meeting import router as cross_meeting_router
 from app.api.v1.graph import router as graph_router
+from app.api.v1.evaluation import router as evaluation_router
+from app.api.v1.integrations import router as integrations_router
+from app.api.v1.webhooks import router as webhooks_router
 
 
 api_router = APIRouter()
@@ -103,4 +106,22 @@ api_router.include_router(
     graph_router,
     prefix="/graph",
     tags=["Organizational Knowledge Graph"],
+)
+
+api_router.include_router(
+    evaluation_router,
+    prefix="/evaluation",
+    tags=["AI Evaluation & Observability"],
+)
+
+api_router.include_router(
+    integrations_router,
+    prefix="/integrations",
+    tags=["Enterprise Integrations"],
+)
+
+api_router.include_router(
+    webhooks_router,
+    prefix="/webhooks",
+    tags=["Enterprise Webhooks"],
 )

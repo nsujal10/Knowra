@@ -60,6 +60,22 @@ from app.graph.models import (
     KnowledgeRelationship,
 )
 
+# Phase 25 & 26 Models (wrapped to prevent circular imports during direct package loads)
+try:
+    from app.evaluation.models import (
+        EvaluationRun,
+        ModelRegistry,
+        PromptRegistry,
+        AITrace,
+    )
+    from app.integrations.models import (
+        Integration,
+        IntegrationEvent,
+    )
+except ImportError:
+    pass
+
+
 
 __all__ = [
     "Transcript",
@@ -87,4 +103,10 @@ __all__ = [
     "ChatMessage",
     "KnowledgeEntity",
     "KnowledgeRelationship",
+    "EvaluationRun",
+    "ModelRegistry",
+    "PromptRegistry",
+    "AITrace",
+    "Integration",
+    "IntegrationEvent",
 ]

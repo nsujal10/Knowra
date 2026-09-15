@@ -163,9 +163,24 @@ class RAGOrchestrator:
             retrieval_ms = round((time.time() - retrieval_start) * 1000, 2)
 
         # -------------------------------------------------------------------
-        # 5. Context Compression & Defensive Demarcation
+        # 5. Graph-Aware Context Augmentation & Context Compression
         # -------------------------------------------------------------------
+        graph_facts: List[str] = []
+        try:
+            from app.graph.retrieval.traversal import GraphTraversalEngine
+            graph_engine = GraphTraversalEngine(db=self.db, tenant_id=tenant_id)
+            graph_facts = graph_engine.get_graph_context_for_query(query=rewritten_query, scope=scope)
+        except Exception:
+            pass
+
         hardened_context = self.context_compressor.build_hardened_context(search_results)
+        if graph_facts:
+            graph_header = (
+                "<knowledge_graph_relationships>\n"
+                + "\n".join(f"  - {f}" for f in graph_facts)
+                + "\n</knowledge_graph_relationships>\n\n"
+            )
+            hardened_context = graph_header + hardened_context
 
         # -------------------------------------------------------------------
         # 6. Response Generation (Structured JSON with Citations)
@@ -205,6 +220,7 @@ class RAGOrchestrator:
             "retrieval_ms": retrieval_ms,
             "total_latency_ms": round((time.time() - start_time) * 1000, 2),
             "chunks_retrieved": len(search_results),
+            "graph_relationships_fused": len(graph_facts),
             "verified_citations_count": len(verified_citations),
             "scope_meeting_filter": [str(m) for m in (scope.allowed_meeting_ids or [])],
         }

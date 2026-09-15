@@ -13,6 +13,8 @@ from app.api.v1.decisions import router as decisions_router
 from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.search import router as search_router
 from app.api.v1.chat import router as chat_router
+from app.api.v1.cross_meeting import router as cross_meeting_router
+from app.api.v1.graph import router as graph_router
 
 
 api_router = APIRouter()
@@ -89,4 +91,16 @@ api_router.include_router(
     chat_router,
     prefix="/chat",
     tags=["Conversational RAG Chat"],
+)
+
+api_router.include_router(
+    cross_meeting_router,
+    prefix="/cross-meeting",
+    tags=["Cross-Meeting Intelligence"],
+)
+
+api_router.include_router(
+    graph_router,
+    prefix="/graph",
+    tags=["Organizational Knowledge Graph"],
 )

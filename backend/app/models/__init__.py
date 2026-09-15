@@ -54,6 +54,12 @@ from app.rag.models import (
     ChatMessage,
 )
 
+# Phase 24 – Organizational Knowledge Graph
+from app.graph.models import (
+    KnowledgeEntity,
+    KnowledgeRelationship,
+)
+
 
 __all__ = [
     "Transcript",
@@ -79,4 +85,6 @@ __all__ = [
     "ActionItemComment",
     "ChatConversation",
     "ChatMessage",
+    "KnowledgeEntity",
+    "KnowledgeRelationship",
 ]

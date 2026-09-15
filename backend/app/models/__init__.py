@@ -48,6 +48,12 @@ from app.actions.models import (
     ActionItemComment,
 )
 
+# Phase 22 – RAG Chat
+from app.rag.models import (
+    ChatConversation,
+    ChatMessage,
+)
+
 
 __all__ = [
     "Transcript",
@@ -71,4 +77,6 @@ __all__ = [
     "ActionItemEvidence",
     "ActionItemEvent",
     "ActionItemComment",
+    "ChatConversation",
+    "ChatMessage",
 ]

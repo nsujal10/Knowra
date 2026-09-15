@@ -11,10 +11,13 @@ Integrates:
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import TYPE_CHECKING, Collection, List, Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from app.auth.scope import AuthorizedRetrievalScope
 
 from app.knowledge.models import KnowledgeChunk, KnowledgeChunkSegment
 from app.knowledge.retrieval.fusion import ReciprocalRankFusion
@@ -29,6 +32,7 @@ class HybridRetriever:
     """
     Production-grade hybrid search pipeline combining pgvector semantic search
     and PostgreSQL Full-Text Search with Reciprocal Rank Fusion and reranking.
+    Enforces push-down authorization constraints before any ranking or similarity math.
     """
 
     def __init__(
@@ -37,9 +41,11 @@ class HybridRetriever:
         tenant_id: UUID,
         reranker: Optional[Reranker] = None,
         rrf_k: int = 60,
+        scope: Optional[AuthorizedRetrievalScope] = None,
     ) -> None:
         self.db = db
         self.tenant_id = tenant_id
+        self.scope = scope
         self.vector_engine = VectorSearchEngine(db=db, tenant_id=tenant_id)
         self.keyword_engine = KeywordSearchEngine(db=db, tenant_id=tenant_id)
         self.fusion_engine = ReciprocalRankFusion(k=rrf_k)
@@ -52,11 +58,29 @@ class HybridRetriever:
         meeting_id: Optional[UUID] = None,
         vector_weight: float = 0.5,
         keyword_weight: float = 0.5,
+        allowed_meeting_ids: Optional[Collection[UUID]] = None,
+        scope: Optional[AuthorizedRetrievalScope] = None,
     ) -> HybridSearchResponse:
+        # Resolve effective authorization scope
+        active_scope = scope or self.scope
+        effective_allowed = allowed_meeting_ids
+        if active_scope is not None:
+            effective_allowed = active_scope.get_effective_meeting_filter(requested_meeting_id=meeting_id)
+
         # 1. Retrieve candidates from both channels (over-fetch 2x for fusion)
         candidate_k = max(limit * 2, 20)
-        vector_hits = self.vector_engine.search(query=query, limit=candidate_k, meeting_id=meeting_id)
-        keyword_hits = self.keyword_engine.search(query=query, limit=candidate_k, meeting_id=meeting_id)
+        vector_hits = self.vector_engine.search(
+            query=query,
+            limit=candidate_k,
+            meeting_id=meeting_id,
+            allowed_meeting_ids=effective_allowed,
+        )
+        keyword_hits = self.keyword_engine.search(
+            query=query,
+            limit=candidate_k,
+            meeting_id=meeting_id,
+            allowed_meeting_ids=effective_allowed,
+        )
 
         # Build chunk map
         chunk_map = {chunk.id: chunk for chunk, _ in vector_hits}

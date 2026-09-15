@@ -4,56 +4,32 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { useSession } from "@/lib/auth/session";
-import { Eye, EyeOff, ArrowRight, CheckCircle2, Brain, Mic2, GitBranch, BarChart3 } from "lucide-react";
+import { Eye, EyeOff, ArrowRight, Brain, Mic2, GitBranch, BarChart3, Shield, CheckCircle2 } from "lucide-react";
 
 // ─── Validation ───────────────────────────────────────────────────────────────
-const EmailSchema = z.string().email("Enter a valid email address");
+const EmailSchema   = z.string().email("Enter a valid email address");
 const PasswordSchema = z.string().min(6, "Password must be at least 6 characters");
-
 type Step = "email" | "password";
 
-// ─── Feature highlights for right panel ──────────────────────────────────────
+// ─── Right-panel features ─────────────────────────────────────────────────────
 const FEATURES = [
-  {
-    icon: Mic2,
-    color: "#4f7cff",
-    title: "Enterprise Transcription",
-    desc: "Speaker-diarized transcripts with >95% accuracy across 50+ languages.",
-  },
-  {
-    icon: Brain,
-    color: "#7c5cfc",
-    title: "Permission-Aware RAG Chat",
-    desc: "Ask anything across meetings. Every answer cites the exact source segment.",
-  },
-  {
-    icon: GitBranch,
-    color: "#10b981",
-    title: "Organizational Knowledge Graph",
-    desc: "Visualize relationships between people, topics, and decisions over time.",
-  },
-  {
-    icon: BarChart3,
-    color: "#f59e0b",
-    title: "AI Quality Observability",
-    desc: "Track WER, faithfulness, and hallucination rate across every pipeline run.",
-  },
+  { icon: Mic2,       color: "#4f7cff", label: "Enterprise Transcription",   desc: "Speaker-diarized, >95% accuracy" },
+  { icon: Brain,      color: "#7c5cfc", label: "Permission-Aware RAG",       desc: "Cited answers from your meetings" },
+  { icon: GitBranch,  color: "#10b981", label: "Knowledge Graph",            desc: "Connect people, topics & decisions" },
+  { icon: BarChart3,  color: "#f59e0b", label: "AI Observability",           desc: "WER, faithfulness, cost tracking" },
 ];
 
-// ─── Mock chat messages for product preview ───────────────────────────────────
-const PREVIEW_MESSAGES = [
-  { role: "user",      text: "What tasks are at risk or overdue?" },
-  { role: "assistant", text: "From the Q3 Planning session (Sep 12), Alice flagged the mobile onboarding flow as blocked — no design handoff. Also, the API rate-limit fix assigned to Dev team is 3 days past due." },
-  { role: "user",      text: "Which decision was made about the pricing model?" },
-  { role: "assistant", text: "In the Board Review (Sep 10), the team decided to move to usage-based pricing starting Q4, replacing the flat-rate tier. Confirmed by CEO and CFO." },
+// ─── Static chat preview data ─────────────────────────────────────────────────
+const CHAT_PREVIEW = [
+  { role: "user",      text: "What tasks are overdue from last week?" },
+  { role: "assistant", text: "The API rate-limit fix (Dev team) is 3 days past due. The mobile onboarding flow is blocked — no design handoff received yet.", cite: "Q3 Planning · Sep 12" },
 ];
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function LoginPage() {
-  const router = useRouter();
-  const { login } = useSession();
+  const router      = useRouter();
+  const { login }   = useSession();
 
-  const [tab, setTab]           = useState<"signup" | "signin">("signin");
+  const [tab, setTab]           = useState<"signin" | "signup">("signin");
   const [step, setStep]         = useState<Step>("email");
   const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
@@ -63,250 +39,486 @@ export default function LoginPage() {
   const [apiErr, setApiErr]     = useState("");
   const [loading, setLoading]   = useState(false);
 
+  const switchTab = (t: "signin" | "signup") => {
+    setTab(t);
+    setStep("email");
+    setEmail("");
+    setPassword("");
+    setEmailErr("");
+    setPwErr("");
+    setApiErr("");
+  };
+
   const handleEmailContinue = () => {
-    const result = EmailSchema.safeParse(email);
-    if (!result.success) {
-      setEmailErr(result.error.issues[0].message);
-      return;
-    }
+    const r = EmailSchema.safeParse(email);
+    if (!r.success) { setEmailErr(r.error.issues[0].message); return; }
     setEmailErr("");
     setStep("password");
   };
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    const pwResult = PasswordSchema.safeParse(password);
-    if (!pwResult.success) {
-      setPwErr(pwResult.error.issues[0].message);
-      return;
-    }
-    setPwErr("");
-    setApiErr("");
-    setLoading(true);
-
+    const r = PasswordSchema.safeParse(password);
+    if (!r.success) { setPwErr(r.error.issues[0].message); return; }
+    setPwErr(""); setApiErr(""); setLoading(true);
     try {
-      const formData = new URLSearchParams();
-      formData.set("username", email);
-      formData.set("password", password);
-
+      const fd = new URLSearchParams();
+      fd.set("username", email); fd.set("password", password);
       const res = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"}/auth/login`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: formData.toString(),
-        }
+        { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: fd.toString() }
       );
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail ?? "Invalid email or password.");
-      }
-
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail ?? "Invalid credentials"); }
       const tokens = await res.json();
-      const meRes = await fetch(
+      const me = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"}/auth/me`,
         { headers: { Authorization: `Bearer ${tokens.access_token}` } }
       );
-      const user = await meRes.json();
-      login(tokens.access_token, tokens.refresh_token ?? "", user);
+      login(tokens.access_token, tokens.refresh_token ?? "", await me.json());
       router.push("/");
     } catch (err: unknown) {
       setApiErr(err instanceof Error ? err.message : "Sign in failed.");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   return (
-    <div className="min-h-dvh flex">
-      {/* ── LEFT PANEL ─────────────────────────────────────────────────────── */}
-      <div className="flex flex-col justify-center items-start w-full max-w-[460px] px-12 py-12 bg-white shrink-0">
+    <div style={{ display: "flex", minHeight: "100dvh", fontFamily: "Inter, system-ui, sans-serif" }}>
+
+      {/* ── LEFT PANEL ──────────────────────────────────────────────────────── */}
+      <div style={{
+        width: "480px",
+        minWidth: "480px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        padding: "48px 56px",
+        background: "#ffffff",
+        borderRight: "1px solid #f0f0f0",
+        position: "relative",
+        zIndex: 1,
+      }}>
+
         {/* Logo */}
-        <div className="flex items-center gap-2.5 mb-10">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#4f7cff] to-[#7c5cfc] flex items-center justify-center shadow-lg">
-            <Brain size={18} className="text-white" />
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "40px" }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10,
+            background: "linear-gradient(135deg, #4f7cff 0%, #7c5cfc 100%)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 4px 12px rgba(79,124,255,0.3)",
+          }}>
+            <Brain size={18} color="white" />
           </div>
-          <span className="text-xl font-bold text-gray-900 tracking-tight">Knowra</span>
+          <span style={{ fontSize: 18, fontWeight: 700, color: "#0f1117", letterSpacing: "-0.3px" }}>
+            Knowra
+          </span>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-0 border-b border-gray-200 w-full mb-8">
-          {(["signup", "signin"] as const).map((t) => (
+        {/* Tab switcher */}
+        <div style={{ display: "flex", borderBottom: "1px solid #e5e7eb", marginBottom: "32px" }}>
+          {(["signin", "signup"] as const).map((t) => (
             <button
               key={t}
-              onClick={() => { setTab(t); setStep("email"); setApiErr(""); }}
-              className="relative pb-3 pr-6 text-sm font-medium transition-colors"
+              onClick={() => switchTab(t)}
               style={{
+                paddingBottom: 12,
+                paddingRight: 20,
+                fontSize: 14,
+                fontWeight: 500,
+                border: "none",
+                background: "transparent",
+                cursor: "pointer",
                 color: tab === t ? "#4f7cff" : "#6b7280",
+                borderBottom: tab === t ? "2px solid #4f7cff" : "2px solid transparent",
+                marginBottom: -1,
+                transition: "all 0.15s",
               }}
             >
-              {t === "signup" ? "Create account" : "Sign in"}
-              {tab === t && (
-                <span
-                  className="absolute bottom-0 left-0 right-6 h-0.5 rounded-full"
-                  style={{ background: "#4f7cff" }}
-                />
-              )}
+              {t === "signin" ? "Sign in" : "Create account"}
             </button>
           ))}
         </div>
 
-        {/* Form */}
-        <div className="w-full">
-          {tab === "signup" ? (
-            <SignUpPanel />
-          ) : (
-            <SignInPanel
-              step={step}
-              email={email}
-              password={password}
-              showPw={showPw}
-              emailErr={emailErr}
-              pwErr={pwErr}
-              apiErr={apiErr}
-              loading={loading}
-              onEmailChange={(v) => { setEmail(v); setEmailErr(""); }}
-              onPasswordChange={(v) => { setPassword(v); setPwErr(""); }}
-              onTogglePw={() => setShowPw((p) => !p)}
-              onEmailContinue={handleEmailContinue}
-              onBack={() => setStep("email")}
-              onSubmit={handleSignIn}
-            />
-          )}
-        </div>
+        {/* ─── SIGN IN FLOW ──────────────────────────────────────────────── */}
+        {tab === "signin" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+            {step === "email" ? (
+              <>
+                {/* Email field */}
+                <div>
+                  <label style={{ display: "block", fontSize: 13, fontWeight: 500, color: "#374151", marginBottom: 6 }}
+                    htmlFor="email-input">
+                    Email address
+                  </label>
+                  <input
+                    id="email-input"
+                    type="email"
+                    autoFocus
+                    autoComplete="email"
+                    value={email}
+                    onChange={(e) => { setEmail(e.target.value); setEmailErr(""); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleEmailContinue()}
+                    placeholder="you@company.com"
+                    style={{
+                      width: "100%", height: 44, padding: "0 14px",
+                      borderRadius: 8, border: emailErr ? "1.5px solid #ef4444" : "1.5px solid #d1d5db",
+                      fontSize: 14, color: "#111827", background: "#fff",
+                      outline: "none", boxSizing: "border-box",
+                      transition: "border-color 0.15s",
+                    }}
+                    onFocus={(e) => !emailErr && (e.target.style.borderColor = "#4f7cff")}
+                    onBlur={(e) => !emailErr && (e.target.style.borderColor = "#d1d5db")}
+                  />
+                  {emailErr && <p style={{ marginTop: 4, fontSize: 12, color: "#ef4444" }}>{emailErr}</p>}
+                </div>
+
+                <button
+                  onClick={handleEmailContinue}
+                  id="email-continue-btn"
+                  style={{
+                    height: 44, borderRadius: 8, border: "none",
+                    background: "linear-gradient(135deg, #4f7cff 0%, #7c5cfc 100%)",
+                    color: "white", fontSize: 14, fontWeight: 600,
+                    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    boxShadow: "0 2px 12px rgba(79,124,255,0.35)",
+                    transition: "opacity 0.15s, transform 0.1s",
+                  }}
+                  onMouseOver={(e) => (e.currentTarget.style.opacity = "0.9")}
+                  onMouseOut={(e) => (e.currentTarget.style.opacity = "1")}
+                >
+                  Continue <ArrowRight size={15} />
+                </button>
+
+                {/* Divider */}
+                <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0" }}>
+                  <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
+                  <span style={{ fontSize: 12, color: "#9ca3af" }}>or</span>
+                  <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
+                </div>
+
+                {/* SSO Buttons */}
+                {[
+                  { emoji: "🔷", label: "Continue with Microsoft" },
+                  { emoji: "💬", label: "Continue with Slack" },
+                  { emoji: "🏢", label: "Continue with your organization" },
+                ].map((opt) => (
+                  <button key={opt.label}
+                    style={{
+                      height: 44, borderRadius: 8, border: "1.5px solid #e5e7eb",
+                      background: "#fff", color: "#374151", fontSize: 14, fontWeight: 500,
+                      cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "0 14px",
+                      transition: "border-color 0.15s, background 0.15s",
+                    }}
+                    onMouseOver={(e) => { e.currentTarget.style.borderColor = "#d1d5db"; e.currentTarget.style.background = "#f9fafb"; }}
+                    onMouseOut={(e) => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#fff"; }}
+                  >
+                    <span style={{ fontSize: 18 }}>{opt.emoji}</span>
+                    {opt.label}
+                  </button>
+                ))}
+              </>
+            ) : (
+              /* Password step */
+              <form onSubmit={handleSignIn} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                {/* Email pill */}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  padding: "8px 12px", background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb",
+                }}>
+                  <span style={{ fontSize: 13, color: "#374151", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {email}
+                  </span>
+                  <button type="button" onClick={() => setStep("email")}
+                    style={{ fontSize: 12, color: "#4f7cff", background: "none", border: "none", cursor: "pointer", fontWeight: 500, whiteSpace: "nowrap" }}>
+                    Change
+                  </button>
+                </div>
+
+                {/* Password field */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                    <label style={{ fontSize: 13, fontWeight: 500, color: "#374151" }} htmlFor="pw-input">
+                      Password
+                    </label>
+                    <a href="#" style={{ fontSize: 12, color: "#4f7cff", textDecoration: "none" }}>Forgot password?</a>
+                  </div>
+                  <div style={{ position: "relative" }}>
+                    <input
+                      id="pw-input"
+                      type={showPw ? "text" : "password"}
+                      autoFocus
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => { setPassword(e.target.value); setPwErr(""); }}
+                      placeholder="••••••••"
+                      style={{
+                        width: "100%", height: 44, padding: "0 44px 0 14px",
+                        borderRadius: 8, border: pwErr ? "1.5px solid #ef4444" : "1.5px solid #d1d5db",
+                        fontSize: 14, color: "#111827", background: "#fff",
+                        outline: "none", boxSizing: "border-box",
+                      }}
+                      onFocus={(e) => !pwErr && (e.target.style.borderColor = "#4f7cff")}
+                      onBlur={(e) => !pwErr && (e.target.style.borderColor = "#d1d5db")}
+                    />
+                    <button type="button" onClick={() => setShowPw((p) => !p)}
+                      style={{
+                        position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)",
+                        background: "none", border: "none", cursor: "pointer", color: "#9ca3af", display: "flex",
+                      }}>
+                      {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                  {pwErr && <p style={{ marginTop: 4, fontSize: 12, color: "#ef4444" }}>{pwErr}</p>}
+                </div>
+
+                {apiErr && (
+                  <div style={{
+                    padding: "10px 14px", borderRadius: 8, background: "#fef2f2",
+                    border: "1px solid #fecaca", fontSize: 13, color: "#dc2626",
+                  }}>
+                    {apiErr}
+                  </div>
+                )}
+
+                <button type="submit" id="signin-submit-btn" disabled={loading}
+                  style={{
+                    height: 44, borderRadius: 8, border: "none",
+                    background: loading ? "#9ca3af" : "linear-gradient(135deg, #4f7cff 0%, #7c5cfc 100%)",
+                    color: "white", fontSize: 14, fontWeight: 600,
+                    cursor: loading ? "not-allowed" : "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                    boxShadow: loading ? "none" : "0 2px 12px rgba(79,124,255,0.35)",
+                  }}>
+                  {loading
+                    ? <span style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid white", borderTopColor: "transparent", animation: "spin 0.7s linear infinite", display: "inline-block" }} />
+                    : <><span>Sign in to Knowra</span><ArrowRight size={15} /></>
+                  }
+                </button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {/* ─── SIGN UP FLOW ──────────────────────────────────────────────── */}
+        {tab === "signup" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {[
+              { emoji: "🔵", label: "Continue with Google" },
+              { emoji: "🔷", label: "Continue with Microsoft" },
+              { emoji: "💬", label: "Continue with Slack" },
+              { emoji: "🍎", label: "Continue with Apple" },
+            ].map((opt) => (
+              <button key={opt.label}
+                style={{
+                  height: 44, borderRadius: 8, border: "1.5px solid #e5e7eb",
+                  background: "#fff", color: "#374151", fontSize: 14, fontWeight: 500,
+                  cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: "0 14px",
+                  transition: "border-color 0.15s, background 0.15s",
+                }}
+                onMouseOver={(e) => { e.currentTarget.style.background = "#f9fafb"; e.currentTarget.style.borderColor = "#d1d5db"; }}
+                onMouseOut={(e) => { e.currentTarget.style.background = "#fff"; e.currentTarget.style.borderColor = "#e5e7eb"; }}
+              >
+                <span style={{ fontSize: 18 }}>{opt.emoji}</span>
+                {opt.label}
+              </button>
+            ))}
+
+            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "4px 0" }}>
+              <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
+              <span style={{ fontSize: 12, color: "#9ca3af" }}>or</span>
+              <div style={{ flex: 1, height: 1, background: "#e5e7eb" }} />
+            </div>
+
+            <button onClick={() => switchTab("signin")}
+              style={{
+                background: "none", border: "none", cursor: "pointer",
+                fontSize: 14, fontWeight: 500, color: "#4f7cff",
+                textAlign: "center", textDecoration: "underline",
+              }}>
+              Continue with email and password
+            </button>
+          </div>
+        )}
 
         {/* Legal */}
-        <p className="text-xs text-gray-400 mt-8 text-center w-full leading-relaxed">
+        <p style={{
+          marginTop: 32, fontSize: 11.5, color: "#9ca3af",
+          textAlign: "center", lineHeight: 1.6,
+        }}>
           By {tab === "signin" ? "signing in" : "creating an account"}, I agree to Knowra&apos;s{" "}
-          <a href="#" className="text-[#4f7cff] hover:underline">Terms of Service</a> and acknowledge I
-          have read the{" "}
-          <a href="#" className="text-[#4f7cff] hover:underline">Privacy Policy</a>.
+          <a href="#" style={{ color: "#4f7cff", textDecoration: "none" }}>Terms of Service</a>{" "}
+          and acknowledge I have read the{" "}
+          <a href="#" style={{ color: "#4f7cff", textDecoration: "none" }}>Privacy Policy</a>.
         </p>
+
+        {/* Security badge */}
+        <div style={{
+          marginTop: 20, display: "flex", alignItems: "center", justifyContent: "center",
+          gap: 5, color: "#9ca3af", fontSize: 11,
+        }}>
+          <Shield size={12} />
+          <span>SOC 2 compliant · End-to-end encrypted</span>
+        </div>
       </div>
 
-      {/* ── RIGHT PANEL ────────────────────────────────────────────────────── */}
-      <div
-        className="flex-1 flex flex-col justify-center items-center px-12 py-12 relative overflow-hidden"
-        style={{
-          background: "linear-gradient(135deg, #f0f4ff 0%, #f5f0ff 50%, #f0f7ff 100%)",
-        }}
-      >
-        {/* Decorative circles */}
-        <div className="absolute top-[-80px] right-[-80px] w-[360px] h-[360px] rounded-full opacity-20"
-          style={{ background: "radial-gradient(circle, #4f7cff 0%, transparent 70%)" }} />
-        <div className="absolute bottom-[-60px] left-[-60px] w-[280px] h-[280px] rounded-full opacity-15"
-          style={{ background: "radial-gradient(circle, #7c5cfc 0%, transparent 70%)" }} />
+      {/* ── RIGHT PANEL ─────────────────────────────────────────────────────── */}
+      <div style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: "48px 40px",
+        background: "linear-gradient(145deg, #f0f4ff 0%, #f4f0ff 50%, #edf6ff 100%)",
+        position: "relative",
+        overflow: "hidden",
+      }}>
 
-        <div className="relative z-10 w-full max-w-[480px]">
-          {/* Preview Card */}
-          <div
-            className="rounded-2xl overflow-hidden mb-8"
-            style={{
-              background: "white",
-              boxShadow: "0 20px 60px rgba(79,124,255,0.15), 0 4px 16px rgba(0,0,0,0.08)",
-            }}
-          >
-            {/* Card Header */}
-            <div
-              className="px-4 py-3 flex items-center gap-2"
-              style={{
-                background: "linear-gradient(135deg, #1a1f35 0%, #2d1b69 100%)",
-              }}
-            >
-              <div className="flex gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-red-400 opacity-80" />
-                <span className="w-3 h-3 rounded-full bg-yellow-400 opacity-80" />
-                <span className="w-3 h-3 rounded-full bg-green-400 opacity-80" />
+        {/* Decorative blobs */}
+        <div style={{ position: "absolute", top: -120, right: -120, width: 400, height: 400, borderRadius: "50%", background: "radial-gradient(circle, rgba(79,124,255,0.12) 0%, transparent 70%)", pointerEvents: "none" }} />
+        <div style={{ position: "absolute", bottom: -80, left: -80, width: 300, height: 300, borderRadius: "50%", background: "radial-gradient(circle, rgba(124,92,252,0.1) 0%, transparent 70%)", pointerEvents: "none" }} />
+
+        <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 500 }}>
+
+          {/* ── Chat Preview Card ── */}
+          <div style={{
+            background: "white",
+            borderRadius: 16,
+            overflow: "hidden",
+            boxShadow: "0 8px 40px rgba(79,124,255,0.12), 0 2px 8px rgba(0,0,0,0.06)",
+            marginBottom: 36,
+          }}>
+            {/* Titlebar */}
+            <div style={{
+              background: "linear-gradient(135deg, #1a1f35 0%, #2a1b5e 100%)",
+              padding: "12px 16px",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+            }}>
+              <div style={{ display: "flex", gap: 5 }}>
+                {["#ff5f57","#febc2e","#28c840"].map((c) => (
+                  <div key={c} style={{ width: 10, height: 10, borderRadius: "50%", background: c, opacity: 0.9 }} />
+                ))}
               </div>
-              {/* Integration icons */}
-              <div className="flex items-center gap-2 ml-3">
-                {["🎯","🎙️","💬","📋","🔗"].map((icon, i) => (
-                  <div
-                    key={i}
-                    className="w-7 h-7 rounded-lg bg-white bg-opacity-10 flex items-center justify-center text-sm"
-                  >
-                    {icon}
-                  </div>
+              <div style={{ display: "flex", gap: 6, marginLeft: 4 }}>
+                {["🎙️","💬","📅","📋","🔗"].map((i) => (
+                  <div key={i} style={{
+                    width: 26, height: 26, borderRadius: 7,
+                    background: "rgba(255,255,255,0.1)",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13,
+                  }}>{i}</div>
                 ))}
               </div>
             </div>
 
-            {/* Chat Preview */}
-            <div className="px-5 py-4 space-y-3 bg-gray-50">
+            {/* Chat body */}
+            <div style={{ padding: "16px", background: "#f8f9fb" }}>
               {/* Search bar */}
-              <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2">
-                <span className="text-[10px] font-bold text-white bg-[#4f7cff] px-1.5 py-0.5 rounded text-center">AI</span>
-                <span className="text-xs text-gray-400 flex-1">Ask anything about your meetings…</span>
-                <div className="w-6 h-6 rounded-full bg-[#4f7cff] flex items-center justify-center">
-                  <ArrowRight size={11} className="text-white" />
+              <div style={{
+                display: "flex", alignItems: "center", gap: 8,
+                background: "white", borderRadius: 10, border: "1.5px solid #e5e7eb",
+                padding: "8px 12px", marginBottom: 14,
+                boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+              }}>
+                <span style={{
+                  fontSize: 9, fontWeight: 700, background: "linear-gradient(135deg, #4f7cff, #7c5cfc)",
+                  color: "white", padding: "2px 6px", borderRadius: 5, letterSpacing: "0.02em",
+                }}>AI</span>
+                <span style={{ fontSize: 12, color: "#9ca3af", flex: 1 }}>Ask anything about your meetings…</span>
+                <div style={{
+                  width: 24, height: 24, borderRadius: "50%",
+                  background: "linear-gradient(135deg, #4f7cff, #7c5cfc)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                }}>
+                  <ArrowRight size={12} color="white" />
                 </div>
               </div>
 
               {/* Messages */}
-              <div className="space-y-2.5">
-                {PREVIEW_MESSAGES.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-                  >
-                    <div
-                      className="rounded-xl px-3 py-2 max-w-[85%]"
-                      style={{
-                        background: msg.role === "user" ? "#4f7cff" : "white",
-                        color: msg.role === "user" ? "white" : "#374151",
-                        fontSize: "10.5px",
-                        lineHeight: "1.5",
-                        boxShadow: msg.role === "assistant" ? "0 1px 4px rgba(0,0,0,0.08)" : "none",
-                        border: msg.role === "assistant" ? "1px solid #f0f0f0" : "none",
-                      }}
-                    >
+              {CHAT_PREVIEW.map((msg, i) => (
+                <div key={i} style={{ marginBottom: 10 }}>
+                  <div style={{
+                    display: "flex",
+                    justifyContent: msg.role === "user" ? "flex-end" : "flex-start",
+                  }}>
+                    <div style={{
+                      maxWidth: "85%",
+                      padding: "9px 13px",
+                      borderRadius: msg.role === "user" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                      background: msg.role === "user"
+                        ? "linear-gradient(135deg, #4f7cff, #7c5cfc)"
+                        : "white",
+                      color: msg.role === "user" ? "white" : "#374151",
+                      fontSize: 12,
+                      lineHeight: 1.55,
+                      boxShadow: msg.role === "assistant" ? "0 1px 6px rgba(0,0,0,0.07)" : "none",
+                      border: msg.role === "assistant" ? "1px solid #f0f0f0" : "none",
+                    }}>
                       {msg.text}
                     </div>
                   </div>
-                ))}
-              </div>
-
-              {/* Source citation pill */}
-              <div className="flex items-center gap-1.5 bg-white rounded-lg border border-[#4f7cff20] px-3 py-1.5 w-fit">
-                <CheckCircle2 size={11} className="text-[#4f7cff]" />
-                <span className="text-[10px] text-gray-500">
-                  Cited from <span className="text-[#4f7cff] font-medium">Board Review · Sep 10 · CEO</span>
-                </span>
-              </div>
+                  {msg.role === "assistant" && msg.cite && (
+                    <div style={{
+                      marginTop: 6, marginLeft: 2,
+                      display: "inline-flex", alignItems: "center", gap: 5,
+                      background: "white", border: "1px solid #e0e8ff",
+                      borderRadius: 20, padding: "3px 10px",
+                      fontSize: 10.5, color: "#6b7280",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+                    }}>
+                      <CheckCircle2 size={10} color="#4f7cff" />
+                      <span>Cited from <strong style={{ color: "#4f7cff", fontWeight: 600 }}>{msg.cite}</strong></span>
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Tagline */}
-          <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          {/* ── Headline ── */}
+          <div style={{ textAlign: "center", marginBottom: 28 }}>
+            <h2 style={{
+              fontSize: 24, fontWeight: 700, color: "#0f1117",
+              letterSpacing: "-0.4px", marginBottom: 8,
+            }}>
               Meetings + Ask Knowra
             </h2>
-            <p className="text-sm text-gray-500 leading-relaxed max-w-[360px] mx-auto">
+            <p style={{
+              fontSize: 14, color: "#6b7280", lineHeight: 1.65,
+              maxWidth: 380, margin: "0 auto",
+            }}>
               AI-powered meeting intelligence with verifiable citations.
               Connect your calendar, get instant answers from every conversation.
             </p>
           </div>
 
-          {/* Feature List */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* ── Feature Grid ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             {FEATURES.map((f, i) => {
               const Icon = f.icon;
               return (
-                <div
-                  key={i}
-                  className="flex items-start gap-2.5 bg-white bg-opacity-70 rounded-xl p-3 border border-white"
-                  style={{ boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}
-                >
-                  <div
-                    className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
-                    style={{ background: `${f.color}18` }}
-                  >
-                    <Icon size={14} style={{ color: f.color }} />
+                <div key={i} style={{
+                  background: "rgba(255,255,255,0.8)",
+                  border: "1px solid rgba(255,255,255,0.9)",
+                  borderRadius: 12,
+                  padding: "12px 14px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  backdropFilter: "blur(8px)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.04)",
+                }}>
+                  <div style={{
+                    width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                    background: `${f.color}15`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                  }}>
+                    <Icon size={15} color={f.color} />
                   </div>
                   <div>
-                    <p className="text-xs font-semibold text-gray-800">{f.title}</p>
-                    <p className="text-[10px] text-gray-400 mt-0.5 leading-relaxed">{f.desc}</p>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: "#1f2937", marginBottom: 2 }}>{f.label}</p>
+                    <p style={{ fontSize: 11, color: "#9ca3af", lineHeight: 1.4 }}>{f.desc}</p>
                   </div>
                 </div>
               );
@@ -314,202 +526,9 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
 
-// ─── Sign-In Sub-Component ────────────────────────────────────────────────────
-function SignInPanel({
-  step,
-  email,
-  password,
-  showPw,
-  emailErr,
-  pwErr,
-  apiErr,
-  loading,
-  onEmailChange,
-  onPasswordChange,
-  onTogglePw,
-  onEmailContinue,
-  onBack,
-  onSubmit,
-}: {
-  step: Step;
-  email: string;
-  password: string;
-  showPw: boolean;
-  emailErr: string;
-  pwErr: string;
-  apiErr: string;
-  loading: boolean;
-  onEmailChange: (v: string) => void;
-  onPasswordChange: (v: string) => void;
-  onTogglePw: () => void;
-  onEmailContinue: () => void;
-  onBack: () => void;
-  onSubmit: (e: React.FormEvent) => void;
-}) {
-  return (
-    <div className="w-full space-y-4">
-      {step === "email" ? (
-        <>
-          {/* Email step */}
-          <div>
-            <label className="block text-sm text-gray-600 mb-1.5 font-medium" htmlFor="signin-email">
-              Email address
-            </label>
-            <input
-              id="signin-email"
-              type="email"
-              autoComplete="email"
-              autoFocus
-              value={email}
-              onChange={(e) => onEmailChange(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onEmailContinue()}
-              placeholder="you@company.com"
-              className="w-full h-11 px-4 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4f7cff] focus:ring-2 focus:ring-[#4f7cff20] transition-all"
-            />
-            {emailErr && <p className="text-xs text-red-500 mt-1">{emailErr}</p>}
-          </div>
-
-          <button
-            type="button"
-            onClick={onEmailContinue}
-            id="signin-continue-btn"
-            className="w-full h-11 rounded-lg text-sm font-semibold text-white transition-all active:scale-[0.98]"
-            style={{ background: "linear-gradient(135deg, #4f7cff, #7c5cfc)" }}
-          >
-            Continue
-          </button>
-
-          <div className="relative flex items-center">
-            <div className="flex-1 h-px bg-gray-200" />
-            <span className="px-3 text-xs text-gray-400">or</span>
-            <div className="flex-1 h-px bg-gray-200" />
-          </div>
-
-          {/* SSO Options */}
-          {[
-            { icon: "🔷", label: "Continue with Microsoft" },
-            { icon: "💬", label: "Continue with Slack" },
-            { icon: "🏢", label: "Continue with your organization" },
-          ].map((opt, i) => (
-            <button
-              key={i}
-              type="button"
-              className="w-full h-11 flex items-center gap-3 px-4 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-all"
-            >
-              <span className="text-lg">{opt.icon}</span>
-              {opt.label}
-            </button>
-          ))}
-        </>
-      ) : (
-        <form onSubmit={onSubmit} className="space-y-4">
-          {/* Back + email display */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onBack}
-              className="text-sm text-[#4f7cff] hover:underline"
-            >
-              ← Back
-            </button>
-            <span className="text-sm text-gray-400 truncate">{email}</span>
-          </div>
-
-          {/* Password */}
-          <div>
-            <label className="block text-sm text-gray-600 mb-1.5 font-medium" htmlFor="signin-password">
-              Password
-            </label>
-            <div className="relative">
-              <input
-                id="signin-password"
-                type={showPw ? "text" : "password"}
-                autoFocus
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => onPasswordChange(e.target.value)}
-                placeholder="••••••••"
-                className="w-full h-11 px-4 pr-11 rounded-lg border border-gray-300 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-[#4f7cff] focus:ring-2 focus:ring-[#4f7cff20] transition-all"
-              />
-              <button
-                type="button"
-                onClick={onTogglePw}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            {pwErr && <p className="text-xs text-red-500 mt-1">{pwErr}</p>}
-          </div>
-
-          <div className="flex justify-end">
-            <a href="#" className="text-xs text-[#4f7cff] hover:underline">
-              Forgot password?
-            </a>
-          </div>
-
-          {apiErr && (
-            <div className="px-3 py-2.5 rounded-lg bg-red-50 border border-red-200">
-              <p className="text-xs text-red-600">{apiErr}</p>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            id="signin-submit-btn"
-            disabled={loading}
-            className="w-full h-11 rounded-lg text-sm font-semibold text-white transition-all active:scale-[0.98] flex items-center justify-center gap-2 disabled:opacity-60"
-            style={{ background: "linear-gradient(135deg, #4f7cff, #7c5cfc)" }}
-          >
-            {loading ? (
-              <span className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
-            ) : (
-              <>Sign In <ArrowRight size={15} /></>
-            )}
-          </button>
-        </form>
-      )}
-    </div>
-  );
-}
-
-// ─── Sign-Up Sub-Component ────────────────────────────────────────────────────
-function SignUpPanel() {
-  return (
-    <div className="w-full space-y-3">
-      {/* SSO Buttons */}
-      {[
-        { icon: "🔵", label: "Continue with Google", color: "#4285F4" },
-        { icon: "🟦", label: "Continue with Microsoft", color: "#00A4EF" },
-        { icon: "💬", label: "Continue with Slack", color: "#4A154B" },
-        { icon: "🏢", label: "Continue with your organization", color: "#374151" },
-      ].map((opt, i) => (
-        <button
-          key={i}
-          type="button"
-          className="w-full h-11 flex items-center gap-3 px-4 rounded-lg border border-gray-200 text-sm font-medium text-gray-700 hover:border-gray-300 hover:bg-gray-50 transition-all"
-        >
-          <span className="text-lg">{opt.icon}</span>
-          {opt.label}
-        </button>
-      ))}
-
-      <div className="relative flex items-center py-1">
-        <div className="flex-1 h-px bg-gray-200" />
-        <span className="px-3 text-xs text-gray-400">or</span>
-        <div className="flex-1 h-px bg-gray-200" />
-      </div>
-
-      <button
-        type="button"
-        className="w-full text-sm text-[#4f7cff] hover:underline font-medium py-1"
-      >
-        Continue with email and password
-      </button>
+      {/* Spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

@@ -155,3 +155,21 @@ class EmbeddingGateway:
                     backoff *= 2.0
 
         return all_embeddings
+
+    def compute_similarity(self, text_a: str, text_b: str) -> float:
+        """
+        Computes cosine similarity between two texts using the active embedding provider.
+        Returns a float in [-1.0, 1.0].
+        """
+        if not text_a or not text_b:
+            return 0.0
+        embs = self.embed_batch([text_a, text_b])
+        if len(embs) < 2:
+            return 0.0
+        v1, v2 = embs[0], embs[1]
+        dot = sum(a * b for a, b in zip(v1, v2))
+        norm1 = sum(a * a for a in v1) ** 0.5
+        norm2 = sum(b * b for b in v2) ** 0.5
+        if norm1 > 0 and norm2 > 0:
+            return float(dot / (norm1 * norm2))
+        return 0.0

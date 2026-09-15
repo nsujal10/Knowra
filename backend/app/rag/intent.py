@@ -40,6 +40,14 @@ class IntentDetector:
         r"\bwho\s+is\s+(responsible|assigned|doing)\b",
     ]
 
+    TIMELINE_PATTERNS = [
+        r"\b(timeline|chronological|milestones|progression\s+of|chronology)\b",
+    ]
+
+    CROSS_MEETING_PATTERNS = [
+        r"\b(evolve|evolved|evolution|across\s+meetings|multiple\s+meetings|past\s+meetings|over\s+time|over\s+months)\b",
+    ]
+
     def detect(self, query: str, history: Optional[List[dict]] = None) -> IntentType:
         clean = query.strip().lower()
 
@@ -48,12 +56,22 @@ class IntentDetector:
             if re.search(pat, clean):
                 return IntentType.CHITCHAT
 
-        # 2. Check Decision Lookup
+        # 2. Check Timeline Query
+        for pat in self.TIMELINE_PATTERNS:
+            if re.search(pat, clean):
+                return IntentType.TIMELINE_QUERY
+
+        # 3. Check Cross-Meeting Evolution
+        for pat in self.CROSS_MEETING_PATTERNS:
+            if re.search(pat, clean):
+                return IntentType.CROSS_MEETING_EVOLUTION
+
+        # 4. Check Decision Lookup
         for pat in self.DECISION_PATTERNS:
             if re.search(pat, clean):
                 return IntentType.DECISION_LOOKUP
 
-        # 3. Check Action Item Lookup
+        # 5. Check Action Item Lookup
         for pat in self.ACTION_PATTERNS:
             if re.search(pat, clean):
                 return IntentType.ACTION_LOOKUP

@@ -141,6 +141,8 @@ CRITICAL INSTRUCTIONS:
             answer = f"According to the meeting record, the key decision reached was: {top_item.content[:200]}."
         elif intent == IntentType.SUMMARY:
             answer = f"Meeting summary: {top_item.content[:250]}."
+        elif intent in (IntentType.TIMELINE_QUERY, IntentType.CROSS_MEETING_EVOLUTION):
+            answer = f"Chronological evolution across meetings indicates: {top_item.content}."
         else:
             answer = f"Regarding your question, the transcript indicates: {top_item.content}."
 

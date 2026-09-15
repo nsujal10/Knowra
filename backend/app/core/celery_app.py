@@ -17,6 +17,7 @@ celery_app = Celery(
         "app.workers.transcription_worker",
         "app.workers.diarization_worker",
         "app.workers.knowledge",
+        "app.workers.integrations",
     ],
 )
 celery_app.conf.update(

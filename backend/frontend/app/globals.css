@@ -1,0 +1,258 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ─────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces */
+  --background: #0a0b0e;
+  --surface-1: #111318;
+  --surface-2: #181c23;
+  --surface-3: #1f2430;
+  --surface-hover: #242934;
+
+  /* Foreground */
+  --foreground: #e8eaf0;
+  --muted: #6b7280;
+  --muted-strong: #9ca3af;
+
+  /* Brand */
+  --primary: #4f7cff;
+  --primary-hover: #6b93ff;
+  --primary-muted: rgba(79, 124, 255, 0.12);
+  --secondary: #7c5cfc;
+  --secondary-muted: rgba(124, 92, 252, 0.12);
+
+  /* Semantic */
+  --success: #10b981;
+  --success-muted: rgba(16, 185, 129, 0.12);
+  --warning: #f59e0b;
+  --warning-muted: rgba(245, 158, 11, 0.12);
+  --danger: #ef4444;
+  --danger-muted: rgba(239, 68, 68, 0.12);
+
+  /* Borders */
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Typography */
+  --font-inter: "Inter", system-ui, sans-serif;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 24px rgba(79, 124, 255, 0.2);
+
+  /* Sidebar */
+  --sidebar-width: 256px;
+  --sidebar-collapsed: 64px;
+  --topbar-height: 56px;
+}
+
+/* ─── Base Reset ─────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter);
+  font-size: 14px;
+  line-height: 1.6;
+  min-height: 100dvh;
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ─── Focus Styles ───────────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ─── Typography ─────────────────────────────────────────────────────────────── */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+
+h1 { font-size: 2rem; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.25rem; }
+h4 { font-size: 1.1rem; }
+h5 { font-size: 1rem; }
+h6 { font-size: 0.875rem; }
+
+p { color: var(--muted-strong); }
+code {
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 0.85em;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slide-in-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(79, 124, 255, 0.3); }
+  50%       { box-shadow: 0 0 24px rgba(79, 124, 255, 0.6); }
+}
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30%            { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes spinner {
+  to { transform: rotate(360deg); }
+}
+
+.animate-fade-in        { animation: fade-in 0.25s ease forwards; }
+.animate-slide-in-right { animation: slide-in-right 0.3s ease forwards; }
+.animate-slide-in-up    { animation: slide-in-up 0.3s ease forwards; }
+.animate-pulse-glow     { animation: pulse-glow 2s ease-in-out infinite; }
+.animate-spinner        { animation: spinner 0.8s linear infinite; }
+
+/* ─── Skeleton Loading ───────────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    var(--surface-3) 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+/* ─── Utility Classes ────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 1.25rem;
+}
+.card-hover {
+  transition: border-color 0.2s, background 0.2s;
+}
+.card-hover:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.text-muted    { color: var(--muted); }
+.text-primary  { color: var(--primary); }
+.text-success  { color: var(--success); }
+.text-warning  { color: var(--warning); }
+.text-danger   { color: var(--danger); }
+
+/* ─── Scrollable Panel ───────────────────────────────────────────────────────── */
+.scrollable {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+/* ─── Chat Typing Indicator ─────────────────────────────────────────────────── */
+.typing-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--primary);
+  display: inline-block;
+  animation: typing-dot 1.2s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+/* ─── React Flow Overrides ──────────────────────────────────────────────────── */
+.react-flow__background {
+  background: var(--background);
+}
+.react-flow__controls {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+}
+.react-flow__controls-button {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted-strong);
+}
+.react-flow__controls-button:hover {
+  background: var(--surface-3);
+  color: var(--foreground);
+}
+.react-flow__minimap {
+  background: var(--surface-2) !important;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}

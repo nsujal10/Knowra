@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from uuid import UUID
-from typing import List
+from typing import List, Optional
 
 
 class RegisterRequest(BaseModel):
@@ -35,3 +35,6 @@ class CurrentUserContext(BaseModel):
     organization_id: UUID
     role_code: str
     permissions: List[str]
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: bool = True

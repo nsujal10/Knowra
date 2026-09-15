@@ -24,11 +24,17 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         
     permissions = [p.code for p in membership.role.permissions]
     
+    from app.models.user import User
+    user = db.query(User).filter(User.id == user_id).first()
+    
     return CurrentUserContext(
         user_id=user_id,
         organization_id=org_id,
         role_code=membership.role.code,
-        permissions=permissions
+        permissions=permissions,
+        email=user.email if user else None,
+        full_name=user.full_name if user else None,
+        is_active=user.is_active if user else True,
     )
 
 def require_permission(permission_code: str):

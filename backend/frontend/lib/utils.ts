@@ -18,7 +18,8 @@ export function formatDate(iso: string): string {
 }
 
 /** Format seconds as MM:SS or HH:MM:SS */
-export function formatDuration(seconds: number): string {
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || isNaN(seconds)) return "0:00";
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
   const s = Math.floor(seconds % 60);
@@ -28,7 +29,8 @@ export function formatDuration(seconds: number): string {
 }
 
 /** Format a number as USD cost string */
-export function formatCost(usd: number): string {
+export function formatCost(usd: number | null | undefined): string {
+  if (usd === null || usd === undefined || isNaN(usd)) return "$0.00";
   if (usd < 0.001) return `$${(usd * 1000).toFixed(3)}m`;
   return `$${usd.toFixed(4)}`;
 }

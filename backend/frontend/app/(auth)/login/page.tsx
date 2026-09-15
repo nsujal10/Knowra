@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { useSession } from "@/lib/auth/session";
+import type { User as AuthUser } from "@/lib/types";
 import {
   Eye,
   EyeOff,
@@ -133,14 +134,13 @@ export default function LoginPage() {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
     try {
-      const fd = new URLSearchParams();
-      fd.set("username", signInEmail);
-      fd.set("password", signInPassword);
-
       const res = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: fd.toString(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: signInEmail,
+          password: signInPassword,
+        }),
       });
 
       if (!res.ok) {
@@ -154,7 +154,16 @@ export default function LoginPage() {
       });
       const userProfile = meRes.ok ? await meRes.json() : null;
 
-      login(tokens.access_token, tokens.refresh_token ?? "", userProfile);
+      const mappedUser: AuthUser = {
+        id: String(userProfile?.user_id ?? "unknown"),
+        email: userProfile?.email ?? signInEmail,
+        full_name: userProfile?.full_name ?? "User",
+        role_code: userProfile?.role_code ?? "ADMIN",
+        tenant_id: String(userProfile?.organization_id ?? "default"),
+        is_active: userProfile?.is_active ?? true,
+      };
+
+      login(tokens.access_token, tokens.refresh_token ?? "", mappedUser);
       router.push("/");
     } catch (err: unknown) {
       setApiError(err instanceof Error ? err.message : "Sign in failed. Please check your credentials.");
@@ -206,14 +215,13 @@ export default function LoginPage() {
       }
 
       // 2. Automatically log in the user
-      const fd = new URLSearchParams();
-      fd.set("username", signUpEmail);
-      fd.set("password", signUpPassword);
-
       const loginRes = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: fd.toString(),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: signUpEmail,
+          password: signUpPassword,
+        }),
       });
 
       if (loginRes.ok) {
@@ -222,7 +230,17 @@ export default function LoginPage() {
           headers: { Authorization: `Bearer ${tokens.access_token}` },
         });
         const userProfile = meRes.ok ? await meRes.json() : null;
-        login(tokens.access_token, tokens.refresh_token ?? "", userProfile);
+
+        const mappedUser: AuthUser = {
+          id: String(userProfile?.user_id ?? "unknown"),
+          email: userProfile?.email ?? signUpEmail,
+          full_name: userProfile?.full_name ?? fullName,
+          role_code: userProfile?.role_code ?? "ADMIN",
+          tenant_id: String(userProfile?.organization_id ?? "default"),
+          is_active: userProfile?.is_active ?? true,
+        };
+
+        login(tokens.access_token, tokens.refresh_token ?? "", mappedUser);
         router.push("/");
       } else {
         // Registration worked, prompt user to sign in

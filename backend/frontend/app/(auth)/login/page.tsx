@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
 import { useSession } from "@/lib/auth/session";
 import type { User as AuthUser } from "@/lib/types";
@@ -76,9 +76,22 @@ const CHAT_EXCHANGE = [
   },
 ];
 
-export default function LoginPage() {
+function LoginFormContent() {
   const router = useRouter();
-  const { login } = useSession();
+  const searchParams = useSearchParams();
+  const { login, isAuthenticated, isLoading } = useSession();
+
+  const rawRedirect = searchParams.get("redirect");
+  const redirectTarget =
+    rawRedirect && rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
+      ? rawRedirect
+      : "/";
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace(redirectTarget);
+    }
+  }, [isLoading, isAuthenticated, redirectTarget, router]);
 
   const [tab, setTab] = useState<"signin" | "signup">("signin");
 
@@ -164,7 +177,7 @@ export default function LoginPage() {
       };
 
       login(tokens.access_token, tokens.refresh_token ?? "", mappedUser);
-      router.push("/");
+      router.push(redirectTarget);
     } catch (err: unknown) {
       setApiError(err instanceof Error ? err.message : "Sign in failed. Please check your credentials.");
     } finally {
@@ -241,7 +254,7 @@ export default function LoginPage() {
         };
 
         login(tokens.access_token, tokens.refresh_token ?? "", mappedUser);
-        router.push("/");
+        router.push(redirectTarget);
       } else {
         // Registration worked, prompt user to sign in
         setSuccessMessage("Account created successfully! Please sign in with your credentials.");
@@ -1326,5 +1339,13 @@ export default function LoginPage() {
         }
       `}</style>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginFormContent />
+    </Suspense>
   );
 }

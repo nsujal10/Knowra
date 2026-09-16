@@ -22,6 +22,19 @@ export class ApiError extends Error {
   }
 }
 
+// ─── Cookie Helpers ───────────────────────────────────────────────────────────
+function setCookie(name: string, value: string, maxAgeSec: number = 604800) {
+  if (typeof document !== "undefined") {
+    document.cookie = `${name}=${encodeURIComponent(value)}; path=/; max-age=${maxAgeSec}; SameSite=Lax`;
+  }
+}
+
+function removeCookie(name: string) {
+  if (typeof document !== "undefined") {
+    document.cookie = `${name}=; path=/; max-age=0; SameSite=Lax`;
+  }
+}
+
 // ─── Token Management ─────────────────────────────────────────────────────────
 export const tokenStore = {
   getAccessToken(): string | null {
@@ -35,11 +48,13 @@ export const tokenStore = {
   setTokens(access: string, refresh: string): void {
     localStorage.setItem(ACCESS_TOKEN_KEY, access);
     localStorage.setItem(REFRESH_TOKEN_KEY, refresh);
+    setCookie(ACCESS_TOKEN_KEY, access);
   },
   clearTokens(): void {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem("knowra_session");
+    removeCookie(ACCESS_TOKEN_KEY);
   },
 };
 

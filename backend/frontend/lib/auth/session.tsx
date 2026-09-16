@@ -48,9 +48,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const parsed = JSON.parse(raw);
         const user = UserSchema.parse(parsed.user);
         setSession({ user, accessToken, tenantId: user.tenant_id });
+        if (typeof document !== "undefined") {
+          document.cookie = `knowra_access_token=${encodeURIComponent(accessToken)}; path=/; max-age=604800; SameSite=Lax`;
+        }
+      } else {
+        tokenStore.clearTokens();
+        setSession(null);
       }
     } catch {
       tokenStore.clearTokens();
+      setSession(null);
     } finally {
       setIsLoading(false);
     }

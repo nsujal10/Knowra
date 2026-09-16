@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
     EMBEDDING_DIMENSIONS: int = 384
 
+    # SSO / OIDC Settings
+    GOOGLE_CLIENT_ID: str = ""
+    GOOGLE_CLIENT_SECRET: str = ""
+    MICROSOFT_CLIENT_ID: str = ""
+    MICROSOFT_CLIENT_SECRET: str = ""
+    MICROSOFT_TENANT_ID: str = "common"
+    OAUTH_REDIRECT_BASE_URL: str = "http://localhost:8000/api/v1/auth"
+    FRONTEND_URL: str = "http://localhost:3000"
+    SSO_ENFORCE_BUSINESS_DOMAINS: bool = False
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=ENV_FILE,

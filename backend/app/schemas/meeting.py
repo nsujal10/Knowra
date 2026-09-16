@@ -17,3 +17,10 @@ class MeetingResponse(BaseSchema):
     status: str
     owner_id: UUID
     created_at: datetime
+
+class MeetingListResponse(BaseModel):
+    items: list[MeetingResponse]
+    total: int
+    page: int = 1
+    page_size: int = 10
+    has_more: bool = False

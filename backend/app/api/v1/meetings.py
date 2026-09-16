@@ -1,12 +1,39 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from uuid import UUID
+from typing import Optional
 from app.core.database import get_db
 from app.security.tenant import TenantContext, get_tenant_context
-from app.schemas.meeting import MeetingCreate, MeetingResponse
+from app.schemas.meeting import MeetingCreate, MeetingResponse, MeetingListResponse
 from app.models.meeting import Meeting
 
 router = APIRouter()
+
+@router.get("", response_model=MeetingListResponse)
+def list_meetings(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    query = db.query(Meeting).filter(Meeting.tenant_id == tenant_ctx.tenant_id)
+    if search:
+        query = query.filter(Meeting.title.ilike(f"%{search}%"))
+    if status and status != "ALL":
+        query = query.filter(Meeting.status == status)
+
+    total = query.count()
+    items = query.order_by(Meeting.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    return MeetingListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        has_more=(page * page_size) < total,
+    )
 
 @router.post("", response_model=MeetingResponse, status_code=status.HTTP_201_CREATED)
 def create_meeting(data: MeetingCreate, db: Session = Depends(get_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
@@ -15,3 +42,33 @@ def create_meeting(data: MeetingCreate, db: Session = Depends(get_db), tenant_ct
     db.commit()
     db.refresh(meeting)
     return meeting
+
+@router.get("/{meeting_id}", response_model=MeetingResponse)
+def get_meeting(
+    meeting_id: UUID,
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    meeting = db.query(Meeting).filter(
+        Meeting.id == meeting_id,
+        Meeting.tenant_id == tenant_ctx.tenant_id,
+    ).first()
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+    return meeting
+
+@router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_meeting(
+    meeting_id: UUID,
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    meeting = db.query(Meeting).filter(
+        Meeting.id == meeting_id,
+        Meeting.tenant_id == tenant_ctx.tenant_id,
+    ).first()
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+    db.delete(meeting)
+    db.commit()
+    return None

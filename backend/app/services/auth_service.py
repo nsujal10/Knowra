@@ -57,6 +57,25 @@ class AuthService:
         self.identity_repo = UserIdentityRepository(db)
 
     def register(self, email: str, password: str, full_name: str, org_name: str):
+        if settings.RESTRICT_DOMAIN:
+            allowed = settings.RESTRICT_DOMAIN.lower().strip()
+            domain = email.lower().split("@")[-1] if "@" in email else ""
+            if domain != allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Registration is restricted to @{allowed} email addresses.",
+                )
+
+        # If user was created via SSO without a password, allow setting their password
+        existing_user = self.user_repo.get_by_email(email)
+        if existing_user and existing_user.password_hash and existing_user.password_hash.startswith("!"):
+            existing_user.password_hash = hash_password(password)
+            if full_name:
+                existing_user.full_name = full_name
+            self.db.commit()
+            self.audit.log("USER_PASSWORD_SET", user_id=existing_user.id)
+            return existing_user
+
         try:
             # Create User
             user = User(email=email, password_hash=hash_password(password), full_name=full_name)
@@ -85,8 +104,21 @@ class AuthService:
             raise CredentialsException(detail="Email or Organization already exists")
 
     def login(self, email: str, password: str):
+        if settings.RESTRICT_DOMAIN:
+            allowed = settings.RESTRICT_DOMAIN.lower().strip()
+            domain = email.lower().split("@")[-1] if "@" in email else ""
+            if domain != allowed:
+                self.audit.log("LOGIN_FAILED", metadata_json={"email": email, "reason": "domain_restricted"}, success=False)
+                raise CredentialsException(
+                    detail=f"Access is restricted to @{allowed} email addresses."
+                )
+
         user = self.user_repo.get_by_email(email)
         if not user or not verify_password(password, user.password_hash):
+            if user and user.password_hash and user.password_hash.startswith("!"):
+                raise CredentialsException(
+                    detail="This account was created via Single Sign-On. Please sign in using Google or Microsoft, or set a password via Create Account."
+                )
             self.audit.log("LOGIN_FAILED", metadata_json={"email": email}, success=False)
             raise CredentialsException()
 
@@ -217,6 +249,14 @@ class AuthService:
         domain = email.split("@")[-1] if "@" in email else ""
 
         # 1. Enterprise domain validation
+        if settings.RESTRICT_DOMAIN:
+            allowed = settings.RESTRICT_DOMAIN.lower().strip()
+            if domain != allowed:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Access restricted to @{allowed} accounts. '{email}' is not authorized.",
+                )
+
         if settings.SSO_ENFORCE_BUSINESS_DOMAINS and domain in BLOCKED_PERSONAL_DOMAINS:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,

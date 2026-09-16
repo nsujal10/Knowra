@@ -102,9 +102,16 @@ def sso_callback(
     redirects the user to the frontend callback handler with Knowra JWTs.
     """
     if error:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{provider.capitalize()} error: {error_description or error}",
+        accept_header = request.headers.get("accept", "")
+        if "application/json" in accept_header and "text/html" not in accept_header:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{provider.capitalize()} error: {error_description or error}",
+            )
+        err_msg = quote(f"{provider.capitalize()} error: {error_description or error}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL.rstrip('/')}/login?error={err_msg}",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         )
 
     if not state:
@@ -122,24 +129,43 @@ def sso_callback(
     idp = get_identity_provider(provider)
     auth_svc = AuthService(db)
 
-    # 1. Validate CSRF state parameter (signature, expiration, provider match)
-    state_payload = auth_svc.verify_oauth_state(state=state, expected_provider=provider)
-    redirect_target = state_payload.get("redirect", "/")
+    try:
+        # 1. Validate CSRF state parameter (signature, expiration, provider match)
+        state_payload = auth_svc.verify_oauth_state(state=state, expected_provider=provider)
+        redirect_target = state_payload.get("redirect", "/")
 
-    # 2. Exchange authorization code for tokens
-    base_url = settings.OAUTH_REDIRECT_BASE_URL.rstrip('/')
-    if not base_url.endswith("/api/v1/auth"):
-        base_url = f"{base_url}/api/v1/auth"
-    redirect_uri = f"{base_url}/{provider.lower()}/callback"
-    token_data = idp.exchange_code(code=code, redirect_uri=redirect_uri)
+        # 2. Exchange authorization code for tokens
+        base_url = settings.OAUTH_REDIRECT_BASE_URL.rstrip('/')
+        if not base_url.endswith("/api/v1/auth"):
+            base_url = f"{base_url}/api/v1/auth"
+        redirect_uri = f"{base_url}/{provider.lower()}/callback"
+        token_data = idp.exchange_code(code=code, redirect_uri=redirect_uri)
 
-    # 3. Parse and validate ID token / UserInfo claims
-    user_info = idp.parse_user_info(token_data)
+        # 3. Parse and validate ID token / UserInfo claims
+        user_info = idp.parse_user_info(token_data)
 
-    # 4. Reconcile identity, account link, and multi-tenant auto-provision
-    access_token, refresh_token, user, org_id = auth_svc.reconcile_sso_user(
-        provider=provider, user_info=user_info
-    )
+        # 4. Reconcile identity, account link, and multi-tenant auto-provision
+        access_token, refresh_token, user, org_id = auth_svc.reconcile_sso_user(
+            provider=provider, user_info=user_info
+        )
+    except HTTPException as e:
+        accept_header = request.headers.get("accept", "")
+        if "application/json" in accept_header and "text/html" not in accept_header:
+            raise e
+        err_msg = quote(str(e.detail))
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL.rstrip('/')}/login?error={err_msg}",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
+    except Exception as e:
+        accept_header = request.headers.get("accept", "")
+        if "application/json" in accept_header and "text/html" not in accept_header:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        err_msg = quote(str(e))
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL.rstrip('/')}/login?error={err_msg}",
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
+        )
 
     # 5. Programmatic JSON response for API clients / automated tests
     accept_header = request.headers.get("accept", "")

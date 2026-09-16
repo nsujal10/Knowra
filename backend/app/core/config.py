@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     OAUTH_REDIRECT_BASE_URL: str = "http://localhost:8000/api/v1/auth"
     FRONTEND_URL: str = "http://localhost:3000"
     SSO_ENFORCE_BUSINESS_DOMAINS: bool = False
+    RESTRICT_DOMAIN: str = "softude.com"  # Restrict registration, login, and SSO to this domain
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

@@ -71,6 +71,11 @@ export function SSOButtons({ redirectTarget = "/" }: SSOButtonsProps) {
         )}
         <span>Microsoft</span>
       </button>
+
+      {/* Enterprise Domain Constraint Indicator */}
+      <div className="col-span-2 text-center text-[11px] text-slate-400 font-medium pt-0.5">
+        SSO restricted to <span className="text-slate-600 font-semibold">@softude.com</span>
+      </div>
     </div>
   );
 }

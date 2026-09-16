@@ -25,11 +25,21 @@ import {
 import { SSOButtons } from "@/components/auth/SSOButtons";
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
+const ALLOWED_DOMAIN = "softude.com";
+
+const WorkEmailSchema = z
+  .string()
+  .min(1, "Work email is required")
+  .email("Enter a valid work email address")
+  .refine(
+    (val) => val.toLowerCase().trim().endsWith(`@${ALLOWED_DOMAIN}`),
+    {
+      message: `Only @${ALLOWED_DOMAIN} email addresses are allowed`,
+    }
+  );
+
 const SignInSchema = z.object({
-  email: z
-    .string()
-    .min(1, "Work email is required")
-    .email("Enter a valid work email address"),
+  email: WorkEmailSchema,
   password: z.string().min(1, "Password is required"),
 });
 
@@ -42,10 +52,7 @@ const SignUpSchema = z.object({
     .string()
     .min(1, "Company or workspace name is required")
     .min(2, "Company or workspace name must be at least 2 characters"),
-  email: z
-    .string()
-    .min(1, "Work email is required")
-    .email("Enter a valid work email address"),
+  email: WorkEmailSchema,
   password: z
     .string()
     .min(1, "Password is required")
@@ -258,6 +265,14 @@ export function AuthScreen({ initialTab = "signin" }: AuthScreenProps) {
     setTab(initialTab);
     clearErrors();
   }, [initialTab]);
+
+  // Surface SSO or redirect errors from query parameters
+  useEffect(() => {
+    const errorParam = searchParams.get("error");
+    if (errorParam) {
+      setApiError(decodeURIComponent(errorParam));
+    }
+  }, [searchParams]);
 
   // Sign In form state
   const [signInEmail, setSignInEmail] = useState("");
@@ -639,13 +654,14 @@ export function AuthScreen({ initialTab = "signin" }: AuthScreenProps) {
                 label="Work Email"
                 type="email"
                 autoComplete="email"
-                placeholder="name@company.com"
+                placeholder="name@softude.com"
                 value={signInEmail}
                 onChange={(val) => {
                   setSignInEmail(val);
                   if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
                 }}
                 error={errors.email}
+                helperText={!errors.email ? "Restricted to @softude.com accounts" : undefined}
                 icon={Mail}
               />
 
@@ -802,13 +818,14 @@ export function AuthScreen({ initialTab = "signin" }: AuthScreenProps) {
                 label="Work Email"
                 type="email"
                 autoComplete="email"
-                placeholder="name@company.com"
+                placeholder="name@softude.com"
                 value={signUpEmail}
                 onChange={(val) => {
                   setSignUpEmail(val);
                   if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
                 }}
                 error={errors.email}
+                helperText={!errors.email ? "Restricted to @softude.com accounts" : undefined}
                 icon={Mail}
               />
 

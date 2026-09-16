@@ -14,6 +14,7 @@ from app.models.user_identity import UserIdentity
 from app.services.auth_service import AuthService
 from app.security.providers.oidc import OIDCUserInfo
 from app.security.password import hash_password
+from app.security.exceptions import CredentialsException
 from app.core.config import settings
 
 
@@ -49,7 +50,7 @@ def db_session():
 
 def test_sso_reconcile_links_existing_local_user(db_session):
     """
-    Scenario: A user already registered with email and password (e.g. sarah@enterprise.com).
+    Scenario: A user already registered with email and password (sarah@softude.com).
     When they log in via Google SSO with the same email, the system must link the Google
     provider to the existing User row without throwing a duplicate key integrity error.
     """
@@ -57,17 +58,17 @@ def test_sso_reconcile_links_existing_local_user(db_session):
 
     # 1. Pre-existing local account with organization
     local_user = auth_svc.register(
-        email="sarah@enterprise.com",
+        email="sarah@softude.com",
         password="Password123!",
         full_name="Sarah Connor",
-        org_name="Enterprise Corp",
+        org_name="Softude Tech",
     )
     initial_user_id = local_user.id
 
     # 2. User logs in via Google OIDC
     google_user_info = OIDCUserInfo(
         sub="google-uid-10029384",
-        email="sarah@enterprise.com",
+        email="sarah@softude.com",
         name="Sarah Connor",
         email_verified=True,
     )
@@ -78,7 +79,7 @@ def test_sso_reconcile_links_existing_local_user(db_session):
 
     # 3. Assert identity reconciliation
     assert user.id == initial_user_id
-    assert user.email == "sarah@enterprise.com"
+    assert user.email == "sarah@softude.com"
     assert access_token is not None
     assert refresh_token is not None
 
@@ -93,24 +94,24 @@ def test_sso_reconcile_links_existing_local_user(db_session):
     )
     assert linked_identity is not None
     assert linked_identity.provider_user_id == "google-uid-10029384"
-    assert linked_identity.provider_email == "sarah@enterprise.com"
+    assert linked_identity.provider_email == "sarah@softude.com"
 
     # Verify no duplicate user was created
-    total_users = db_session.query(User).filter(User.email == "sarah@enterprise.com").count()
+    total_users = db_session.query(User).filter(User.email == "sarah@softude.com").count()
     assert total_users == 1
 
 
 def test_sso_reconcile_auto_provisions_new_user_and_tenant(db_session):
     """
-    Scenario: A completely new user signs in via Microsoft Entra ID.
-    The system should derive their organization from the email domain (@acmecorp.com),
+    Scenario: A completely new user signs in via Microsoft Entra ID with softude.com.
+    The system should derive their organization from the email domain (@softude.com),
     provision a new tenant, create the User, and assign them the ADMIN role.
     """
     auth_svc = AuthService(db_session)
 
     ms_user_info = OIDCUserInfo(
         sub="ms-entra-oid-998877",
-        email="alex.mercer@acmecorp.com",
+        email="alex.mercer@softude.com",
         name="Alex Mercer",
         email_verified=True,
     )
@@ -119,7 +120,7 @@ def test_sso_reconcile_auto_provisions_new_user_and_tenant(db_session):
         provider="microsoft", user_info=ms_user_info
     )
 
-    assert user.email == "alex.mercer@acmecorp.com"
+    assert user.email == "alex.mercer@softude.com"
     assert user.full_name == "Alex Mercer"
     assert user.is_active is True
     assert user.is_verified is True
@@ -128,7 +129,7 @@ def test_sso_reconcile_auto_provisions_new_user_and_tenant(db_session):
     # Verify auto-provisioned organization
     org = db_session.query(Organization).filter(Organization.id == org_id).first()
     assert org is not None
-    assert "Acmecorp" in org.name
+    assert "Softude" in org.name
 
     # Verify ADMIN membership role
     membership = (
@@ -161,7 +162,7 @@ def test_sso_reconcile_subsequent_login_reuses_linked_identity(db_session):
 
     user_info = OIDCUserInfo(
         sub="google-uid-relogin",
-        email="john@cloudtech.io",
+        email="john@softude.com",
         name="John Doe",
         email_verified=True,
     )
@@ -176,30 +177,58 @@ def test_sso_reconcile_subsequent_login_reuses_linked_identity(db_session):
     assert org_id == second_org_id
 
     # Verify still exactly 1 user and 1 identity
-    assert db_session.query(User).filter(User.email == "john@cloudtech.io").count() == 1
+    assert db_session.query(User).filter(User.email == "john@softude.com").count() == 1
     assert db_session.query(UserIdentity).filter(UserIdentity.provider_user_id == "google-uid-relogin").count() == 1
 
 
-def test_sso_reconcile_rejects_personal_domains_when_enforced(db_session, monkeypatch):
+def test_sso_reconcile_rejects_non_softude_domain(db_session):
     """
-    Scenario: Strict enterprise domain validation is enabled.
-    Users attempting to sign in with personal domains (@gmail.com, @outlook.com)
-    must be rejected with HTTP 403 Forbidden.
+    Scenario: Any SSO login attempt with an email domain other than softude.com
+    must be strictly rejected with HTTP 403 Forbidden.
     """
     auth_svc = AuthService(db_session)
 
-    # Enable strict enterprise domain enforcement
-    monkeypatch.setattr(settings, "SSO_ENFORCE_BUSINESS_DOMAINS", True)
-
-    personal_user_info = OIDCUserInfo(
-        sub="gmail-uid-1234",
-        email="contractor@gmail.com",
-        name="Gmail User",
+    external_user_info = OIDCUserInfo(
+        sub="google-uid-external",
+        email="user@externalcompany.com",
+        name="External User",
         email_verified=True,
     )
 
     with pytest.raises(HTTPException) as exc_info:
-        auth_svc.reconcile_sso_user("google", personal_user_info)
+        auth_svc.reconcile_sso_user("google", external_user_info)
 
     assert exc_info.value.status_code == 403
-    assert "Personal email domain" in exc_info.value.detail
+    assert "Access restricted to @softude.com" in exc_info.value.detail
+
+
+def test_local_register_rejects_non_softude_domain(db_session):
+    """
+    Scenario: Standard local registration with a non-softude.com email
+    must be rejected with HTTP 400 Bad Request.
+    """
+    auth_svc = AuthService(db_session)
+
+    with pytest.raises(HTTPException) as exc_info:
+        auth_svc.register(
+            email="hacker@gmail.com",
+            password="Password123!",
+            full_name="Hacker Man",
+            org_name="Hacker Org",
+        )
+
+    assert exc_info.value.status_code == 400
+    assert "Registration is restricted to @softude.com" in exc_info.value.detail
+
+
+def test_local_login_rejects_non_softude_domain(db_session):
+    """
+    Scenario: Standard local login with a non-softude.com email
+    must be rejected with CredentialsException.
+    """
+    auth_svc = AuthService(db_session)
+
+    with pytest.raises(CredentialsException) as exc_info:
+        auth_svc.login("user@yahoo.com", "Password123!")
+
+    assert "Access is restricted to @softude.com" in exc_info.value.detail

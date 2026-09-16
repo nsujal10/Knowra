@@ -20,20 +20,173 @@ import {
   User,
   Mail,
   Sparkles,
+  AlertCircle,
 } from "lucide-react";
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 const SignInSchema = z.object({
-  email: z.string().email("Enter a valid work email address"),
+  email: z
+    .string()
+    .min(1, "Work email is required")
+    .email("Enter a valid work email address"),
   password: z.string().min(1, "Password is required"),
 });
 
 const SignUpSchema = z.object({
-  fullName: z.string().min(2, "Full name must be at least 2 characters"),
-  organizationName: z.string().min(2, "Company or workspace name is required"),
-  email: z.string().email("Enter a valid business email address"),
-  password: z.string().min(8, "Password must be at least 8 characters"),
+  fullName: z
+    .string()
+    .min(1, "Full name is required")
+    .min(2, "Full name must be at least 2 characters"),
+  organizationName: z
+    .string()
+    .min(1, "Company or workspace name is required")
+    .min(2, "Company or workspace name must be at least 2 characters"),
+  email: z
+    .string()
+    .min(1, "Work email is required")
+    .email("Enter a valid work email address"),
+  password: z
+    .string()
+    .min(1, "Password is required")
+    .min(8, "Password must be at least 8 characters"),
 });
+
+// ─── Reusable Validated Auth Field ────────────────────────────────────────────
+interface AuthFieldProps {
+  id: string;
+  label: string;
+  type?: string;
+  placeholder: string;
+  value: string;
+  onChange: (val: string) => void;
+  error?: string;
+  autoComplete?: string;
+  icon: React.ComponentType<{ size?: number; color?: string; style?: React.CSSProperties }>;
+  rightElement?: React.ReactNode;
+  headerAction?: React.ReactNode;
+  helperText?: string;
+}
+
+function AuthField({
+  id,
+  label,
+  type = "text",
+  placeholder,
+  value,
+  onChange,
+  error,
+  autoComplete,
+  icon: Icon,
+  rightElement,
+  headerAction,
+  helperText,
+}: AuthFieldProps) {
+  const [focused, setFocused] = useState(false);
+
+  const hasError = Boolean(error);
+  const iconColor = hasError ? "#ef4444" : focused ? "#2563eb" : "#94a3b8";
+  const borderColor = hasError ? "#ef4444" : focused ? "#2563eb" : "#cbd5e1";
+  const bgColor = hasError ? "#fef2f2" : "#ffffff";
+  const boxShadow = hasError
+    ? focused
+      ? "0 0 0 3px rgba(239, 68, 68, 0.15)"
+      : "none"
+    : focused
+    ? "0 0 0 3px rgba(37, 99, 235, 0.12)"
+    : "none";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <label
+          htmlFor={id}
+          style={{
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: hasError ? "#b91c1c" : "#334155",
+            transition: "color 0.15s ease",
+          }}
+        >
+          {label}
+        </label>
+        {headerAction}
+      </div>
+
+      <div style={{ position: "relative" }}>
+        <input
+          id={id}
+          type={type}
+          autoComplete={autoComplete}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{
+            width: "100%",
+            height: 38,
+            padding: rightElement ? "0 38px 0 36px" : "0 14px 0 36px",
+            borderRadius: 7,
+            border: `1.5px solid ${borderColor}`,
+            background: bgColor,
+            boxShadow,
+            fontSize: 13,
+            color: "#0f172a",
+            outline: "none",
+            boxSizing: "border-box",
+            transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease",
+          }}
+        />
+        <Icon
+          size={15}
+          color={iconColor}
+          style={{
+            position: "absolute",
+            left: 11,
+            top: "50%",
+            transform: "translateY(-50%)",
+            transition: "color 0.15s ease",
+            pointerEvents: "none",
+          }}
+        />
+        {rightElement && (
+          <div
+            style={{
+              position: "absolute",
+              right: 11,
+              top: "50%",
+              transform: "translateY(-50%)",
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            {rightElement}
+          </div>
+        )}
+      </div>
+
+      {hasError ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+            fontSize: 11.5,
+            color: "#dc2626",
+            fontWeight: 500,
+            lineHeight: 1.3,
+            animation: "fieldErrorFadeIn 0.15s ease-out",
+          }}
+        >
+          <AlertCircle size={13} color="#dc2626" style={{ flexShrink: 0 }} />
+          <span>{error}</span>
+        </div>
+      ) : helperText ? (
+        <span style={{ fontSize: 11, color: "#94a3b8", lineHeight: 1.3 }}>{helperText}</span>
+      ) : null}
+    </div>
+  );
+}
 
 // ─── Right-panel Capabilities ─────────────────────────────────────────────────
 const CAPABILITIES = [
@@ -409,48 +562,44 @@ function LoginFormContent() {
           {apiError && (
             <div
               style={{
-                padding: "8px 12px",
-                borderRadius: 7,
+                padding: "10px 14px",
+                borderRadius: 8,
                 background: "#fef2f2",
                 border: "1px solid #fecaca",
-                color: "#dc2626",
+                color: "#991b1b",
                 fontSize: 12.5,
                 marginBottom: 16,
                 display: "flex",
-                alignItems: "center",
-                gap: 8,
+                alignItems: "flex-start",
+                gap: 10,
+                lineHeight: 1.45,
+                animation: "fieldErrorFadeIn 0.15s ease-out",
               }}
             >
-              <div
-                style={{
-                  width: 6,
-                  height: 6,
-                  borderRadius: "50%",
-                  background: "#dc2626",
-                  flexShrink: 0,
-                }}
-              />
-              <span>{apiError}</span>
+              <AlertCircle size={16} color="#dc2626" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontWeight: 500 }}>{apiError}</span>
             </div>
           )}
 
           {successMessage && (
             <div
               style={{
-                padding: "8px 12px",
-                borderRadius: 7,
+                padding: "10px 14px",
+                borderRadius: 8,
                 background: "#f0fdf4",
                 border: "1px solid #bbf7d0",
-                color: "#16a34a",
+                color: "#166534",
                 fontSize: 12.5,
                 marginBottom: 16,
                 display: "flex",
-                alignItems: "center",
-                gap: 8,
+                alignItems: "flex-start",
+                gap: 10,
+                lineHeight: 1.45,
+                animation: "fieldErrorFadeIn 0.15s ease-out",
               }}
             >
-              <CheckCircle2 size={15} color="#16a34a" />
-              <span>{successMessage}</span>
+              <CheckCircle2 size={16} color="#16a34a" style={{ flexShrink: 0, marginTop: 1 }} />
+              <span style={{ fontWeight: 500 }}>{successMessage}</span>
             </div>
           )}
 
@@ -553,61 +702,35 @@ function LoginFormContent() {
           {/* ─── TAB: SIGN IN ──────────────────────────────────────────────── */}
           {tab === "signin" ? (
             <form onSubmit={handleSignIn} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Email */}
-              <div>
-                <label
-                  htmlFor="signin-email"
-                  style={{ display: "block", fontSize: 12.5, fontWeight: 500, color: "#334155", marginBottom: 5 }}
-                >
-                  Work Email
-                </label>
-                <div style={{ position: "relative" }}>
-                  <input
-                    id="signin-email"
-                    type="email"
-                    autoComplete="email"
-                    placeholder="name@company.com"
-                    value={signInEmail}
-                    onChange={(e) => {
-                      setSignInEmail(e.target.value);
-                      if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
-                    }}
-                    style={{
-                      width: "100%",
-                      height: 40,
-                      padding: "0 14px 0 36px",
-                      borderRadius: 7,
-                      border: errors.email ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
-                      fontSize: 13.5,
-                      color: "#0f172a",
-                      background: "#ffffff",
-                      outline: "none",
-                      boxSizing: "border-box",
-                      transition: "border-color 0.15s ease",
-                    }}
-                    onFocus={(e) => !errors.email && (e.target.style.borderColor = "#2563eb")}
-                    onBlur={(e) => !errors.email && (e.target.style.borderColor = "#cbd5e1")}
-                  />
-                  <Mail
-                    size={15}
-                    color="#94a3b8"
-                    style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }}
-                  />
-                </div>
-                {errors.email && (
-                  <p style={{ margin: "3px 0 0 0", fontSize: 11.5, color: "#ef4444" }}>{errors.email}</p>
-                )}
-              </div>
+              <AuthField
+                id="signin-email"
+                label="Work Email"
+                type="email"
+                autoComplete="email"
+                placeholder="name@company.com"
+                value={signInEmail}
+                onChange={(val) => {
+                  setSignInEmail(val);
+                  if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+                }}
+                error={errors.email}
+                icon={Mail}
+              />
 
-              {/* Password */}
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                  <label
-                    htmlFor="signin-password"
-                    style={{ fontSize: 12.5, fontWeight: 500, color: "#334155" }}
-                  >
-                    Password
-                  </label>
+              <AuthField
+                id="signin-password"
+                label="Password"
+                type={showSignInPw ? "text" : "password"}
+                autoComplete="current-password"
+                placeholder="••••••••"
+                value={signInPassword}
+                onChange={(val) => {
+                  setSignInPassword(val);
+                  if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
+                }}
+                error={errors.password}
+                icon={Lock}
+                headerAction={
                   <a
                     href="#"
                     onClick={(e) => {
@@ -618,63 +741,29 @@ function LoginFormContent() {
                   >
                     Forgot password?
                   </a>
-                </div>
-                <div style={{ position: "relative" }}>
-                  <input
-                    id="signin-password"
-                    type={showSignInPw ? "text" : "password"}
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    value={signInPassword}
-                    onChange={(e) => {
-                      setSignInPassword(e.target.value);
-                      if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
-                    }}
-                    style={{
-                      width: "100%",
-                      height: 40,
-                      padding: "0 38px 0 36px",
-                      borderRadius: 7,
-                      border: errors.password ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
-                      fontSize: 13.5,
-                      color: "#0f172a",
-                      background: "#ffffff",
-                      outline: "none",
-                      boxSizing: "border-box",
-                      transition: "border-color 0.15s ease",
-                    }}
-                    onFocus={(e) => !errors.password && (e.target.style.borderColor = "#2563eb")}
-                    onBlur={(e) => !errors.password && (e.target.style.borderColor = "#cbd5e1")}
-                  />
-                  <Lock
-                    size={15}
-                    color="#94a3b8"
-                    style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)" }}
-                  />
+                }
+                rightElement={
                   <button
                     type="button"
                     onClick={() => setShowSignInPw((v) => !v)}
+                    aria-label={showSignInPw ? "Hide password" : "Show password"}
                     style={{
-                      position: "absolute",
-                      right: 11,
-                      top: "50%",
-                      transform: "translateY(-50%)",
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      color: "#94a3b8",
+                      color: errors.password ? "#ef4444" : "#94a3b8",
                       display: "flex",
                       alignItems: "center",
                       padding: 0,
+                      transition: "color 0.15s ease",
                     }}
+                    onMouseOver={(e) => (e.currentTarget.style.color = "#475569")}
+                    onMouseOut={(e) => (e.currentTarget.style.color = errors.password ? "#ef4444" : "#94a3b8")}
                   >
                     {showSignInPw ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
-                </div>
-                {errors.password && (
-                  <p style={{ margin: "3px 0 0 0", fontSize: 11.5, color: "#ef4444" }}>{errors.password}</p>
-                )}
-              </div>
+                }
+              />
 
               {/* Submit Button */}
               <button
@@ -746,204 +835,87 @@ function LoginFormContent() {
             </form>
           ) : (
             /* ─── TAB: CREATE ACCOUNT ───────────────────────────────────────── */
-            <form onSubmit={handleSignUp} style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-              {/* Full Name */}
-              <div>
-                <label
-                  htmlFor="signup-name"
-                  style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#334155", marginBottom: 4 }}
-                >
-                  Full Name
-                </label>
-                <div style={{ position: "relative" }}>
-                  <input
-                    id="signup-name"
-                    type="text"
-                    autoComplete="name"
-                    placeholder="Alex Morgan"
-                    value={fullName}
-                    onChange={(e) => {
-                      setFullName(e.target.value);
-                      if (errors.fullName) setErrors((prev) => ({ ...prev, fullName: "" }));
-                    }}
-                    style={{
-                      width: "100%",
-                      height: 36,
-                      padding: "0 12px 0 34px",
-                      borderRadius: 7,
-                      border: errors.fullName ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
-                      fontSize: 13,
-                      color: "#0f172a",
-                      background: "#ffffff",
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                    onFocus={(e) => !errors.fullName && (e.target.style.borderColor = "#2563eb")}
-                    onBlur={(e) => !errors.fullName && (e.target.style.borderColor = "#cbd5e1")}
-                  />
-                  <User
-                    size={14}
-                    color="#94a3b8"
-                    style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
-                  />
-                </div>
-                {errors.fullName && (
-                  <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#ef4444" }}>{errors.fullName}</p>
-                )}
-              </div>
+            <form onSubmit={handleSignUp} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <AuthField
+                id="signup-name"
+                label="Full Name"
+                type="text"
+                autoComplete="name"
+                placeholder="Alex Morgan"
+                value={fullName}
+                onChange={(val) => {
+                  setFullName(val);
+                  if (errors.fullName) setErrors((prev) => ({ ...prev, fullName: "" }));
+                }}
+                error={errors.fullName}
+                icon={User}
+              />
 
-              {/* Organization / Workspace */}
-              <div>
-                <label
-                  htmlFor="signup-org"
-                  style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#334155", marginBottom: 4 }}
-                >
-                  Organization / Team Name
-                </label>
-                <div style={{ position: "relative" }}>
-                  <input
-                    id="signup-org"
-                    type="text"
-                    placeholder="Acme Corp"
-                    value={organizationName}
-                    onChange={(e) => {
-                      setOrganizationName(e.target.value);
-                      if (errors.organizationName) setErrors((prev) => ({ ...prev, organizationName: "" }));
-                    }}
-                    style={{
-                      width: "100%",
-                      height: 36,
-                      padding: "0 12px 0 34px",
-                      borderRadius: 7,
-                      border: errors.organizationName ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
-                      fontSize: 13,
-                      color: "#0f172a",
-                      background: "#ffffff",
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                    onFocus={(e) => !errors.organizationName && (e.target.style.borderColor = "#2563eb")}
-                    onBlur={(e) => !errors.organizationName && (e.target.style.borderColor = "#cbd5e1")}
-                  />
-                  <Building2
-                    size={14}
-                    color="#94a3b8"
-                    style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
-                  />
-                </div>
-                {errors.organizationName && (
-                  <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#ef4444" }}>{errors.organizationName}</p>
-                )}
-              </div>
+              <AuthField
+                id="signup-org"
+                label="Organization / Team Name"
+                type="text"
+                placeholder="Acme Corp"
+                value={organizationName}
+                onChange={(val) => {
+                  setOrganizationName(val);
+                  if (errors.organizationName) setErrors((prev) => ({ ...prev, organizationName: "" }));
+                }}
+                error={errors.organizationName}
+                icon={Building2}
+              />
 
-              {/* Email */}
-              <div>
-                <label
-                  htmlFor="signup-email"
-                  style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#334155", marginBottom: 4 }}
-                >
-                  Work Email
-                </label>
-                <div style={{ position: "relative" }}>
-                  <input
-                    id="signup-email"
-                    type="email"
-                    autoComplete="email"
-                    placeholder="name@company.com"
-                    value={signUpEmail}
-                    onChange={(e) => {
-                      setSignUpEmail(e.target.value);
-                      if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
-                    }}
-                    style={{
-                      width: "100%",
-                      height: 36,
-                      padding: "0 12px 0 34px",
-                      borderRadius: 7,
-                      border: errors.email ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
-                      fontSize: 13,
-                      color: "#0f172a",
-                      background: "#ffffff",
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                    onFocus={(e) => !errors.email && (e.target.style.borderColor = "#2563eb")}
-                    onBlur={(e) => !errors.email && (e.target.style.borderColor = "#cbd5e1")}
-                  />
-                  <Mail
-                    size={14}
-                    color="#94a3b8"
-                    style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
-                  />
-                </div>
-                {errors.email && (
-                  <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#ef4444" }}>{errors.email}</p>
-                )}
-              </div>
+              <AuthField
+                id="signup-email"
+                label="Work Email"
+                type="email"
+                autoComplete="email"
+                placeholder="name@company.com"
+                value={signUpEmail}
+                onChange={(val) => {
+                  setSignUpEmail(val);
+                  if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+                }}
+                error={errors.email}
+                icon={Mail}
+              />
 
-              {/* Password */}
-              <div>
-                <label
-                  htmlFor="signup-password"
-                  style={{ display: "block", fontSize: 12, fontWeight: 500, color: "#334155", marginBottom: 4 }}
-                >
-                  Password (min 8 characters)
-                </label>
-                <div style={{ position: "relative" }}>
-                  <input
-                    id="signup-password"
-                    type={showSignUpPw ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder="••••••••"
-                    value={signUpPassword}
-                    onChange={(e) => {
-                      setSignUpPassword(e.target.value);
-                      if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
-                    }}
-                    style={{
-                      width: "100%",
-                      height: 36,
-                      padding: "0 36px 0 34px",
-                      borderRadius: 7,
-                      border: errors.password ? "1.5px solid #ef4444" : "1.5px solid #cbd5e1",
-                      fontSize: 13,
-                      color: "#0f172a",
-                      background: "#ffffff",
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                    onFocus={(e) => !errors.password && (e.target.style.borderColor = "#2563eb")}
-                    onBlur={(e) => !errors.password && (e.target.style.borderColor = "#cbd5e1")}
-                  />
-                  <Lock
-                    size={14}
-                    color="#94a3b8"
-                    style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }}
-                  />
+              <AuthField
+                id="signup-password"
+                label="Password"
+                type={showSignUpPw ? "text" : "password"}
+                autoComplete="new-password"
+                placeholder="••••••••"
+                value={signUpPassword}
+                onChange={(val) => {
+                  setSignUpPassword(val);
+                  if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
+                }}
+                error={errors.password}
+                helperText={!errors.password ? "Must be at least 8 characters" : undefined}
+                icon={Lock}
+                rightElement={
                   <button
                     type="button"
                     onClick={() => setShowSignUpPw((v) => !v)}
+                    aria-label={showSignUpPw ? "Hide password" : "Show password"}
                     style={{
-                      position: "absolute",
-                      right: 10,
-                      top: "50%",
-                      transform: "translateY(-50%)",
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      color: "#94a3b8",
+                      color: errors.password ? "#ef4444" : "#94a3b8",
                       display: "flex",
                       alignItems: "center",
                       padding: 0,
+                      transition: "color 0.15s ease",
                     }}
+                    onMouseOver={(e) => (e.currentTarget.style.color = "#475569")}
+                    onMouseOut={(e) => (e.currentTarget.style.color = errors.password ? "#ef4444" : "#94a3b8")}
                   >
-                    {showSignUpPw ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {showSignUpPw ? <EyeOff size={15} /> : <Eye size={15} />}
                   </button>
-                </div>
-                {errors.password && (
-                  <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#ef4444" }}>{errors.password}</p>
-                )}
-              </div>
+                }
+              />
 
               {/* Submit Button */}
               <button
@@ -1336,6 +1308,16 @@ function LoginFormContent() {
       <style>{`
         @keyframes spin {
           to { transform: rotate(360deg); }
+        }
+        @keyframes fieldErrorFadeIn {
+          from {
+            opacity: 0;
+            transform: translateY(-3px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
       `}</style>
     </div>

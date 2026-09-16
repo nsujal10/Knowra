@@ -3,14 +3,14 @@ import type { Metadata } from "next";
 import { AuthScreen } from "@/components/auth/auth-screen";
 
 export const metadata: Metadata = {
-  title: "Sign In — Knowra",
-  description: "Sign in to access your Knowra enterprise meeting intelligence workspace.",
+  title: "Create Account — Knowra",
+  description: "Create an organization workspace and start turning conversations into enterprise intelligence.",
 };
 
-export default function LoginPage() {
+export default function RegisterPage() {
   return (
     <Suspense fallback={null}>
-      <AuthScreen initialTab="signin" />
+      <AuthScreen initialTab="signup" />
     </Suspense>
   );
 }

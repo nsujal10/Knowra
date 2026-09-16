@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/api"];
+const PUBLIC_PATHS = ["/login", "/register", "/signup", "/api"];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -20,8 +20,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // If already authenticated and accessing login -> redirect to dashboard
-  if (token && pathname === "/login") {
+  // If already authenticated and accessing login/register/signup -> redirect to dashboard
+  if (
+    token &&
+    (pathname === "/login" || pathname === "/register" || pathname === "/signup")
+  ) {
     const redirectParam = request.nextUrl.searchParams.get("redirect");
     const targetUrl = redirectParam && redirectParam.startsWith("/") ? redirectParam : "/";
     return NextResponse.redirect(new URL(targetUrl, request.url));

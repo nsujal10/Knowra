@@ -51,7 +51,7 @@ export function DetailHeader({
           <Link
             href="/meetings"
             className="text-slate-600 hover:text-slate-900 transition-colors shrink-0 cursor-pointer"
-            title="Back to all reports"
+            title="Back to all meetings"
           >
             <ChevronLeft className="w-6 h-6 stroke-[2.2]" />
           </Link>

@@ -40,7 +40,7 @@ export function Topbar() {
           className="flex items-center gap-2 text-white hover:text-slate-200 font-bold text-base tracking-tight transition-colors"
         >
           <ChevronLeft className="w-5 h-5 text-white stroke-[2.5]" />
-          <span>Reports</span>
+          <span>Meetings</span>
         </Link>
       </header>
     );

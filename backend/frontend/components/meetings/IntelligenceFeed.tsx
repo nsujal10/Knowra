@@ -87,7 +87,7 @@ export function IntelligenceFeed({
   activeTimestamp
 }: IntelligenceFeedProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("Read AI Recap");
+  const [selectedTemplate, setSelectedTemplate] = useState("Knowra AI Recap");
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
   const [noteContent, setNoteContent] = useState("");
@@ -154,7 +154,7 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
 
             {showTemplateDropdown && (
               <div className="absolute right-0 mt-1 w-52 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-20 animate-in fade-in">
-                {["Read AI Recap", "Executive Briefing", "Sprint Retrospective", "Architecture RFC"].map((tpl) => (
+                {["Knowra AI Recap", "Executive Briefing", "Sprint Retrospective", "Architecture RFC"].map((tpl) => (
                   <button
                     key={tpl}
                     type="button"

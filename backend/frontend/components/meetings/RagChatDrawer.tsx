@@ -56,7 +56,7 @@ export function RagChatDrawer({
       } else if (lower.includes("crm") || lower.includes("hubspot") || lower.includes("salesforce")) {
         reply += "the team demonstrated that Search Copilot can connect to CRM systems like HubSpot or Salesforce to automatically push meeting notes and extract key objections.";
       } else if (lower.includes("summary") || lower.includes("about")) {
-        reply += "the meeting covered Read AI's onboarding process, calendar integration, account permission boundaries, and Search Copilot cross-platform indexing.";
+        reply += "the meeting covered Knowra AI's onboarding process, calendar integration, account permission boundaries, and Search Copilot cross-platform indexing.";
       } else {
         reply += `Search Copilot respects permissions and only surfaces meeting moments the user is authorized to view. Citations trace back to [0:00] and [6:03].`;
       }
@@ -67,7 +67,7 @@ export function RagChatDrawer({
           id: `k-${Date.now()}`,
           sender: "knowra",
           text: reply,
-          citations: ["0:00 Read AI Onboarding Essentials", "6:03 Exploring Search Copilot"]
+          citations: ["0:00 Knowra AI Onboarding Essentials", "6:03 Exploring Search Copilot"]
         }
       ]);
       setIsTyping(false);

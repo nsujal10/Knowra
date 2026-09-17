@@ -63,7 +63,7 @@ export interface MeetingIntelligence {
 // ============================================================================
 
 const DEFAULT_MEETING_DATA: MeetingIntelligence = {
-  title: "Onboarding to Read AI - Sample Report",
+  title: "Onboarding to Knowra AI - Sample Meeting",
   date: "Jan 2, 2026",
   timeRange: "2:30 AM - 4:15 AM",
   source: "Google Meet",
@@ -77,7 +77,7 @@ const DEFAULT_MEETING_DATA: MeetingIntelligence = {
   metrics: {
     report: {
       score: 89,
-      label: "Report Score",
+      label: "Meeting Score",
       status: "GOOD",
       trend: [72, 78, 83, 87, 89]
     },
@@ -95,7 +95,7 @@ const DEFAULT_MEETING_DATA: MeetingIntelligence = {
     }
   },
   summary:
-    "Alison and the team introduced Read AI's onboarding process, covering how to connect calendars, access account settings, and manage integrations. They explained join and distribution settings: Read AI can auto-join all calendar events by default, with options to toggle per meeting and to limit automatic sharing of notes to internal participants. The team demonstrated how to connect additional platforms (notably CRM like HubSpot or Salesforce) to enable Search Copilot and auto-push meeting notes. They showed where to find meeting reports, organize them in folders, and how to share or restrict access during testing.",
+    "Alison and the team introduced Knowra AI's onboarding process, covering how to connect calendars, access account settings, and manage integrations. They explained join and distribution settings: Knowra AI can auto-join all calendar events by default, with options to toggle per meeting and to limit automatic sharing of notes to internal participants. The team demonstrated how to connect additional platforms (notably CRM like HubSpot or Salesforce) to enable Search Copilot and auto-push meeting notes. They showed where to find meetings, organize them in folders, and how to share or restrict access during testing.",
   actionItems: [
     {
       id: "act-1",
@@ -119,9 +119,9 @@ const DEFAULT_MEETING_DATA: MeetingIntelligence = {
   discussionPoints: [
     {
       id: "dp-1",
-      title: "Read AI Onboarding Essentials",
+      title: "Knowra AI Onboarding Essentials",
       summary:
-        "Alison and the team introduced Read AI's onboarding process, covering how to connect calendars, access account settings, and manage integrations. They explained join and distribution settings: Read AI can auto-join all calendar events by default, with options to toggle per meeting and to limit automatic sharing of notes to internal participants. The team demonstrated how to connect additional platforms (notably CRM like HubSpot or Salesforce) to enable Search Copilot and auto-push meeting notes. They showed where to find meeting reports, organize them in folders, and how to share or restrict access during testing.",
+        "Alison and the team introduced Knowra AI's onboarding process, covering how to connect calendars, access account settings, and manage integrations. They explained join and distribution settings: Knowra AI can auto-join all calendar events by default, with options to toggle per meeting and to limit automatic sharing of notes to internal participants. The team demonstrated how to connect additional platforms (notably CRM like HubSpot or Salesforce) to enable Search Copilot and auto-push meeting notes. They showed where to find meetings, organize them in folders, and how to share or restrict access during testing.",
       timestampSeconds: 0
     },
     {
@@ -135,7 +135,7 @@ const DEFAULT_MEETING_DATA: MeetingIntelligence = {
   chapters: [
     {
       id: "ch-1",
-      title: "Read AI Onboarding Essentials",
+      title: "Knowra AI Onboarding Essentials",
       timestampSeconds: 0,
       durationStr: "6m"
     },

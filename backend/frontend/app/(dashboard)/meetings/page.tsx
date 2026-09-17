@@ -151,7 +151,7 @@ const MOCK_MEETINGS: MockMeeting[] = [
     scheduledEndTime: "2026-01-02T02:38:00Z",
     participantCount: 4,
     metrics: { decisionsCount: 5, actionItemsCount: 8, intelligenceScore: 89 },
-    folder: { id: "f-1", name: "Sample Reports - Knowra" },
+    folder: { id: "f-1", name: "Sample Meetings - Knowra" },
     owner: { id: "u-1", name: "Sujal Nage", email: "sujal.nage@softude.com", initials: "SN" },
     thumbnailGradient: "from-amber-700 via-stone-800 to-stone-900",
     thumbnailFaceInitial: "👩‍💼",
@@ -166,7 +166,7 @@ const MOCK_MEETINGS: MockMeeting[] = [
     scheduledEndTime: "2026-01-02T01:34:00Z",
     participantCount: 4,
     metrics: { decisionsCount: 3, actionItemsCount: 6, intelligenceScore: 89 },
-    folder: { id: "f-1", name: "Sample Reports - Knowra" },
+    folder: { id: "f-1", name: "Sample Meetings - Knowra" },
     owner: { id: "u-2", name: "Elena Rostova", email: "elena.r@enterprise.io", initials: "ER" },
     thumbnailGradient: "from-stone-600 via-stone-700 to-slate-900",
     thumbnailFaceInitial: "👩",
@@ -181,7 +181,7 @@ const MOCK_MEETINGS: MockMeeting[] = [
     scheduledEndTime: "2026-01-02T00:37:00Z",
     participantCount: 4,
     metrics: { decisionsCount: 7, actionItemsCount: 11, intelligenceScore: 88 },
-    folder: { id: "f-1", name: "Sample Reports - Knowra" },
+    folder: { id: "f-1", name: "Sample Meetings - Knowra" },
     owner: { id: "u-3", name: "Sarah Chen", email: "sarah.c@enterprise.io", initials: "SC" },
     thumbnailGradient: "from-amber-900 via-stone-800 to-stone-950",
     thumbnailFaceInitial: "👩‍🦰",
@@ -196,7 +196,7 @@ const MOCK_MEETINGS: MockMeeting[] = [
     scheduledEndTime: "2026-01-01T23:34:00Z",
     participantCount: 4,
     metrics: { decisionsCount: 6, actionItemsCount: 4, intelligenceScore: 92 },
-    folder: { id: "f-1", name: "Sample Reports - Knowra" },
+    folder: { id: "f-1", name: "Sample Meetings - Knowra" },
     owner: { id: "u-4", name: "David Sterling", email: "david.s@enterprise.io", initials: "DS" },
     thumbnailGradient: "from-slate-700 via-indigo-950 to-stone-900",
     thumbnailFaceInitial: "👩‍💼",
@@ -211,7 +211,7 @@ const MOCK_MEETINGS: MockMeeting[] = [
     scheduledEndTime: "2026-01-01T22:38:00Z",
     participantCount: 4,
     metrics: { decisionsCount: 9, actionItemsCount: 14, intelligenceScore: 87 },
-    folder: { id: "f-1", name: "Sample Reports - Knowra" },
+    folder: { id: "f-1", name: "Sample Meetings - Knowra" },
     owner: { id: "u-1", name: "Sujal Nage", email: "sujal.nage@softude.com", initials: "SN" },
     thumbnailGradient: "from-emerald-950 via-teal-900 to-slate-900",
     thumbnailFaceInitial: "👩‍💻",
@@ -433,7 +433,7 @@ export default function MeetingsPage() {
             type="text"
             value={globalAskInput}
             onChange={(e) => setGlobalAskInput(e.target.value)}
-            placeholder="Ask Read anything..."
+            placeholder="Ask Knowra anything..."
             className="w-full text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none bg-transparent"
           />
 
@@ -462,7 +462,7 @@ export default function MeetingsPage() {
                   : "bg-transparent text-slate-600 hover:text-slate-900 border-b-2 border-transparent font-medium"
               }`}
             >
-              <span>Reports</span>
+              <span>Meetings</span>
               {completedCount > 0 && (
                 <span className={`text-[11px] px-1.5 py-0.5 rounded-full font-medium ${
                   activeTab === "meetings" ? "bg-white/90 text-[#5345dc]" : "bg-slate-100 text-slate-600"
@@ -481,7 +481,7 @@ export default function MeetingsPage() {
                   : "bg-transparent text-slate-600 hover:text-slate-900 border-b-2 border-transparent font-medium"
               }`}
             >
-              <span>Incomplete</span>
+              <span>Processing</span>
               {processingCount > 0 && (
                 <span className="text-[11px] px-1.5 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
                   {processingCount}
@@ -497,7 +497,7 @@ export default function MeetingsPage() {
                 type="button"
                 onClick={handleRefresh}
                 className="hover:text-slate-700 transition-colors p-1 cursor-pointer"
-                title="Refresh reports"
+                title="Refresh meetings"
               >
                 <RefreshCw
                   className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-[#5345dc]" : ""}`}

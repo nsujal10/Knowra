@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Sparkles, ArrowUp } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { DetailHeader } from "@/components/meetings/DetailHeader";
 import { IntelligenceFeed } from "@/components/meetings/IntelligenceFeed";
 import { MediaSidebar } from "@/components/meetings/MediaSidebar";
@@ -278,21 +278,11 @@ export default function MeetingDetailPage() {
         </div>
       )}
 
-      {/* ── 5. FLOATING BACK-TO-TOP BUTTON ──────────────────────────────── */}
-      <button
-        type="button"
-        onClick={scrollToTop}
-        className="fixed bottom-20 right-6 w-9 h-9 rounded-full bg-white border border-slate-200 shadow-md flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer z-40 transition-colors"
-        title="Scroll to top"
-      >
-        <ArrowUp className="w-4 h-4" />
-      </button>
-
-      {/* ── 6. RAG CHAT FLOATING ACTION BUTTON (PHASE 22) ────────────────── */}
+      {/* ── 5. RAG CHAT FLOATING ACTION BUTTON (PHASE 22) ────────────────── */}
       <button
         type="button"
         onClick={() => setIsChatOpen(true)}
-        className="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg rounded-full px-5 py-3 flex items-center gap-2 font-medium z-50 transition-all hover:scale-105 cursor-pointer"
+        className="fixed bottom-6 right-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-full shadow-xl flex items-center gap-2 font-medium transition-transform hover:scale-105 cursor-pointer"
         title="Ask Knowra about this meeting"
       >
         <Sparkles className="w-4 h-4" />

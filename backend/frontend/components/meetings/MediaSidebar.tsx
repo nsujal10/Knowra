@@ -7,11 +7,8 @@ import {
   RotateCcw,
   Volume2,
   VolumeX,
-  Settings,
   Maximize2,
   Minimize2,
-  PictureInPicture2,
-  Clock,
   Sparkles,
   Users
 } from "lucide-react";
@@ -96,7 +93,7 @@ export function MediaSidebar({
       {/* ── 1. STICKY DARK VIDEO PLAYER ───────────────────────────────────── */}
       <div
         ref={playerContainerRef}
-        className="w-full bg-[#232429] rounded-xl overflow-hidden aspect-video relative shadow-md flex flex-col justify-between group border border-slate-800"
+        className="w-full aspect-video bg-[#11131a] rounded-xl overflow-hidden relative shadow-lg flex flex-col justify-end"
       >
         {/* Actual Video Element or Visual Canvas */}
         {videoUrl ? (
@@ -123,8 +120,9 @@ export function MediaSidebar({
           </div>
         )}
 
-        {/* Timeline Bar with Diarization Marker Dots */}
-        <div className="w-full px-4 pt-3 pb-1 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+        {/* Bottom Overlay: Timeline Scrubber + Controls Bar */}
+        <div className="relative z-20 w-full bg-gradient-to-t from-black/95 via-black/75 to-transparent px-3 pb-2 pt-5 flex flex-col gap-2">
+          {/* Timeline / Scrubber Track (Dots INSIDE the track) */}
           <div
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
@@ -132,19 +130,19 @@ export function MediaSidebar({
               const ratio = Math.max(0, Math.min(1, clickX / rect.width));
               onSeek(ratio * (duration || 529));
             }}
-            className="w-full h-1 bg-slate-700/80 rounded-full relative cursor-pointer hover:h-1.5 transition-all"
+            className="w-full h-1.5 bg-slate-700/80 rounded-full relative cursor-pointer hover:h-2 transition-all flex items-center"
           >
-            {/* Progress Bar */}
+            {/* Scrubber Progress Fill */}
             <div
               className="h-full bg-indigo-500 rounded-full transition-all"
               style={{ width: `${progressPercent}%` }}
             />
 
-            {/* Diarization Dots */}
+            {/* Diarization Dots directly inside the scrubber track */}
             {timelineMarkers.map((marker, idx) => (
               <div
                 key={idx}
-                className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${marker.color} border border-black/40 shadow-xs cursor-pointer hover:scale-125 transition-transform`}
+                className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${marker.color} ring-1 ring-black/70 shadow-xs cursor-pointer hover:scale-150 transition-transform`}
                 style={{ left: `${(marker.time / (duration || 529)) * 100}%` }}
                 title={`${marker.label} (${formatDurationStr(marker.time)})`}
                 onClick={(e) => {
@@ -154,92 +152,96 @@ export function MediaSidebar({
               />
             ))}
           </div>
-        </div>
 
-        {/* Bottom Video Controls Bar */}
-        <div className="w-full px-3 py-2 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent flex items-center justify-between text-white text-xs">
-          {/* Left Controls: Play/Pause, Rewind, Time */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onTogglePlay}
-              className="hover:text-indigo-400 transition-colors cursor-pointer p-0.5"
-              title={isPlaying ? "Pause" : "Play"}
-            >
-              {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onSeek(Math.max(0, currentTime - 10))}
-              className="hover:text-indigo-400 transition-colors cursor-pointer p-0.5"
-              title="Rewind 10 seconds"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-
-            <span className="font-mono text-[11px] text-slate-300">
-              {formatDurationStr(currentTime)} / {formatDurationStr(duration)}
-            </span>
-          </div>
-
-          {/* Right Controls: Volume, Speed, PIP, Fullscreen */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsMuted(!isMuted)}
-              className="hover:text-indigo-400 transition-colors cursor-pointer"
-              title={isMuted ? "Unmute" : "Mute"}
-            >
-              {isMuted ? <VolumeX className="w-3.5 h-3.5 text-slate-400" /> : <Volume2 className="w-3.5 h-3.5" />}
-            </button>
-
-            <div className="relative">
+          {/* Controls Bar Row */}
+          <div className="w-full flex items-center justify-between text-white text-xs pt-0.5">
+            {/* Left Controls: Play/Pause, Rewind, Time */}
+            <div className="flex items-center gap-2.5 min-w-0">
               <button
                 type="button"
-                onClick={() => setShowSpeedMenu(!showSpeedMenu)}
-                className="hover:text-indigo-400 text-[11px] font-bold transition-colors cursor-pointer px-1 py-0.5 rounded"
-                title="Playback Speed"
+                onClick={onTogglePlay}
+                className="hover:text-indigo-400 transition-colors cursor-pointer p-0.5"
+                title={isPlaying ? "Pause" : "Play"}
               >
-                {playbackSpeed}x
+                {isPlaying ? <Pause className="w-3.5 h-3.5 fill-white" /> : <Play className="w-3.5 h-3.5 fill-white" />}
               </button>
 
-              {showSpeedMenu && (
-                <div className="absolute bottom-6 right-0 bg-[#21232d] border border-slate-700 rounded-md py-1 shadow-lg text-[10px] w-16 z-30">
-                  {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
-                    <button
-                      key={spd}
-                      type="button"
-                      onClick={() => {
-                        setPlaybackSpeed(spd);
-                        if (videoRef.current) videoRef.current.playbackRate = spd;
-                        setShowSpeedMenu(false);
-                      }}
-                      className={`w-full py-1 text-center hover:bg-indigo-600/30 ${
-                        playbackSpeed === spd ? "text-indigo-400 font-bold" : "text-slate-300"
-                      }`}
-                    >
-                      {spd}x
-                    </button>
-                  ))}
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={() => onSeek(Math.max(0, currentTime - 10))}
+                className="hover:text-indigo-400 transition-colors cursor-pointer p-0.5"
+                title="Rewind 10 seconds"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+
+              <span className="font-mono text-[11px] text-slate-300 shrink-0">
+                {formatDurationStr(currentTime)} / {formatDurationStr(duration)}
+              </span>
+
+              <span className="text-slate-400 text-xs truncate max-w-[130px] hidden sm:inline">
+                • {chapters[0]?.title || "Knowra AI..."}
+              </span>
             </div>
 
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              className="hover:text-indigo-400 transition-colors cursor-pointer"
-              title="Fullscreen"
-            >
-              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            </button>
+            {/* Right Controls: Volume, Speed, Fullscreen */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsMuted(!isMuted)}
+                className="hover:text-indigo-400 transition-colors cursor-pointer"
+                title={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <VolumeX className="w-3.5 h-3.5 text-slate-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+              </button>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowSpeedMenu(!showSpeedMenu)}
+                  className="hover:text-indigo-400 text-[11px] font-bold transition-colors cursor-pointer px-1 py-0.5 rounded"
+                  title="Playback Speed"
+                >
+                  {playbackSpeed}x
+                </button>
+
+                {showSpeedMenu && (
+                  <div className="absolute bottom-6 right-0 bg-[#21232d] border border-slate-700 rounded-md py-1 shadow-lg text-[10px] w-16 z-30">
+                    {[0.75, 1, 1.25, 1.5, 2].map((spd) => (
+                      <button
+                        key={spd}
+                        type="button"
+                        onClick={() => {
+                          setPlaybackSpeed(spd);
+                          if (videoRef.current) videoRef.current.playbackRate = spd;
+                          setShowSpeedMenu(false);
+                        }}
+                        className={`w-full py-1 text-center hover:bg-indigo-600/30 ${
+                          playbackSpeed === spd ? "text-indigo-400 font-bold" : "text-slate-300"
+                        }`}
+                      >
+                        {spd}x
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="hover:text-indigo-400 transition-colors cursor-pointer"
+                title="Fullscreen"
+              >
+                {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* ── 2. PILL-BASED TABS (CHAPTERS, HIGHLIGHTS, SPEAKERS) ────────────── */}
-      <div className="flex items-center gap-2 pt-4 pb-2">
+      <div className="flex items-center gap-2 pt-5 pb-3">
         {(["Chapters", "Highlights", "Speakers"] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (
@@ -247,10 +249,10 @@ export function MediaSidebar({
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`border border-slate-200 rounded-full px-3 py-1 text-xs transition-all cursor-pointer ${
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                 isActive
-                  ? "border-indigo-600 text-indigo-700 bg-indigo-50/70 shadow-2xs font-semibold"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 bg-white"
+                  ? "border border-indigo-600 text-indigo-700 bg-white shadow-2xs"
+                  : "border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 bg-white"
               }`}
             >
               {tab}
@@ -259,39 +261,56 @@ export function MediaSidebar({
         })}
       </div>
 
-      {/* ── 3. TAB CONTENT LIST ───────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto space-y-2 mt-2 pr-1 custom-scrollbar">
+      {/* ── 3. CHAPTERS LIST (WITH SLEEK THUMBNAIL BADGES) ────────────────── */}
+      <div className="flex-1 overflow-y-auto space-y-2 mt-1 pr-1 custom-scrollbar">
         {activeTab === "Chapters" && (
-          <div className="divide-y divide-slate-100">
-            {chapters.map((chapter) => (
-              <div
-                key={chapter.id}
-                onClick={() => onSeek(chapter.timestampSeconds)}
-                className="flex items-center justify-between py-3 px-2 rounded-lg hover:bg-slate-50/80 transition-colors cursor-pointer group"
-              >
-                {/* Left: Timestamp pill + Chapter Title */}
-                <div className="flex items-start gap-2.5 min-w-0 pr-3">
-                  <span className="mt-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium font-mono px-2 py-0.5 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors shrink-0 border border-slate-200/70">
-                    {formatDurationStr(chapter.timestampSeconds)}
-                  </span>
-                  <p className="text-xs font-semibold text-slate-800 line-clamp-2 leading-relaxed group-hover:text-indigo-950 transition-colors">
-                    {chapter.title}
-                  </p>
-                </div>
-
-                {/* Right: Video Thumbnail with duration badge */}
-                <div className="aspect-video w-24 rounded-md bg-slate-200 relative overflow-hidden shrink-0 border border-slate-200/80 shadow-2xs">
-                  <div className="w-full h-full bg-gradient-to-br from-stone-700 via-slate-800 to-indigo-950 flex items-center justify-center">
-                    <span className="text-xs select-none filter drop-shadow">
-                      👩
+          <div className="space-y-2">
+            {chapters.map((chapter, idx) => {
+              const isActiveChapter = idx === 0;
+              return (
+                <div
+                  key={chapter.id}
+                  onClick={() => onSeek(chapter.timestampSeconds)}
+                  className={`flex items-center justify-between p-2.5 rounded-lg transition-colors cursor-pointer group ${
+                    isActiveChapter
+                      ? "border-l-2 border-indigo-600 bg-slate-50/60 pl-3"
+                      : "hover:bg-slate-50/80"
+                  }`}
+                >
+                  {/* Left: Timestamp pill + Chapter Title */}
+                  <div className="flex items-start gap-2.5 min-w-0 pr-3">
+                    <span
+                      className={`font-mono text-[11px] px-2 py-0.5 rounded font-medium shrink-0 ${
+                        isActiveChapter
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-100 text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors"
+                      }`}
+                    >
+                      {formatDurationStr(chapter.timestampSeconds)}
                     </span>
+                    <p
+                      className={`text-sm font-semibold line-clamp-2 leading-relaxed transition-colors ${
+                        isActiveChapter
+                          ? "text-indigo-700"
+                          : "text-slate-800 group-hover:text-indigo-600"
+                      }`}
+                    >
+                      {chapter.title}
+                    </p>
                   </div>
-                  <span className="bg-black/70 text-white text-[10px] px-1 rounded bottom-1 right-1 absolute font-mono flex items-center gap-0.5">
-                    ▶ {chapter.durationStr}
-                  </span>
+
+                  {/* Right: Thumbnail with sleek absolute duration badge */}
+                  <div className="w-24 aspect-video bg-slate-200 rounded-md relative shrink-0 overflow-hidden">
+                    <div className="w-full h-full bg-gradient-to-br from-stone-700 via-slate-800 to-indigo-950 flex items-center justify-center">
+                      <span className="text-base select-none filter drop-shadow">👩‍💼</span>
+                    </div>
+                    <div className="absolute bottom-1 right-1 bg-black/80 text-white text-[9px] font-medium px-1.5 py-0.5 rounded backdrop-blur-sm">
+                      {chapter.durationStr}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -308,7 +327,7 @@ export function MediaSidebar({
               <button
                 type="button"
                 onClick={() => onSeek(363)}
-                className="mt-1 text-[11px] font-semibold text-indigo-600 hover:underline"
+                className="mt-1 text-[11px] font-semibold text-indigo-600 hover:underline cursor-pointer"
               >
                 Jump to 6:03 →
               </button>
@@ -317,28 +336,20 @@ export function MediaSidebar({
         )}
 
         {activeTab === "Speakers" && (
-          <div className="p-2 space-y-2.5">
+          <div className="p-3 space-y-3">
             {[
-              { name: "Alison Barker", role: "Host / Product Lead", talkTime: "62%" },
-              { name: "Kelcey Hawthorne", role: "Solutions Architect", talkTime: "28%" },
-              { name: "Eliab Sisay", role: "Enterprise Integrations", talkTime: "10%" }
-            ].map((spk, idx) => (
-              <div
-                key={idx}
-                className="flex items-center justify-between p-2.5 bg-white border border-slate-200 rounded-lg text-xs"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px]">
-                    {spk.name.charAt(0)}
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-900">{spk.name}</div>
-                    <div className="text-[11px] text-slate-500">{spk.role}</div>
-                  </div>
+              { name: "Alison Barker", role: "Meeting Host", duration: "5m 24s", percent: 62 },
+              { name: "Eliab Sisay", role: "CRM Lead", duration: "1m 45s", percent: 20 },
+              { name: "Kelcey Hawthorne", role: "Compliance", duration: "1m 40s", percent: 18 }
+            ].map((speaker, idx) => (
+              <div key={idx} className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-semibold text-slate-900">{speaker.name}</span>
+                  <span className="text-slate-500 font-mono text-[11px]">{speaker.duration}</span>
                 </div>
-                <span className="font-mono text-xs font-semibold text-indigo-600">
-                  {spk.talkTime}
-                </span>
+                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                  <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${speaker.percent}%` }} />
+                </div>
               </div>
             ))}
           </div>

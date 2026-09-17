@@ -6,15 +6,11 @@ import {
   Copy,
   Layers,
   ChevronDown,
-  CheckCircle2,
   Lock,
   Edit3,
-  TrendingUp,
-  Sparkles,
   Check
 } from "lucide-react";
 import { MeetingIntelligence, Metric } from "./types";
-import { ResponsiveContainer, LineChart, Line } from "recharts";
 
 interface IntelligenceFeedProps {
   intelligence: MeetingIntelligence;
@@ -28,54 +24,69 @@ function formatTime(seconds: number): string {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
-// Minimal Sparkline Card for Metrics
+const WAVE_MEETING_SCORE = {
+  stroke: "M 0,22 C 30,24 60,18 90,14 C 120,10 150,18 180,12 C 190,10 195,11 200,8",
+  fill: "M 0,22 C 30,24 60,18 90,14 C 120,10 150,18 180,12 C 190,10 195,11 200,8 L 200,40 L 0,40 Z"
+};
+
+const WAVE_ENGAGEMENT = {
+  stroke: "M 0,26 C 25,28 55,20 85,22 C 115,24 145,12 175,15 C 185,16 195,14 200,10",
+  fill: "M 0,26 C 25,28 55,20 85,22 C 115,24 145,12 175,15 C 185,16 195,14 200,10 L 200,40 L 0,40 Z"
+};
+
+const WAVE_SENTIMENT = {
+  stroke: "M 0,24 C 30,22 60,25 90,18 C 120,11 150,20 180,14 C 190,12 195,13 200,9",
+  fill: "M 0,24 C 30,22 60,25 90,18 C 120,11 150,20 180,14 C 190,12 195,13 200,9 L 200,40 L 0,40 Z"
+};
+
 function MetricCard({
   metric,
-  color = "#4f46e5"
+  color,
+  gradientId,
+  wave
 }: {
   metric: Metric;
-  color?: string;
+  color: string;
+  gradientId: string;
+  wave: { stroke: string; fill: string };
 }) {
-  const data = metric.trend.map((val, idx) => ({ index: idx, value: val }));
-
   return (
-    <div className="bg-white border border-slate-200/80 rounded-xl p-4 shadow-xs flex items-center justify-between hover:border-slate-300 transition-colors">
-      <div className="space-y-1">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-          {metric.label}
-        </div>
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-bold text-slate-900 tracking-tight">
-            {metric.score}
-          </span>
-          <span
-            className={`text-[11px] font-semibold px-1.5 py-0.5 rounded-full ${
-              metric.status === "GOOD"
-                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                : metric.status === "WARNING"
-                ? "bg-amber-50 text-amber-700 border border-amber-200"
-                : "bg-slate-100 text-slate-600 border border-slate-200"
-            }`}
-          >
-            {metric.status}
-          </span>
-        </div>
+    <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col justify-between shadow-sm hover:border-slate-300 transition-colors">
+      {/* Top Row: Title */}
+      <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+        {metric.label}
       </div>
 
-      {/* Sparkline Visual */}
-      <div className="w-20 h-9">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data}>
-            <Line
-              type="monotone"
-              dataKey="value"
-              stroke={color}
-              strokeWidth={2}
-              dot={false}
-              isAnimationActive={false}
-            />
-          </LineChart>
-        </ResponsiveContainer>
+      {/* Value Row: Large Number + Status Pill */}
+      <div className="flex items-baseline gap-2 mt-2">
+        <span className="text-2xl font-bold text-slate-900 tracking-tight">
+          {metric.score}
+        </span>
+        <span
+          className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+            metric.status === "GOOD"
+              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+              : metric.status === "WARNING"
+              ? "bg-amber-50 text-amber-700 border border-amber-200"
+              : "bg-slate-100 text-slate-600 border border-slate-200"
+          }`}
+        >
+          {metric.status}
+        </span>
+      </div>
+
+      {/* SVG Wave Chart with Soft Gradient Fill */}
+      <div className="mt-3 h-8 w-full overflow-hidden">
+        <svg viewBox="0 0 200 40" className="w-full h-full" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.0" />
+            </linearGradient>
+          </defs>
+          <path d={wave.fill} fill={`url(#${gradientId})`} />
+          <path d={wave.stroke} fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" />
+        </svg>
       </div>
     </div>
   );
@@ -99,7 +110,7 @@ Meeting: ${intelligence.title}
 Date: ${intelligence.date} (${intelligence.timeRange})
 Source: ${intelligence.source}
 
-EXECUTIVE SUMMARY:
+SUMMARY:
 ${intelligence.summary}
 
 ACTION ITEMS:
@@ -116,7 +127,6 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
     }
   };
 
-  // Filter discussion points by search query
   const filteredDiscussionPoints = intelligence.discussionPoints.filter(
     (dp) =>
       dp.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -124,9 +134,9 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
   );
 
   return (
-    <div className="w-full space-y-7 pb-16">
+    <div className="w-full pb-16">
       {/* ── 1. SEARCH & TEMPLATE CONTROLS ROW ─────────────────────────────── */}
-      <div className="flex items-center justify-between gap-4 pt-4">
+      <div className="flex items-center justify-between gap-4 pt-4 mb-6">
         {/* Search Recap Input */}
         <div className="relative w-72">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -191,55 +201,57 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
         </div>
       </div>
 
-      {/* ── 2. METRICS ROW (REPORT SCORE, ENGAGEMENT, SENTIMENT) ───────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <MetricCard metric={intelligence.metrics.report} color="#4f46e5" />
-        <MetricCard metric={intelligence.metrics.engagement} color="#059669" />
-        <MetricCard metric={intelligence.metrics.sentiment} color="#0284c7" />
+      {/* ── 2. METRIC CARDS (LEFT COLUMN) ─────────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <MetricCard
+          metric={intelligence.metrics.report}
+          color="#5345dc"
+          gradientId="grad-score"
+          wave={WAVE_MEETING_SCORE}
+        />
+        <MetricCard
+          metric={intelligence.metrics.engagement}
+          color="#059669"
+          gradientId="grad-engagement"
+          wave={WAVE_ENGAGEMENT}
+        />
+        <MetricCard
+          metric={intelligence.metrics.sentiment}
+          color="#0284c7"
+          gradientId="grad-sentiment"
+          wave={WAVE_SENTIMENT}
+        />
       </div>
 
-      {/* ── 3. EXECUTIVE SUMMARY ──────────────────────────────────────────── */}
-      <section className="space-y-3">
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-indigo-600" />
-          <span>Executive Summary</span>
+      {/* ── 3. EXECUTIVE SUMMARY SECTION ─────────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="text-lg font-bold text-slate-900 mt-10 mb-4 pb-2 border-b border-slate-100">
+          Executive Summary
         </h2>
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-          <p className="text-slate-700 text-sm leading-relaxed font-normal">
-            {intelligence.summary}
-          </p>
-        </div>
+        <p className="text-sm text-slate-700 leading-relaxed font-normal">
+          {intelligence.summary}
+        </p>
       </section>
 
-      {/* ── 4. ACTION ITEMS (PHASE 15 & 16 ACTION RESOLUTION) ─────────────── */}
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>Action Items</span>
-            <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full">
-              {intelligence.actionItems.length}
-            </span>
-          </h2>
-        </div>
+      {/* ── 4. ACTION ITEMS (FIXING THE FLEX) ─────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="text-lg font-bold text-slate-900 mt-10 mb-4 pb-2 border-b border-slate-100">
+          Action Items
+        </h2>
 
-        <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 shadow-xs overflow-hidden">
+        <div>
           {intelligence.actionItems.map((action) => (
             <div
               key={action.id}
-              className="p-3.5 flex items-start gap-3 hover:bg-slate-50/70 transition-colors group"
+              className="flex items-start gap-4 mb-5 group cursor-pointer"
+              onClick={() => onSeek(action.timestampSeconds)}
             >
-              {/* Clickable Seeking Pill (Phase 13 Canonical Timestamp) */}
-              <button
-                type="button"
-                onClick={() => onSeek(action.timestampSeconds)}
-                className="mt-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium font-mono px-2 py-0.5 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors shrink-0"
-                title={`Jump to ${formatTime(action.timestampSeconds)}`}
-              >
-                {formatTime(action.timestampSeconds)}
-              </button>
-
-              <div className="flex-1 text-sm text-slate-700 leading-snug">
+              <div className="shrink-0 mt-0.5">
+                <span className="bg-slate-100 text-slate-600 font-mono text-[11px] px-2 py-1 rounded-md font-medium group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors">
+                  {formatTime(action.timestampSeconds)}
+                </span>
+              </div>
+              <div className="flex-1 text-sm text-slate-700 leading-relaxed">
                 <span className="font-semibold text-slate-900 mr-1.5">
                   {action.owner}:
                 </span>
@@ -250,98 +262,90 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
         </div>
       </section>
 
-      {/* ── 5. KEY DISCUSSION POINTS (PHASE 15 MAPPING) ───────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+      {/* ── 5. KEY DISCUSSION POINTS ──────────────────────────────────────── */}
+      <section className="mb-8">
+        <h2 className="text-lg font-bold text-slate-900 mt-10 mb-4 pb-2 border-b border-slate-100">
           Key Discussion Points
         </h2>
 
-        <div className="space-y-4">
+        <div className="space-y-6">
           {filteredDiscussionPoints.map((point) => (
-            <article
-              key={point.id}
-              className="flex flex-col gap-2 group p-3.5 -mx-3.5 rounded-xl hover:bg-slate-50/70 transition-colors mb-2"
-            >
-              {/* Timestamp + Topic Header */}
-              <div className="flex items-center gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => onSeek(point.timestampSeconds)}
-                  className="rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium font-mono px-2 py-0.5 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors shrink-0"
-                  title={`Jump to ${formatTime(point.timestampSeconds)}`}
-                >
-                  {formatTime(point.timestampSeconds)}
-                </button>
-
-                <h3 className="text-sm font-semibold text-slate-900 tracking-tight group-hover:text-indigo-950 transition-colors">
+            <div key={point.id} className="flex flex-col gap-2 mb-6 group">
+              <div className="flex items-center gap-3">
+                <div className="shrink-0">
+                  <span
+                    onClick={() => onSeek(point.timestampSeconds)}
+                    className="bg-slate-100 text-slate-600 font-mono text-[11px] px-2 py-1 rounded-md font-medium cursor-pointer group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors"
+                  >
+                    {formatTime(point.timestampSeconds)}
+                  </span>
+                </div>
+                <h3 className="text-sm font-semibold text-slate-900 tracking-tight">
                   {point.title}
                 </h3>
               </div>
-
-              {/* Discussion Narrative Body */}
-              <p className="text-sm text-slate-600 leading-relaxed font-normal">
+              <p className="text-sm text-slate-600 leading-relaxed pl-1 font-normal">
                 {point.summary}
               </p>
-            </article>
+            </div>
           ))}
         </div>
       </section>
 
       {/* ── 6. YOUR NOTES ─────────────────────────────────────────────────── */}
-      <section className="space-y-3 pt-2 pb-12">
-        <div className="flex items-center gap-2">
-          <h2 className="text-lg font-bold text-slate-900 tracking-tight">
-            Your Notes
-          </h2>
-          <div className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
-            <Lock className="w-3 h-3 text-slate-400" />
-            <span>Private to you</span>
+      <section className="pt-2 pb-8">
+        <div className="flex items-center justify-between pb-2 mb-4 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+              Your Notes
+            </h2>
+            <div className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+              <Lock className="w-3 h-3 text-slate-400" />
+              <span>Private to you</span>
+            </div>
           </div>
-          <span className="text-[11px] font-medium text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
-            Edited
-          </span>
+          <button
+            type="button"
+            onClick={() => setIsEditingNote(!isEditingNote)}
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 cursor-pointer"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>{isEditingNote ? "Done" : "Edit Notes"}</span>
+          </button>
         </div>
 
-        <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
-          {isEditingNote ? (
-            <div className="space-y-2">
-              <textarea
-                value={noteContent}
-                onChange={(e) => setNoteContent(e.target.value)}
-                placeholder="Type your personal notes here..."
-                rows={3}
-                className="w-full p-2.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800"
-                autoFocus
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsEditingNote(false)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-md"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsEditingNote(false)}
-                  className="px-3 py-1.5 text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 rounded-md"
-                >
-                  Save Note
-                </button>
-              </div>
+        {isEditingNote ? (
+          <div className="space-y-2">
+            <textarea
+              value={noteContent}
+              onChange={(e) => setNoteContent(e.target.value)}
+              placeholder="Type your personal notes here..."
+              rows={4}
+              className="w-full p-3 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-800 bg-white shadow-2xs"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsEditingNote(false)}
+                className="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-md shadow-xs transition-colors"
+              >
+                Save Notes
+              </button>
             </div>
-          ) : (
-            <div
-              onClick={() => setIsEditingNote(true)}
-              className="text-sm text-slate-500 cursor-pointer hover:text-slate-700 flex items-center justify-between"
-            >
-              <span>
-                {noteContent.trim() ? noteContent : "You did not take any notes in this meeting"}
+          </div>
+        ) : (
+          <div
+            onClick={() => setIsEditingNote(true)}
+            className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-lg text-sm text-slate-600 cursor-pointer hover:bg-slate-100/70 transition-colors"
+          >
+            {noteContent || (
+              <span className="text-slate-400 italic">
+                Click here to add private notes about this meeting...
               </span>
-              <Edit3 className="w-3.5 h-3.5 text-slate-400 hover:text-indigo-600" />
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </section>
     </div>
   );

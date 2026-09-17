@@ -220,7 +220,7 @@ function MeetingRow({ meeting }: { meeting: Meeting }) {
 
   return (
     <Link
-      href={`/meetings/${meeting.id}`}
+      href={`/meetings/${meeting.id}/recap`}
       className="flex items-center gap-3 p-2.5 rounded-[var(--radius-sm)] hover:bg-[var(--surface-2)] transition-colors group"
     >
       <div className="w-8 h-8 rounded-[var(--radius-sm)] bg-[var(--primary-muted)] flex items-center justify-center shrink-0">

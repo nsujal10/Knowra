@@ -10,6 +10,8 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  // Disable development indicators overlay
+  devIndicators: false,
   // Enable React strict mode for better DX
   reactStrictMode: true,
 };

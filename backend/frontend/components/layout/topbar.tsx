@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { usePathname } from "next/navigation";
 import { Bell, Search } from "lucide-react";
@@ -34,19 +34,15 @@ export function Topbar() {
 
   return (
     <header
-      className="fixed top-0 left-64 right-0 h-14 z-30 flex items-center justify-between px-6"
-      style={{
-        background: "linear-gradient(to bottom, var(--surface-1), rgba(17,19,24,0.95))",
-        backdropFilter: "blur(12px)",
-        borderBottom: "1px solid var(--border)",
-      }}
+      className="fixed top-0 right-0 h-14 z-30 flex items-center justify-between px-8 bg-white/95 backdrop-blur-md border-b border-slate-200 transition-[left] duration-200 ease-in-out"
+      style={{ left: "var(--sidebar-current)" }}
     >
       {/* Page Title - only show for top-level pages */}
       <div>
         {title && (
-          <h1 className="text-base font-semibold text-[var(--foreground)] tracking-tight">
+          <span className="text-[15px] font-semibold text-[var(--foreground)] tracking-tight">
             {title}
-          </h1>
+          </span>
         )}
       </div>
 

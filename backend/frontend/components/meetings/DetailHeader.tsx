@@ -43,30 +43,30 @@ export function DetailHeader({
   };
 
   return (
-    <header className="w-full bg-white border-b border-slate-200 pb-0">
+    <header className="w-full bg-white pb-0">
       {/* ── TOP ROW: BACK + TITLE + FOLDER & ACTIONS ──────────────────────── */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 py-4 px-1">
         {/* Left: Back Arrow + Title + Folder Pill */}
-        <div className="flex items-center gap-3 min-w-0 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
           <Link
             href="/meetings"
-            className="p-1 rounded-md text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors shrink-0 cursor-pointer"
-            title="Back to all meetings"
+            className="text-slate-600 hover:text-slate-900 transition-colors shrink-0 cursor-pointer"
+            title="Back to all reports"
           >
-            <ChevronLeft className="w-6 h-6" />
+            <ChevronLeft className="w-6 h-6 stroke-[2.2]" />
           </Link>
 
           <h1 className="text-xl md:text-2xl font-bold text-slate-900 tracking-tight truncate max-w-[700px]">
             {meeting.title}
           </h1>
 
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-xs font-medium bg-slate-100 border border-slate-200 text-slate-600 shrink-0 cursor-pointer hover:bg-slate-200/70 transition-colors">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100/90 border border-slate-200 text-slate-600 shrink-0 cursor-pointer hover:bg-slate-200/70 transition-colors">
             <Folder className="w-3.5 h-3.5 text-slate-500" />
             <span>{folderName}</span>
           </div>
         </div>
 
-        {/* Right: Action Buttons (Standard H-9, Rounded-MD) */}
+        {/* Right: Action Buttons (Standard H-9, Rounded-LG) */}
         <div className="flex items-center gap-2.5 shrink-0">
           <button
             type="button"
@@ -79,7 +79,7 @@ export function DetailHeader({
               a.click();
               URL.revokeObjectURL(url);
             }}
-            className="h-9 px-3.5 rounded-md text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="h-9 px-3.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             <Download className="w-4 h-4 text-slate-500" />
             <span>Download</span>
@@ -89,7 +89,7 @@ export function DetailHeader({
             <button
               type="button"
               onClick={() => setShowPushDropdown(!showPushDropdown)}
-              className="h-9 px-3.5 rounded-md text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="h-9 px-3.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Send className="w-3.5 h-3.5 text-slate-500" />
               <span>Push to...</span>
@@ -138,7 +138,7 @@ export function DetailHeader({
           <button
             type="button"
             onClick={handleShare}
-            className="h-9 px-4 rounded-md text-sm font-medium bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 transition-colors cursor-pointer"
+            className="h-9 px-3.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
           >
             {isCopied ? (
               <>
@@ -157,21 +157,21 @@ export function DetailHeader({
 
       {/* ── META ROW: DATE • TIME • SOURCE • PARTICIPANTS ─────────────────── */}
       <div className="flex items-center gap-2 text-xs md:text-sm text-slate-500 flex-wrap px-1 pt-0.5 pb-4 select-none">
-        <span className="flex items-center gap-1 text-slate-600 font-medium">
+        <span className="flex items-center gap-1.5 text-slate-600 font-medium">
           <Calendar className="w-3.5 h-3.5 text-slate-400" />
           {meeting.date}
         </span>
 
         <span className="text-slate-300">•</span>
 
-        <span className="flex items-center gap-1 text-slate-600">
+        <span className="flex items-center gap-1.5 text-slate-600">
           <Clock className="w-3.5 h-3.5 text-slate-400" />
           {meeting.timeRange}
         </span>
 
         <span className="text-slate-300">•</span>
 
-        <span className="flex items-center gap-1 text-slate-600">
+        <span className="flex items-center gap-1.5 text-slate-600">
           <Video className="w-3.5 h-3.5 text-slate-400" />
           {meeting.source}
         </span>
@@ -183,7 +183,7 @@ export function DetailHeader({
           <button
             type="button"
             onClick={() => setShowParticipantsDropdown(!showParticipantsDropdown)}
-            className="flex items-center gap-1 text-slate-600 hover:text-slate-900 cursor-pointer font-medium"
+            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 cursor-pointer font-medium"
           >
             <Users className="w-3.5 h-3.5 text-slate-400" />
             <span>
@@ -221,7 +221,7 @@ export function DetailHeader({
       </div>
 
       {/* ── TABS ROW: RECAP • TRANSCRIPT • DEEP DIVE ──────────────────────── */}
-      <nav className="flex items-center gap-8 px-1 -mb-px">
+      <nav className="flex items-center gap-2 px-1 border-b border-slate-200 w-full">
         {(["Recap", "Transcript", "Deep Dive"] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (
@@ -229,10 +229,10 @@ export function DetailHeader({
               key={tab}
               type="button"
               onClick={() => onTabChange(tab)}
-              className={`pb-2.5 text-sm font-medium transition-colors cursor-pointer relative ${
+              className={`px-6 py-2.5 text-sm font-medium transition-all cursor-pointer relative ${
                 isActive
-                  ? "border-b-2 border-indigo-600 text-indigo-700 font-semibold"
-                  : "border-b-2 border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300"
+                  ? "rounded-t-lg bg-[#f0edff] text-[#5345dc] font-semibold border-b-2 border-[#5345dc] -mb-[1px]"
+                  : "text-slate-500 hover:text-slate-800 bg-transparent border-b-2 border-transparent"
               }`}
             >
               {tab}

@@ -45,9 +45,30 @@ def _get_service(
     return CanonicalTranscriptService(db=db, tenant_id=tenant_ctx.tenant_id)
 
 
+from pydantic import BaseModel, Field
+from app.models.media_asset import MediaAsset
+from app.models.processing_job import ProcessingJob
+
+class SpeakerContract(BaseModel):
+    id: str
+    label: str
+    displayName: Optional[str] = None
+
+class SegmentContract(BaseModel):
+    id: str
+    start: float
+    end: float
+    speaker: SpeakerContract
+    text: str
+
+class TranscriptContractResponse(BaseModel):
+    transcriptId: Optional[str] = None
+    status: str # 'READY' | 'PROCESSING' | 'FAILED' | 'UNPROCESSED'
+    segments: List[SegmentContract] = Field(default_factory=list)
+
 @router.get(
     "/meetings/{meeting_id}/transcript",
-    response_model=CanonicalTranscript,
+    response_model=TranscriptContractResponse,
     summary="Get canonical transcript",
     tags=["Transcript"],
 )
@@ -58,19 +79,72 @@ def get_canonical_transcript(
         ge=1,
         description="Specific version number to retrieve. Omit for latest.",
     ),
+    db: Session = Depends(get_tenant_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
     service: CanonicalTranscriptService = Depends(_get_service),
-) -> CanonicalTranscript:
+) -> TranscriptContractResponse:
     """
-    Return the canonical transcript for a meeting.
-
-    - Omit `version` to receive the current live view (built from DB rows).
-    - Pass `?version=1` to retrieve the original AI-generated snapshot.
-    - Pass `?version=N` for any human-edited version.
+    Return the canonical speaker-diarized transcript for a meeting.
+    Returns status: READY, PROCESSING, FAILED, or UNPROCESSED.
     """
     try:
-        return service.get_canonical(meeting_id=meeting_id, version_number=version)
-    except TranscriptNotFoundError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+        canonical = service.get_canonical(meeting_id=meeting_id, version_number=version)
+        segments_payload = [
+            SegmentContract(
+                id=str(seg.id),
+                start=round(seg.start_seconds, 2),
+                end=round(seg.end_seconds, 2),
+                speaker=SpeakerContract(
+                    id=str(seg.speaker_id or seg.speaker_label or f"SPEAKER_{seg.sequence_number:02d}"),
+                    label=seg.speaker_label or f"SPEAKER_{seg.sequence_number:02d}",
+                    displayName=seg.speaker_display_name,
+                ),
+                text=seg.text,
+            )
+            for seg in canonical.segments
+        ]
+        return TranscriptContractResponse(
+            transcriptId=str(canonical.id),
+            status="READY",
+            segments=segments_payload,
+        )
+    except TranscriptNotFoundError:
+        # Check if an active processing job is running or failed
+        media = db.query(MediaAsset).filter(
+            MediaAsset.meeting_id == meeting_id,
+            MediaAsset.tenant_id == tenant_ctx.tenant_id,
+        ).first()
+
+        if media:
+            job = (
+                db.query(ProcessingJob)
+                .filter(
+                    ProcessingJob.media_asset_id == media.id,
+                    ProcessingJob.tenant_id == tenant_ctx.tenant_id,
+                    ProcessingJob.task_name == "TRANSCRIPTION",
+                )
+                .order_by(ProcessingJob.created_at.desc())
+                .first()
+            )
+            if job:
+                if job.status in ["PENDING", "PROCESSING", "IN_PROGRESS"]:
+                    return TranscriptContractResponse(
+                        transcriptId=None,
+                        status="PROCESSING",
+                        segments=[],
+                    )
+                elif job.status == "FAILED":
+                    return TranscriptContractResponse(
+                        transcriptId=None,
+                        status="FAILED",
+                        segments=[],
+                    )
+
+        return TranscriptContractResponse(
+            transcriptId=None,
+            status="UNPROCESSED",
+            segments=[],
+        )
 
 
 @router.post(

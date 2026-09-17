@@ -16,6 +16,7 @@ from app.workers.transcription_worker import execute_transcription_task
 router = APIRouter()
 
 @router.post("/meetings/{meeting_id}/transcription", status_code=status.HTTP_202_ACCEPTED)
+@router.post("/meetings/{meeting_id}/transcribe", status_code=status.HTTP_202_ACCEPTED)
 def queue_transcription(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
     media = db.query(MediaAsset).filter(MediaAsset.meeting_id == meeting_id, MediaAsset.tenant_id == tenant_ctx.tenant_id).first()
     if not media:
@@ -31,7 +32,12 @@ def queue_transcription(meeting_id: UUID, db: Session = Depends(get_tenant_db), 
     db.commit()
     
     execute_transcription_task.delay(str(job.id), str(tenant_ctx.tenant_id), str(media.id))
-    return {"message": "Transcription job queued", "job_id": str(job.id)}
+    return {
+        "status": "PROCESSING",
+        "run_id": str(job.id),
+        "job_id": str(job.id),
+        "message": "Transcription job queued",
+    }
 
 @router.get("/meetings/{meeting_id}/transcription")
 def get_transcription_status(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):

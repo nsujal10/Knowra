@@ -7,6 +7,7 @@ import { DetailHeader } from "@/components/meetings/DetailHeader";
 import { IntelligenceFeed } from "@/components/meetings/IntelligenceFeed";
 import { MediaSidebar } from "@/components/meetings/MediaSidebar";
 import { RagChatDrawer } from "@/components/meetings/RagChatDrawer";
+import { TranscriptTab } from "@/components/meetings/TranscriptTab";
 import { api } from "@/lib/api/client";
 
 // ============================================================================
@@ -218,16 +219,24 @@ export default function MeetingDetailPage() {
         />
       </div>
 
-      {/* ── 2. TWO-COLUMN RESPONSIVE LAYOUT (RECAP VIEW) ─────────────────── */}
-      {activeTab === "Recap" && (
+      {/* ── 2. TWO-COLUMN RESPONSIVE LAYOUT (RECAP & TRANSCRIPT VIEWS) ───── */}
+      {(activeTab === "Recap" || activeTab === "Transcript") && (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 lg:gap-8 overflow-hidden pt-3">
-          {/* LEFT COLUMN: LLM-EXTRACTED INTELLIGENCE FEED (SCROLLABLE) */}
+          {/* LEFT COLUMN: SCROLLABLE FEED */}
           <div className="flex-1 h-full min-w-0 overflow-y-auto pr-6 lg:pr-8 custom-scrollbar">
-            <IntelligenceFeed
-              intelligence={meetingData}
-              onSeek={handleSeek}
-              activeTimestamp={currentTime}
-            />
+            {activeTab === "Recap" ? (
+              <IntelligenceFeed
+                intelligence={meetingData}
+                onSeek={handleSeek}
+                activeTimestamp={currentTime}
+              />
+            ) : (
+              <TranscriptTab
+                meetingId={meetingId}
+                onTimeClick={handleSeek}
+                activeTimestamp={currentTime}
+              />
+            )}
           </div>
 
           {/* RIGHT COLUMN: STICKY MEDIA PLAYER & CHAPTERS (STICKY) */}
@@ -241,23 +250,6 @@ export default function MeetingDetailPage() {
               onTogglePlay={handleTogglePlay}
             />
           </div>
-        </div>
-      )}
-
-      {/* ── 3. TRANSCRIPT VIEW TAB ───────────────────────────────────────── */}
-      {activeTab === "Transcript" && (
-        <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-xl border border-slate-200 mt-4">
-          <p className="font-semibold text-slate-700">Canonical Speaker-Diarized Transcript</p>
-          <p className="text-xs text-slate-500 mt-1">
-            Audio transcript is synchronized with the video player. Click any timestamp to seek.
-          </p>
-          <button
-            type="button"
-            onClick={() => setActiveTab("Recap")}
-            className="mt-4 px-4 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
-          >
-            Switch to Recap View
-          </button>
         </div>
       )}
 

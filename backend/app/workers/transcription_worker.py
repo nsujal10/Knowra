@@ -69,19 +69,39 @@ def execute_transcription_task(self, job_id: str, tenant_id: str, media_id: str)
             MediaArtifact.tenant_id == UUID(tenant_id)
         ).first()
         
-        if not artifact:
-            raise ValueError("Canonical NORMALIZED_AUDIO artifact not found.")
-
-        # Download Audio
+        # Download or extract Audio
         os.makedirs(workspace_dir, exist_ok=True)
         local_audio_path = os.path.join(workspace_dir, "audio.wav")
-        download_success = storage.download_file(
-            "knowra-derived",
-            artifact.storage_key,
-            local_audio_path,
-        )
-        if not download_success or not os.path.exists(local_audio_path):
-            raise RuntimeError(f"Failed to download audio artifact: {artifact.storage_key}")
+
+        if artifact:
+            download_success = storage.download_file(
+                "knowra-derived",
+                artifact.storage_key,
+                local_audio_path,
+            )
+            if not download_success or not os.path.exists(local_audio_path):
+                raise RuntimeError(f"Failed to download audio artifact: {artifact.storage_key}")
+        elif media.storage_key:
+            log.info("NORMALIZED_AUDIO not found, normalizing from raw media on-the-fly")
+            local_raw_path = os.path.join(workspace_dir, "source_media")
+            storage.download_file("knowra-raw", media.storage_key, local_raw_path)
+            from app.media.audio.normalizer import normalize_to_canonical
+            from app.storage.service import StorageService
+            norm_meta = normalize_to_canonical(local_raw_path, local_audio_path)
+            derived_key = StorageService.generate_derived_key(UUID(tenant_id), media.meeting_id, media.id, "16khz_mono", "wav")
+            storage.upload_file("knowra-derived", derived_key, local_audio_path, "audio/wav")
+            artifact = MediaArtifact(
+                tenant_id=media.tenant_id,
+                media_asset_id=media.id,
+                artifact_type=ArtifactType.NORMALIZED_AUDIO,
+                storage_key=derived_key,
+                byte_size=norm_meta["byte_size"],
+                checksum_sha256=norm_meta["checksum_sha256"],
+            )
+            db.add(artifact)
+            db.commit()
+        else:
+            raise ValueError("Neither canonical NORMALIZED_AUDIO nor raw media found.")
         
         # Execute Transcription via Provider Abstraction
         provider = get_transcription_provider()
@@ -91,6 +111,21 @@ def execute_transcription_task(self, job_id: str, tenant_id: str, media_id: str)
         # Save to DB & MinIO
         svc = TranscriptionService(db, UUID(tenant_id))
         svc.save_transcription(media.meeting_id, UUID(media_id), result)
+
+        # Trigger Diarization so speaker attribution happens
+        try:
+            from app.workers.diarization_worker import execute_diarization_task
+            diar_job = ProcessingJob(
+                tenant_id=UUID(tenant_id),
+                media_asset_id=UUID(media_id),
+                task_name="DIARIZATION",
+                status="PENDING"
+            )
+            db.add(diar_job)
+            db.commit()
+            execute_diarization_task.delay(str(diar_job.id), str(tenant_id), str(media_id))
+        except Exception as diar_err:
+            log.warning("Could not queue diarization task", error=str(diar_err))
         
         # Calculate RTF (Real-Time Factor)
         processing_time = time.time() - start_time

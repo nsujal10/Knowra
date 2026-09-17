@@ -111,6 +111,14 @@ class MeetingIntelligenceService:
             self.db.query(Risk).filter(Risk.intelligence_run_id == run.id).delete()
             self.db.query(Question).filter(Question.intelligence_run_id == run.id).delete()
             self.db.query(Commitment).filter(Commitment.intelligence_run_id == run.id).delete()
+            try:
+                from app.actions.models import ActionItem, ActionItemEvidence
+                action_ids = [a[0] for a in self.db.query(ActionItem.id).filter(ActionItem.meeting_id == meeting_id).all()]
+                if action_ids:
+                    self.db.query(ActionItemEvidence).filter(ActionItemEvidence.action_item_id.in_(action_ids)).delete(synchronize_session=False)
+                    self.db.query(ActionItem).filter(ActionItem.id.in_(action_ids)).delete(synchronize_session=False)
+            except Exception as clean_err:
+                logger.warning("Could not clean old action items", error=str(clean_err))
         else:
             run = IntelligenceRun(
                 tenant_id=self.tenant_id,

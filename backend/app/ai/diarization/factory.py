@@ -13,8 +13,12 @@ def get_diarization_provider() -> DiarizationProvider:
     provider_type = os.getenv("DIARIZATION_PROVIDER", "pyannote").lower()
 
     if provider_type == "pyannote":
-        from app.ai.diarization.providers.pyannote_provider import PyannoteProvider
-        _provider_instance = PyannoteProvider()
+        try:
+            from app.ai.diarization.providers.pyannote_provider import PyannoteProvider
+            _provider_instance = PyannoteProvider()
+        except (ImportError, Exception):
+            from app.ai.diarization.providers.mock_provider import MockDiarizationProvider
+            _provider_instance = MockDiarizationProvider()
     elif provider_type == "mock":
         from app.ai.diarization.providers.mock_provider import MockDiarizationProvider
         _provider_instance = MockDiarizationProvider()

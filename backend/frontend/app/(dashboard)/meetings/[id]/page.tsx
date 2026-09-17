@@ -226,7 +226,7 @@ export default function MeetingDetailPage() {
           <div className="flex-1 h-full min-w-0 overflow-y-auto pr-6 lg:pr-8 custom-scrollbar">
             {activeTab === "Recap" ? (
               <IntelligenceFeed
-                intelligence={meetingData}
+                meetingId={meetingId}
                 onSeek={handleSeek}
                 activeTimestamp={currentTime}
               />

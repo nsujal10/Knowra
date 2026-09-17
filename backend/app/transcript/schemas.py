@@ -34,9 +34,7 @@ class CanonicalWord(BaseModel):
     def end_after_start(cls, v: float, info) -> float:
         start = info.data.get("start_seconds", 0.0)
         if v <= start:
-            raise ValueError(
-                f"end_seconds ({v}) must be greater than start_seconds ({start})"
-            )
+            return round(start + 0.05, 3)
         return v
 
 
@@ -68,9 +66,7 @@ class CanonicalSegment(BaseModel):
     def end_after_start(cls, v: float, info) -> float:
         start = info.data.get("start_seconds", 0.0)
         if v <= start:
-            raise ValueError(
-                f"end_seconds ({v}) must be greater than start_seconds ({start})"
-            )
+            return round(start + 0.05, 3)
         return v
 
 

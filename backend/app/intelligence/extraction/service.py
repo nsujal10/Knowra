@@ -87,11 +87,10 @@ class MeetingIntelligenceService:
             .filter(
                 IntelligenceRun.idempotency_key == idempotency_key,
                 IntelligenceRun.tenant_id == self.tenant_id,
-                IntelligenceRun.status == "COMPLETED",
             )
             .first()
         )
-        if existing_run and not force:
+        if existing_run and existing_run.status == "COMPLETED" and not force:
             logger.info(
                 "Idempotent intelligence run found, returning existing results",
                 meeting_id=str(meeting_id),
@@ -101,18 +100,30 @@ class MeetingIntelligenceService:
 
         # 3. Create or Reset Run Record
         start_time = time.time()
-        run = IntelligenceRun(
-            tenant_id=self.tenant_id,
-            meeting_id=meeting_id,
-            transcript_version_number=effective_version,
-            status="PROCESSING",
-            provider_name="LLMGateway",
-            model_name="enterprise-intelligence",
-            prompt_tokens=0,
-            completion_tokens=0,
-            idempotency_key=idempotency_key,
-        )
-        self.db.add(run)
+        if existing_run:
+            run = existing_run
+            run.status = "PROCESSING"
+            run.error_message = None
+            run.processing_time_seconds = None
+            # Clean up previous child records for idempotency re-run
+            self.db.query(Topic).filter(Topic.intelligence_run_id == run.id).delete()
+            self.db.query(Decision).filter(Decision.intelligence_run_id == run.id).delete()
+            self.db.query(Risk).filter(Risk.intelligence_run_id == run.id).delete()
+            self.db.query(Question).filter(Question.intelligence_run_id == run.id).delete()
+            self.db.query(Commitment).filter(Commitment.intelligence_run_id == run.id).delete()
+        else:
+            run = IntelligenceRun(
+                tenant_id=self.tenant_id,
+                meeting_id=meeting_id,
+                transcript_version_number=effective_version,
+                status="PROCESSING",
+                provider_name="LLMGateway",
+                model_name="enterprise-intelligence",
+                prompt_tokens=0,
+                completion_tokens=0,
+                idempotency_key=idempotency_key,
+            )
+            self.db.add(run)
         self.db.flush()
 
         try:

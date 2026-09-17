@@ -140,9 +140,11 @@ class OwnerCandidateResolver:
                 return user_id, spk.id, confidence
 
         # Step 2: Match against tenant users (full name, email, or first name)
+        from app.models.membership import Membership
         tenant_users = (
             self.db.query(User)
-            .filter(User.tenant_id == self.tenant_id)
+            .join(Membership, Membership.user_id == User.id)
+            .filter(Membership.organization_id == self.tenant_id)
             .all()
         )
 

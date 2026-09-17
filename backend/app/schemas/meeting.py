@@ -17,6 +17,9 @@ class MeetingResponse(BaseSchema):
     status: str
     owner_id: UUID
     created_at: datetime
+    media_filename: Optional[str] = None
+    media_status: Optional[str] = None
+    source: Optional[str] = "UPLOAD"
 
 class MeetingListResponse(BaseModel):
     items: list[MeetingResponse]

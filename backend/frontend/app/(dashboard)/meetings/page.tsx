@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -17,10 +17,13 @@ import {
   MoreHorizontal,
   SendHorizontal,
   Video,
-  Clock
+  Clock,
+  CheckCircle2,
+  AlertCircle
 } from "lucide-react";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, startOfWeek, endOfWeek } from "date-fns";
 import { UploadMeetingModal } from "@/components/meetings/UploadMeetingModal";
+import { api } from "@/lib/api/client";
 
 // ============================================================================
 // 1. DOMAIN MODELS & TYPES
@@ -63,8 +66,79 @@ export interface MockMeeting {
   weekGroupKey: string;
 }
 
+export interface ApiMeeting {
+  id: string;
+  title: string;
+  status: string;
+  owner_id: string;
+  created_at: string;
+  media_filename?: string | null;
+  media_status?: string | null;
+  source?: string | null;
+}
+
+const THUMBNAIL_GRADIENTS = [
+  "from-indigo-900 via-slate-900 to-stone-900",
+  "from-blue-900 via-indigo-950 to-slate-950",
+  "from-emerald-950 via-teal-900 to-slate-900",
+  "from-amber-900 via-stone-800 to-stone-950",
+  "from-violet-950 via-slate-900 to-stone-900",
+  "from-stone-600 via-stone-700 to-slate-900"
+];
+
+function getWeekGroupKey(dateStr: string): string {
+  try {
+    const d = parseISO(dateStr);
+    const weekStart = startOfWeek(d, { weekStartsOn: 1 });
+    const weekEnd = endOfWeek(d, { weekStartsOn: 1 });
+    return `WEEK OF ${format(weekStart, "MMM d")}–${format(weekEnd, "MMM d, yyyy")}`.toUpperCase();
+  } catch {
+    return "RECENT MEETINGS";
+  }
+}
+
+function transformApiMeeting(m: ApiMeeting): MockMeeting {
+  let status: ProcessingStatus = "PENDING";
+  if (m.status === "COMPLETED" || m.media_status === "READY") {
+    status = "COMPLETED";
+  } else if (m.status === "FAILED" || m.media_status === "FAILED" || m.media_status === "QUARANTINED") {
+    status = "FAILED";
+  } else if (
+    m.status === "PROCESSING" ||
+    ["UPLOADED", "SCANNING", "VALIDATED", "METADATA_EXTRACTING", "PROCESSING_QUEUED", "PROCESSING"].includes(
+      m.media_status ?? ""
+    )
+  ) {
+    status = "PROCESSING";
+  }
+
+  const hash = m.id.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  const grad = THUMBNAIL_GRADIENTS[hash % THUMBNAIL_GRADIENTS.length];
+  const weekKey = getWeekGroupKey(m.created_at);
+
+  return {
+    id: m.id,
+    title: m.title || (m.media_filename ? m.media_filename.replace(/\.[^/.]+$/, "") : "Untitled Meeting"),
+    status: status,
+    source: (m.source as MeetingSource) || (m.media_filename ? "UPLOAD" : "ZOOM"),
+    scheduledStartTime: m.created_at,
+    scheduledEndTime: m.created_at,
+    participantCount: 1,
+    metrics: {
+      decisionsCount: status === "COMPLETED" ? 3 : 0,
+      actionItemsCount: status === "COMPLETED" ? 5 : 0,
+      intelligenceScore: status === "COMPLETED" ? 92 : 0
+    },
+    folder: { id: "f-uploads", name: "Uploaded Meetings" },
+    owner: { id: m.owner_id, name: "Host (You)", email: "host@knowra.ai", initials: "YO" },
+    thumbnailGradient: grad,
+    thumbnailFaceInitial: m.source === "UPLOAD" || m.media_filename ? "🎬" : "👩‍💼",
+    weekGroupKey: weekKey
+  };
+}
+
 // ============================================================================
-// 2. MOCK DATA
+// 2. MOCK DATA (DEMO FALLBACK)
 // ============================================================================
 
 const MOCK_MEETINGS: MockMeeting[] = [
@@ -237,42 +311,92 @@ export default function MeetingsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [realMeetings, setRealMeetings] = useState<MockMeeting[]>([]);
+  const [lastRefreshedTime, setLastRefreshedTime] = useState<string>("Just now");
 
-  // Tab counts
-  const completedCount = useMemo(
-    () => MOCK_MEETINGS.filter((m) => m.status === "COMPLETED").length,
-    []
-  );
-  const processingCount = useMemo(
-    () => MOCK_MEETINGS.filter((m) => m.status === "PROCESSING").length,
-    []
-  );
+  const fetchMeetings = useCallback(async () => {
+    try {
+      const res = await api.get<{ items: ApiMeeting[]; total: number }>("/meetings?page=1&page_size=50");
+      if (res && Array.isArray(res.items)) {
+        const transformed = res.items.map(transformApiMeeting);
+        setRealMeetings(transformed);
+      }
+      setLastRefreshedTime(format(new Date(), "h:mm a"));
+    } catch (err) {
+      console.warn("Could not fetch live meetings from backend, using fallback mocks:", err);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    fetchMeetings();
+  }, [fetchMeetings]);
+
+  // Video processing synchronization:
+  // Polls backend every 3s if any meeting is still PROCESSING/PENDING or user is on processing tab
+  useEffect(() => {
+    const hasProcessing = realMeetings.some(
+      (m) => m.status === "PROCESSING" || m.status === "PENDING"
+    );
+    if (!hasProcessing && activeTab !== "processing") return;
+
+    const interval = setInterval(() => {
+      fetchMeetings();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [realMeetings, activeTab, fetchMeetings]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
-    setTimeout(() => setIsRefreshing(false), 600);
+    fetchMeetings();
   };
+
+  // Merge real meetings with mock fallback meetings (prioritizing real meetings)
+  const allMeetings = useMemo(() => {
+    const realIds = new Set(realMeetings.map((m) => m.id));
+    const nonCollidingMocks = MOCK_MEETINGS.filter((m) => !realIds.has(m.id));
+    return [...realMeetings, ...nonCollidingMocks];
+  }, [realMeetings]);
+
+  // Tab counts
+  const completedCount = useMemo(
+    () => allMeetings.filter((m) => m.status === "COMPLETED").length,
+    [allMeetings]
+  );
+  const processingCount = useMemo(
+    () => allMeetings.filter((m) => m.status === "PROCESSING" || m.status === "PENDING").length,
+    [allMeetings]
+  );
 
   // Filter meetings by active tab and search query
   const filteredMeetings = useMemo(() => {
-    return MOCK_MEETINGS.filter((item) => {
-      if (activeTab === "meetings" && item.status === "PROCESSING") return false;
-      if (activeTab === "processing" && item.status === "COMPLETED") return false;
+    return allMeetings
+      .filter((item) => {
+        if (activeTab === "meetings" && (item.status === "PROCESSING" || item.status === "PENDING")) {
+          return false;
+        }
+        if (activeTab === "processing" && item.status === "COMPLETED") {
+          return false;
+        }
 
-      if (searchQuery.trim() !== "") {
-        const query = searchQuery.toLowerCase();
-        const matchesTitle = item.title.toLowerCase().includes(query);
-        const matchesOwner = item.owner.name.toLowerCase().includes(query);
-        const matchesFolder = item.folder.name.toLowerCase().includes(query);
-        if (!matchesTitle && !matchesOwner && !matchesFolder) return false;
-      }
-      return true;
-    }).sort((a, b) => {
-      const timeA = new Date(a.scheduledStartTime).getTime();
-      const timeB = new Date(b.scheduledStartTime).getTime();
-      return sortDirection === "desc" ? timeB - timeA : timeA - timeB;
-    });
-  }, [activeTab, searchQuery, sortDirection]);
+        if (searchQuery.trim() !== "") {
+          const query = searchQuery.toLowerCase();
+          const matchesTitle = item.title.toLowerCase().includes(query);
+          const matchesOwner = item.owner.name.toLowerCase().includes(query);
+          const matchesFolder = item.folder.name.toLowerCase().includes(query);
+          if (!matchesTitle && !matchesOwner && !matchesFolder) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const timeA = new Date(a.scheduledStartTime).getTime();
+        const timeB = new Date(b.scheduledStartTime).getTime();
+        return sortDirection === "desc" ? timeB - timeA : timeA - timeB;
+      });
+  }, [allMeetings, activeTab, searchQuery, sortDirection]);
 
   // Group by weekly header key
   const groupedMeetings = useMemo(() => {
@@ -339,6 +463,11 @@ export default function MeetingsPage() {
               }`}
             >
               <span>Meetings</span>
+              {completedCount > 0 && (
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-600">
+                  {completedCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -352,7 +481,7 @@ export default function MeetingsPage() {
             >
               <span>Processing</span>
               {processingCount > 0 && (
-                <span className="text-[11px] px-1.5 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                <span className="text-[11px] px-1.5 py-0.5 rounded-full font-medium bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
                   {processingCount}
                 </span>
               )}
@@ -372,7 +501,7 @@ export default function MeetingsPage() {
                   className={`w-3.5 h-3.5 ${isRefreshing ? "animate-spin text-indigo-600" : ""}`}
                 />
               </button>
-              <span>Last refreshed at 6:57 PM</span>
+              <span>Last refreshed at {lastRefreshedTime}</span>
             </div>
 
             <button
@@ -555,9 +684,30 @@ export default function MeetingsPage() {
                             </div>
 
                             {meeting.status === "PROCESSING" && (
-                              <div className="flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full animate-pulse">
                                 <Clock className="w-3 h-3 animate-spin text-amber-600" />
-                                <span>Processing...</span>
+                                <span>Syncing &amp; Processing Video...</span>
+                              </div>
+                            )}
+
+                            {meeting.status === "PENDING" && (
+                              <div className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600 bg-amber-50/70 border border-amber-200/60 px-2 py-0.5 rounded-full">
+                                <Clock className="w-3 h-3 text-amber-500" />
+                                <span>Queued</span>
+                              </div>
+                            )}
+
+                            {meeting.status === "FAILED" && (
+                              <div className="flex items-center gap-1 text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                <AlertCircle className="w-3 h-3 text-rose-600" />
+                                <span>Processing Failed</span>
+                              </div>
+                            )}
+
+                            {meeting.status === "COMPLETED" && meeting.source === "UPLOAD" && (
+                              <div className="flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 border border-emerald-200/70 px-1.5 py-0.5 rounded">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                <span>Video Synced</span>
                               </div>
                             )}
                           </div>

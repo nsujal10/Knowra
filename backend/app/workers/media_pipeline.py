@@ -12,6 +12,7 @@ from app.media.normalization import normalize_to_wav
 import structlog
 import tempfile
 import os
+from app.models.meeting import Meeting
 import hashlib
 
 logger = structlog.get_logger(__name__)
@@ -20,6 +21,21 @@ def update_status(db, media_id, status: MediaStatus):
     media = db.query(MediaAsset).filter(MediaAsset.id == media_id).first()
     if media:
         media.status = status.value
+        meeting = db.query(Meeting).filter(Meeting.id == media.meeting_id).first()
+        if meeting:
+            if status == MediaStatus.READY:
+                meeting.status = "COMPLETED"
+            elif status in [MediaStatus.FAILED, MediaStatus.QUARANTINED]:
+                meeting.status = "FAILED"
+            elif status in [
+                MediaStatus.UPLOADED,
+                MediaStatus.SCANNING,
+                MediaStatus.VALIDATED,
+                MediaStatus.METADATA_EXTRACTING,
+                MediaStatus.PROCESSING_QUEUED,
+                MediaStatus.PROCESSING,
+            ]:
+                meeting.status = "PROCESSING"
         db.commit()
 
 
@@ -119,7 +135,7 @@ def normalize_audio_task(self, tenant_id: str, media_id: str):
             output_path = os.path.join(tmpdir, "audio.wav")
             storage.download_file("knowra-raw", media.storage_key, input_path)
             
-            success = normalize_to_wav(input_path, output_path)
+            success = normalize_to_wav(input_path, output_path, duration_seconds=media.duration_seconds)
             if not success:
                 update_status(db, media.id, MediaStatus.FAILED)
                 return

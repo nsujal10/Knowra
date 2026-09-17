@@ -8,6 +8,7 @@ Uses httpx directly without vendor lock-in.
 from __future__ import annotations
 
 import json
+import os
 from typing import List
 from uuid import UUID
 
@@ -49,11 +50,11 @@ class GroqLLMProvider(LLMProvider):
     def __init__(
         self,
         api_key: str = "",
-        model: str = "llama3-70b-8192",
+        model: str = "qwen/qwen3.8-27b",
         base_url: str = "https://api.groq.com/openai/v1",
     ) -> None:
         self.api_key = api_key or settings.LLM_API_KEY
-        self.model = model or settings.LLM_MODEL
+        self.model = os.getenv("GROQ_MODEL", model or "qwen/qwen3.8-27b")
         self.base_url = base_url
 
     def extract_intelligence(
@@ -83,7 +84,7 @@ class GroqLLMProvider(LLMProvider):
         }
 
         try:
-            with httpx.Client(timeout=30.0) as client:
+            with httpx.Client(timeout=60.0) as client:
                 res = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
                 res.raise_for_status()
                 data = res.json()

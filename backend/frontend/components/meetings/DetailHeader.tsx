@@ -231,7 +231,7 @@ export function DetailHeader({
               onClick={() => onTabChange(tab)}
               className={`px-6 py-2.5 text-sm font-medium transition-all cursor-pointer relative ${
                 isActive
-                  ? "rounded-t-lg bg-[#f0edff] text-[#5345dc] font-semibold border-b-2 border-[#5345dc] -mb-[1px]"
+                  ? "rounded-t-lg bg-indigo-50/70 text-indigo-700 font-semibold border-b-2 border-indigo-600 -mb-[1px]"
                   : "text-slate-500 hover:text-slate-800 bg-transparent border-b-2 border-transparent"
               }`}
             >

@@ -7,11 +7,59 @@ import { DetailHeader } from "@/components/meetings/DetailHeader";
 import { IntelligenceFeed } from "@/components/meetings/IntelligenceFeed";
 import { MediaSidebar } from "@/components/meetings/MediaSidebar";
 import { RagChatDrawer } from "@/components/meetings/RagChatDrawer";
-import { MeetingIntelligence } from "@/components/meetings/types";
 import { api } from "@/lib/api/client";
 
 // ============================================================================
-// PRODUCTION-GRADE MOCK PAYLOAD (MATCHING REFERENCE IMAGE & CONTRACT)
+// 1. DOMAIN MODELS (PHASE 13, 15, 16 ARCHITECTURE MAPPING)
+// ============================================================================
+
+export interface ActionItem {
+  id: string;
+  owner: string;
+  text: string;
+  timestampSeconds: number;
+}
+
+export interface DiscussionPoint {
+  id: string;
+  title: string;
+  summary: string;
+  timestampSeconds: number;
+}
+
+export interface Chapter {
+  id: string;
+  title: string;
+  timestampSeconds: number;
+  durationStr: string;
+}
+
+export interface Metric {
+  score: number;
+  label: string;
+  status: "GOOD" | "NEUTRAL" | "WARNING" | "CRITICAL";
+  trend: number[];
+}
+
+export interface MeetingIntelligence {
+  title: string;
+  date: string;
+  timeRange: string;
+  source: "Zoom" | "Teams" | "Google Meet" | "Upload";
+  participants: string[];
+  metrics: {
+    report: Metric;
+    engagement: Metric;
+    sentiment: Metric;
+  };
+  summary: string;
+  actionItems: ActionItem[];
+  discussionPoints: DiscussionPoint[];
+  chapters: Chapter[];
+}
+
+// ============================================================================
+// 2. PRODUCTION-GRADE MOCK PAYLOAD (MATCHING REFERENCE IMAGE & CONTRACT)
 // ============================================================================
 
 const DEFAULT_MEETING_DATA: MeetingIntelligence = {
@@ -101,7 +149,7 @@ const DEFAULT_MEETING_DATA: MeetingIntelligence = {
 };
 
 // ============================================================================
-// MAIN PAGE COMPONENT
+// 3. MAIN PAGE COMPONENT (TWO-COLUMN SCROLLING PHYSICS)
 // ============================================================================
 
 export default function MeetingDetailPage() {
@@ -159,40 +207,46 @@ export default function MeetingDetailPage() {
   };
 
   return (
-    <div className="w-full min-w-0 bg-white rounded-xl border border-slate-200 shadow-xs px-6 py-4 flex flex-col gap-5">
-      {/* ── 1. TOP HEADER & NAVIGATION ──────────────────────────────────── */}
-      <DetailHeader
-        meeting={meetingData}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        folderName="1 Folder"
-      />
+    <div className="w-full h-full min-h-0 flex flex-col">
+      {/* ── 1. TOP HEADER & NAVIGATION (FIXED SHRINK-0) ─────────────────── */}
+      <div className="shrink-0">
+        <DetailHeader
+          meeting={meetingData}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          folderName="1 Folder"
+        />
+      </div>
 
       {/* ── 2. TWO-COLUMN RESPONSIVE LAYOUT (RECAP VIEW) ─────────────────── */}
       {activeTab === "Recap" && (
-        <div className="flex flex-col lg:flex-row gap-6 w-full pt-1">
-          {/* LEFT COLUMN: LLM-EXTRACTED INTELLIGENCE FEED */}
-          <IntelligenceFeed
-            intelligence={meetingData}
-            onSeek={handleSeek}
-            activeTimestamp={currentTime}
-          />
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-6 lg:gap-8 overflow-hidden pt-3">
+          {/* LEFT COLUMN: LLM-EXTRACTED INTELLIGENCE FEED (SCROLLABLE) */}
+          <div className="flex-1 h-full min-w-0 overflow-y-auto pr-6 lg:pr-8 custom-scrollbar">
+            <IntelligenceFeed
+              intelligence={meetingData}
+              onSeek={handleSeek}
+              activeTimestamp={currentTime}
+            />
+          </div>
 
-          {/* RIGHT COLUMN: STICKY MEDIA PLAYER & CHAPTERS */}
-          <MediaSidebar
-            chapters={meetingData.chapters}
-            currentTime={currentTime}
-            duration={529} // 8:49
-            isPlaying={isPlaying}
-            onSeek={handleSeek}
-            onTogglePlay={handleTogglePlay}
-          />
+          {/* RIGHT COLUMN: STICKY MEDIA PLAYER & CHAPTERS (STICKY) */}
+          <div className="w-full lg:w-[420px] shrink-0 sticky top-0 lg:h-full flex flex-col">
+            <MediaSidebar
+              chapters={meetingData.chapters}
+              currentTime={currentTime}
+              duration={529} // 8:49
+              isPlaying={isPlaying}
+              onSeek={handleSeek}
+              onTogglePlay={handleTogglePlay}
+            />
+          </div>
         </div>
       )}
 
       {/* ── 3. TRANSCRIPT VIEW TAB ───────────────────────────────────────── */}
       {activeTab === "Transcript" && (
-        <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-xl border border-slate-200">
+        <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-xl border border-slate-200 mt-4">
           <p className="font-semibold text-slate-700">Canonical Speaker-Diarized Transcript</p>
           <p className="text-xs text-slate-500 mt-1">
             Audio transcript is synchronized with the video player. Click any timestamp to seek.
@@ -209,7 +263,7 @@ export default function MeetingDetailPage() {
 
       {/* ── 4. DEEP DIVE VIEW TAB ────────────────────────────────────────── */}
       {activeTab === "Deep Dive" && (
-        <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-xl border border-slate-200">
+        <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-xl border border-slate-200 mt-4">
           <p className="font-semibold text-slate-700">Intelligence Deep Dive &amp; Analytics</p>
           <p className="text-xs text-slate-500 mt-1">
             Cross-meeting correlation, knowledge graph extraction, and sentiment trends.
@@ -238,7 +292,7 @@ export default function MeetingDetailPage() {
       <button
         type="button"
         onClick={() => setIsChatOpen(true)}
-        className="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xl rounded-full px-5 py-3 flex items-center gap-2 font-medium text-sm transition-all hover:scale-105 cursor-pointer z-40"
+        className="fixed bottom-6 right-6 bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg rounded-full px-5 py-3 flex items-center gap-2 font-medium z-50 transition-all hover:scale-105 cursor-pointer"
         title="Ask Knowra about this meeting"
       >
         <Sparkles className="w-4 h-4" />

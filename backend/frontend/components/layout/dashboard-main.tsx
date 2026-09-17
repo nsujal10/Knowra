@@ -16,10 +16,10 @@ export function DashboardMain({ children }: { children: React.ReactNode }) {
     >
       <Topbar />
       <main
-        className={`flex-1 overflow-y-auto ${
+        className={`flex-1 ${
           isMeetingDetail
-            ? "px-6 lg:px-8 py-4 bg-white"
-            : "px-6 lg:px-8 py-6 bg-slate-50"
+            ? "h-screen overflow-hidden flex flex-col px-6 lg:px-8 py-2.5 bg-white"
+            : "overflow-y-auto px-6 lg:px-8 py-6 bg-slate-50"
         }`}
         style={{ marginTop: isMeetingDetail ? "0px" : "var(--topbar-height)" }}
       >

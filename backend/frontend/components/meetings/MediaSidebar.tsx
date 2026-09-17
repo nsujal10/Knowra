@@ -92,11 +92,11 @@ export function MediaSidebar({
   ];
 
   return (
-    <aside className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-100px)] flex flex-col lg:border-l border-slate-200 lg:pl-6 pb-6 select-none">
+    <aside className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-80px)] flex flex-col lg:border-l border-slate-200 lg:pl-6 pb-6 select-none">
       {/* ── 1. STICKY DARK VIDEO PLAYER ───────────────────────────────────── */}
       <div
         ref={playerContainerRef}
-        className="w-full bg-[#16181f] rounded-xl overflow-hidden aspect-video relative shadow-md flex flex-col justify-between group border border-slate-800"
+        className="w-full bg-[#232429] rounded-xl overflow-hidden aspect-video relative shadow-md flex flex-col justify-between group border border-slate-800"
       >
         {/* Actual Video Element or Visual Canvas */}
         {videoUrl ? (
@@ -109,67 +109,62 @@ export function MediaSidebar({
                 onSeek(videoRef.current.currentTime);
               }
             }}
-            onEnded={() => onTogglePlay()}
           />
         ) : (
-          <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-[#1a1c24] to-[#12141a] flex items-center justify-center overflow-hidden">
-            {/* Ambient UI Simulation */}
-            <div className="relative w-full h-full flex flex-col items-center justify-center p-4">
-              <div className="w-24 h-24 rounded-full bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center filter backdrop-blur-xs">
-                <div className="w-16 h-16 rounded-full bg-indigo-600/20 flex items-center justify-center text-white text-2xl font-bold">
-                  👩‍💼
-                </div>
-              </div>
-              <div className="text-[11px] text-slate-400 font-medium mt-3 bg-black/40 px-2.5 py-0.5 rounded-full border border-white/5">
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-4">
+            <div className="w-16 h-16 rounded-full bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center shadow-inner mb-2">
+              <span className="text-2xl select-none filter drop-shadow">👩‍💼</span>
+            </div>
+            <div className="text-center">
+              <p className="text-xs font-semibold text-slate-200 tracking-wide">
                 Alison Barker · Presenting Screen
-              </div>
+              </p>
             </div>
           </div>
         )}
 
-        {/* Top Overlay: Speaker / Event Dots Bar */}
-        <div className="relative z-10 w-full px-3 pt-2.5">
-          <div className="relative w-full h-1 bg-white/20 rounded-full cursor-pointer">
-            {/* Progress Bar Fill */}
+        {/* Timeline Bar with Diarization Marker Dots */}
+        <div className="w-full px-4 pt-3 pb-1 z-20 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+          <div
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              const clickX = e.clientX - rect.left;
+              const ratio = Math.max(0, Math.min(1, clickX / rect.width));
+              onSeek(ratio * (duration || 529));
+            }}
+            className="w-full h-1 bg-slate-700/80 rounded-full relative cursor-pointer hover:h-1.5 transition-all"
+          >
+            {/* Progress Bar */}
             <div
               className="h-full bg-indigo-500 rounded-full transition-all"
               style={{ width: `${progressPercent}%` }}
             />
 
-            {/* Colored Speaker Event Dots */}
-            {timelineMarkers.map((marker, idx) => {
-              const leftPercent = (marker.time / duration) * 100;
-              return (
-                <div
-                  key={idx}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSeek(marker.time);
-                  }}
-                  title={`${marker.label} (${formatDurationStr(marker.time)})`}
-                  className={`w-2 h-2 rounded-full absolute top-1/2 -translate-y-1/2 -translate-x-1/2 ${marker.color} ring-1 ring-black shadow-xs cursor-pointer hover:scale-150 transition-transform`}
-                  style={{ left: `${leftPercent}%` }}
-                />
-              );
-            })}
+            {/* Diarization Dots */}
+            {timelineMarkers.map((marker, idx) => (
+              <div
+                key={idx}
+                className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-2 h-2 rounded-full ${marker.color} border border-black/40 shadow-xs cursor-pointer hover:scale-125 transition-transform`}
+                style={{ left: `${(marker.time / (duration || 529)) * 100}%` }}
+                title={`${marker.label} (${formatDurationStr(marker.time)})`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSeek(marker.time);
+                }}
+              />
+            ))}
           </div>
         </div>
 
-        {/* Center Play/Pause click overlay */}
-        <div
-          onClick={onTogglePlay}
-          className="absolute inset-0 z-0 flex items-center justify-center cursor-pointer"
-        />
-
-        {/* Bottom Control Bar */}
-        <div className="relative z-10 w-full bg-gradient-to-t from-black/90 via-black/60 to-transparent px-3 pb-2.5 pt-4 flex items-center justify-between text-white text-xs">
-          {/* Left Controls: Play, Rewind, Time */}
-          <div className="flex items-center gap-2.5">
+        {/* Bottom Video Controls Bar */}
+        <div className="w-full px-3 py-2 z-20 bg-gradient-to-t from-black/90 via-black/60 to-transparent flex items-center justify-between text-white text-xs">
+          {/* Left Controls: Play/Pause, Rewind, Time */}
+          <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={onTogglePlay}
               className="hover:text-indigo-400 transition-colors cursor-pointer p-0.5"
-              title={isPlaying ? "Pause (Space)" : "Play (Space)"}
+              title={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? <Pause className="w-4 h-4 fill-white" /> : <Play className="w-4 h-4 fill-white" />}
             </button>
@@ -252,10 +247,10 @@ export function MediaSidebar({
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+              className={`border border-slate-200 rounded-full px-3 py-1 text-xs transition-all cursor-pointer ${
                 isActive
-                  ? "border border-indigo-600 text-indigo-700 bg-indigo-50/80 shadow-2xs"
-                  : "border border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 bg-white"
+                  ? "border-indigo-600 text-indigo-700 bg-indigo-50/70 shadow-2xs font-semibold"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 bg-white"
               }`}
             >
               {tab}
@@ -276,7 +271,7 @@ export function MediaSidebar({
               >
                 {/* Left: Timestamp pill + Chapter Title */}
                 <div className="flex items-start gap-2.5 min-w-0 pr-3">
-                  <span className="mt-0.5 px-2 py-0.5 rounded text-xs font-mono font-medium bg-slate-100 text-slate-600 group-hover:bg-indigo-50 group-hover:text-indigo-600 transition-colors shrink-0 border border-slate-200/70">
+                  <span className="mt-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium font-mono px-2 py-0.5 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors shrink-0 border border-slate-200/70">
                     {formatDurationStr(chapter.timestampSeconds)}
                   </span>
                   <p className="text-xs font-semibold text-slate-800 line-clamp-2 leading-relaxed group-hover:text-indigo-950 transition-colors">
@@ -284,14 +279,14 @@ export function MediaSidebar({
                   </p>
                 </div>
 
-                {/* Right: Video Thumbnail with duration overlay */}
-                <div className="w-16 h-10 rounded-md overflow-hidden relative shrink-0 border border-slate-200 bg-slate-800 shadow-2xs">
+                {/* Right: Video Thumbnail with duration badge */}
+                <div className="aspect-video w-24 rounded-md bg-slate-200 relative overflow-hidden shrink-0 border border-slate-200/80 shadow-2xs">
                   <div className="w-full h-full bg-gradient-to-br from-stone-700 via-slate-800 to-indigo-950 flex items-center justify-center">
                     <span className="text-xs select-none filter drop-shadow">
                       👩
                     </span>
                   </div>
-                  <span className="bg-black/75 text-white text-[9px] font-mono px-1 py-0.5 rounded absolute bottom-0.5 right-0.5 flex items-center gap-0.5">
+                  <span className="bg-black/70 text-white text-[10px] px-1 rounded bottom-1 right-1 absolute font-mono flex items-center gap-0.5">
                     ▶ {chapter.durationStr}
                   </span>
                 </div>

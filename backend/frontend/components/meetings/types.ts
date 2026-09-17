@@ -2,7 +2,7 @@ export interface Metric {
   score: number;
   label: string;
   trend: number[];
-  status: 'GOOD' | 'NEUTRAL' | 'WARNING';
+  status: 'GOOD' | 'NEUTRAL' | 'WARNING' | 'CRITICAL';
 }
 
 export interface ActionItem {
@@ -31,7 +31,7 @@ export interface MeetingIntelligence {
   title: string;
   date: string;
   timeRange: string;
-  source: 'Zoom' | 'Teams' | 'Google Meet';
+  source: 'Zoom' | 'Teams' | 'Google Meet' | 'Upload';
   participants: string[];
   metrics: {
     report: Metric;

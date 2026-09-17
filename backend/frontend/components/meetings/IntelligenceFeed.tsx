@@ -124,7 +124,7 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
   );
 
   return (
-    <div className="flex-1 overflow-y-auto pr-6 custom-scrollbar space-y-7">
+    <div className="w-full space-y-7 pb-16">
       {/* ── 1. SEARCH & TEMPLATE CONTROLS ROW ─────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 pt-4">
         {/* Search Recap Input */}
@@ -233,7 +233,7 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
               <button
                 type="button"
                 onClick={() => onSeek(action.timestampSeconds)}
-                className="mt-0.5 px-2 py-0.5 rounded-md text-xs font-mono font-medium bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors shrink-0 cursor-pointer border border-slate-200/80 group-hover:border-indigo-200"
+                className="mt-0.5 rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium font-mono px-2 py-0.5 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors shrink-0"
                 title={`Jump to ${formatTime(action.timestampSeconds)}`}
               >
                 {formatTime(action.timestampSeconds)}
@@ -250,36 +250,36 @@ ${intelligence.discussionPoints.map((d) => `[${formatTime(d.timestampSeconds)}] 
         </div>
       </section>
 
-      {/* ── 5. KEY DISCUSSION POINTS ──────────────────────────────────────── */}
+      {/* ── 5. KEY DISCUSSION POINTS (PHASE 15 MAPPING) ───────────────────── */}
       <section className="space-y-4">
         <h2 className="text-lg font-bold text-slate-900 tracking-tight">
           Key Discussion Points
         </h2>
 
-        <div className="space-y-5">
+        <div className="space-y-4">
           {filteredDiscussionPoints.map((point) => (
             <article
               key={point.id}
-              className="space-y-2 group p-3.5 -mx-3.5 rounded-xl hover:bg-slate-50/70 transition-colors"
+              className="flex flex-col gap-2 group p-3.5 -mx-3.5 rounded-xl hover:bg-slate-50/70 transition-colors mb-2"
             >
               {/* Timestamp + Topic Header */}
               <div className="flex items-center gap-2.5">
                 <button
                   type="button"
                   onClick={() => onSeek(point.timestampSeconds)}
-                  className="px-2 py-0.5 rounded text-xs font-mono font-medium bg-slate-100 text-slate-600 hover:bg-indigo-50 hover:text-indigo-600 transition-colors cursor-pointer border border-slate-200/70 shrink-0 group-hover:border-indigo-200"
+                  className="rounded-md bg-slate-100 text-slate-500 text-[11px] font-medium font-mono px-2 py-0.5 cursor-pointer hover:bg-indigo-100 hover:text-indigo-700 transition-colors shrink-0"
                   title={`Jump to ${formatTime(point.timestampSeconds)}`}
                 >
                   {formatTime(point.timestampSeconds)}
                 </button>
 
-                <h3 className="font-semibold text-slate-900 text-sm md:text-base tracking-tight group-hover:text-indigo-950 transition-colors">
+                <h3 className="text-sm font-semibold text-slate-900 tracking-tight group-hover:text-indigo-950 transition-colors">
                   {point.title}
                 </h3>
               </div>
 
-              {/* Discussion Narrative */}
-              <p className="text-slate-700 text-sm leading-relaxed font-normal pl-0.5">
+              {/* Discussion Narrative Body */}
+              <p className="text-sm text-slate-600 leading-relaxed font-normal">
                 {point.summary}
               </p>
             </article>

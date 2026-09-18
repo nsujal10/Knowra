@@ -103,7 +103,7 @@ export function useRealTranscript(meetingId: string) {
       }
       return false;
     },
-    enabled: Boolean(meetingId),
+    enabled: Boolean(meetingId) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meetingId),
   });
 
   // ── Mutation Logic: Trigger real backend Celery transcription pipeline ─────

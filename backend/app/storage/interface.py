@@ -27,5 +27,6 @@ class ObjectStorage(Protocol):
     def upload_file(self, bucket: str, key: str, file_path: str, content_type: str) -> bool:
         ...
         
-    def get_presigned_download_url(self, bucket: str, key: str, expires: timedelta) -> str:
+    def get_presigned_download_url(self, bucket: str, key: str, expires: timedelta, filename: Optional[str] = None) -> str:
         ...
+

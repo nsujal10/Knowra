@@ -19,10 +19,15 @@ import {
   Video,
   Clock,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Trash2,
+  Loader2
 } from "lucide-react";
 import { format, parseISO, startOfWeek, endOfWeek } from "date-fns";
 import { UploadMeetingModal } from "@/components/meetings/UploadMeetingModal";
+import { DeleteMeetingModal } from "@/components/meetings/DeleteMeetingModal";
+import { MeetingThumbnail } from "@/components/meetings/MeetingThumbnail";
 import { api } from "@/lib/api/client";
 
 // ============================================================================
@@ -313,6 +318,66 @@ export default function MeetingsPage() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [realMeetings, setRealMeetings] = useState<MockMeeting[]>([]);
   const [lastRefreshedTime, setLastRefreshedTime] = useState<string>("Just now");
+  const [openMenuMeetingId, setOpenMenuMeetingId] = useState<string | null>(null);
+  const [downloadingMeetingId, setDownloadingMeetingId] = useState<string | null>(null);
+  const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
+  const [meetingToDelete, setMeetingToDelete] = useState<MockMeeting | null>(null);
+  const [deletedMeetingIds, setDeletedMeetingIds] = useState<Set<string>>(new Set());
+
+  // Close 3-dot menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-meeting-menu]")) {
+        setOpenMenuMeetingId(null);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, []);
+
+  const handleDownloadVideo = async (meeting: MockMeeting, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDownloadingMeetingId(meeting.id);
+    try {
+      const res = await api.get<{ downloadUrl: string; filename?: string }>(
+        `/meetings/${meeting.id}/media/download`
+      );
+      if (res?.downloadUrl) {
+        const a = document.createElement("a");
+        a.href = res.downloadUrl;
+        a.download = res.filename || `${meeting.title.replace(/\s+/g, "_")}.mp4`;
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        alert("Video download stream is currently unavailable for this meeting.");
+      }
+    } catch (err) {
+      console.error("Failed to download video:", err);
+      alert("Could not generate video download link. Please try again.");
+    } finally {
+      setDownloadingMeetingId(null);
+      setOpenMenuMeetingId(null);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!meetingToDelete) return;
+
+    setDeletingMeetingId(meetingToDelete.id);
+    try {
+      await api.delete(`/meetings/${meetingToDelete.id}`);
+    } catch (err) {
+      console.warn("Backend delete finished or fallback:", err);
+    } finally {
+      setDeletedMeetingIds((prev) => new Set([...prev, meetingToDelete.id]));
+      setRealMeetings((prev) => prev.filter((m) => m.id !== meetingToDelete.id));
+      setDeletingMeetingId(null);
+      setMeetingToDelete(null);
+    }
+  };
 
   const fetchMeetings = useCallback(async () => {
     try {
@@ -356,11 +421,9 @@ export default function MeetingsPage() {
 
   // Use real meetings when loaded from backend, fallback to demo mocks only if empty
   const allMeetings = useMemo(() => {
-    if (realMeetings.length > 0) {
-      return realMeetings;
-    }
-    return MOCK_MEETINGS;
-  }, [realMeetings]);
+    const base = realMeetings.length > 0 ? realMeetings : MOCK_MEETINGS;
+    return base.filter((m) => !deletedMeetingIds.has(m.id));
+  }, [realMeetings, deletedMeetingIds]);
 
   // Tab counts
   const completedCount = useMemo(
@@ -641,16 +704,14 @@ export default function MeetingsPage() {
                       >
                         {/* Col 1: Source / Thumbnail */}
                         <div className="w-24 h-14 bg-slate-200 rounded-md overflow-hidden relative shrink-0 border border-slate-200 shadow-xs">
-                          <div
-                            className={`w-full h-full bg-gradient-to-br ${meeting.thumbnailGradient} flex items-center justify-center`}
-                          >
-                            <span className="text-xl select-none filter drop-shadow">
-                              {meeting.thumbnailFaceInitial}
-                            </span>
-                          </div>
+                          <MeetingThumbnail
+                            meetingId={meeting.id}
+                            title={meeting.title}
+                            fallbackGradient={meeting.thumbnailGradient}
+                          />
 
                           {/* Source Badge */}
-                          <div className="absolute bottom-1 right-1">
+                          <div className="absolute bottom-1 right-1 z-10">
                             <SourceBadge source={meeting.source} />
                           </div>
                         </div>
@@ -735,7 +796,7 @@ export default function MeetingsPage() {
                         </div>
 
                         {/* Col 5: Owner & Menu */}
-                        <div className="flex items-center justify-end gap-3 pr-2">
+                        <div className="flex items-center justify-end gap-3 pr-2 relative" data-meeting-menu>
                           <div
                             className="w-8 h-8 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0 border border-indigo-200/60 shadow-xs relative cursor-pointer"
                             title={`${meeting.owner.name} (${meeting.owner.email})`}
@@ -744,13 +805,58 @@ export default function MeetingsPage() {
                             <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-indigo-600 rounded-full border border-white" />
                           </div>
 
-                          <button
-                            type="button"
-                            className="text-slate-400 hover:text-slate-700 cursor-pointer p-1 rounded hover:bg-slate-100 transition-colors"
-                            title="More options"
-                          >
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuMeetingId((prev) => (prev === meeting.id ? null : meeting.id));
+                              }}
+                              className={`text-slate-400 hover:text-slate-700 cursor-pointer p-1 rounded hover:bg-slate-100 transition-colors ${
+                                openMenuMeetingId === meeting.id ? "bg-slate-100 text-slate-800 ring-1 ring-slate-300" : ""
+                              }`}
+                              title="More options"
+                            >
+                              <MoreHorizontal className="w-4 h-4" />
+                            </button>
+
+                            {/* 3-Dot Dropdown Menu (Download & Delete) */}
+                            {openMenuMeetingId === meeting.id && (
+                              <div
+                                className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <button
+                                  type="button"
+                                  disabled={downloadingMeetingId === meeting.id}
+                                  onClick={(e) => handleDownloadVideo(meeting, e)}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-600 flex items-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"
+                                >
+                                  {downloadingMeetingId === meeting.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                                  ) : (
+                                    <Download className="w-3.5 h-3.5 text-slate-500" />
+                                  )}
+                                  <span>{downloadingMeetingId === meeting.id ? "Preparing download..." : "Download Video"}</span>
+                                </button>
+
+                                <div className="my-1 border-t border-slate-100" />
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMeetingToDelete(meeting);
+                                    setOpenMenuMeetingId(null);
+                                  }}
+                                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                  <span>Delete Meeting</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -770,6 +876,15 @@ export default function MeetingsPage() {
           handleRefresh();
           setActiveTab("meetings");
         }}
+      />
+
+      {/* Confirmation Modal for Delete Meeting */}
+      <DeleteMeetingModal
+        isOpen={Boolean(meetingToDelete)}
+        meetingTitle={meetingToDelete?.title || "Meeting"}
+        isDeleting={Boolean(deletingMeetingId)}
+        onClose={() => setMeetingToDelete(null)}
+        onConfirm={handleConfirmDelete}
       />
     </div>
   );

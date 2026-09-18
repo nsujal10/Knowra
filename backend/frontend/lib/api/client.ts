@@ -3,7 +3,7 @@
  * Handles JWT injection, silent token refresh on 401, and typed error responses.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 // ─── Session Storage Keys ──────────────────────────────────────────────────────
 const ACCESS_TOKEN_KEY = "knowra_access_token";

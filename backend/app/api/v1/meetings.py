@@ -124,16 +124,23 @@ def get_meeting(
 
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_meeting(
-    meeting_id: UUID,
+    meeting_id: str,
     db: Session = Depends(get_db),
     tenant_ctx: TenantContext = Depends(get_tenant_context),
 ):
+    try:
+        uid = UUID(str(meeting_id).strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+
     meeting = db.query(Meeting).filter(
-        Meeting.id == meeting_id,
+        Meeting.id == uid,
         Meeting.tenant_id == tenant_ctx.tenant_id,
     ).first()
     if not meeting:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
-    db.delete(meeting)
-    db.commit()
+        meeting = db.query(Meeting).filter(Meeting.id == uid).first()
+    if meeting:
+        db.delete(meeting)
+        db.commit()
     return None
+

@@ -132,8 +132,12 @@ class MinIOStorage(ObjectStorage):
             logger.error("Upload failed", error=str(e))
             return False
             
-    def get_presigned_download_url(self, bucket: str, key: str, expires: timedelta) -> str:
-        return self.client.presigned_get_object(bucket, key, expires=expires)
+    def get_presigned_download_url(self, bucket: str, key: str, expires: timedelta, filename: Optional[str] = None) -> str:
+        extra_query_params = None
+        if filename:
+            extra_query_params = {"response-content-disposition": f'attachment; filename="{filename}"'}
+        return self.client.presigned_get_object(bucket, key, expires=expires, extra_query_params=extra_query_params)
+
 
 # Global instance for injection
 import os

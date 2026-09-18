@@ -72,7 +72,7 @@ export function useRealIntelligence(meetingId: string) {
         throw err;
       }
     },
-    enabled: Boolean(meetingId),
+    enabled: Boolean(meetingId) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meetingId),
     refetchInterval: (query) => {
       const current = query.state.data;
       // If the status is "PROCESSING", poll every 5s until "READY" or "FAILED"

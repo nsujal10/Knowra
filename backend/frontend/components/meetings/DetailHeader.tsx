@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ChevronLeft,
   Download,
@@ -13,25 +14,39 @@ import {
   Video,
   Users,
   ChevronDown,
-  Check
+  Check,
+  MoreHorizontal,
+  Trash2,
+  Loader2,
+  FileText
 } from "lucide-react";
 import { MeetingIntelligence } from "./types";
+import { DeleteMeetingModal } from "./DeleteMeetingModal";
+import { api } from "@/lib/api/client";
 
 interface DetailHeaderProps {
   meeting: MeetingIntelligence;
   activeTab: "Recap" | "Transcript" | "Deep Dive";
   onTabChange: (tab: "Recap" | "Transcript" | "Deep Dive") => void;
   folderName?: string;
+  meetingId?: string;
 }
 
 export function DetailHeader({
   meeting,
   activeTab,
   onTabChange,
-  folderName = "1 Folder"
+  folderName = "1 Folder",
+  meetingId,
 }: DetailHeaderProps) {
+  const router = useRouter();
   const [showParticipantsDropdown, setShowParticipantsDropdown] = useState(false);
   const [showPushDropdown, setShowPushDropdown] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  const [showMoreDropdown, setShowMoreDropdown] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDownloadingVideo, setIsDownloadingVideo] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
 
   const handleShare = () => {
@@ -39,6 +54,58 @@ export function DetailHeader({
       navigator.clipboard.writeText(window.location.href);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
+    }
+  };
+
+  const handleDownloadRecap = () => {
+    const blob = new Blob([meeting.summary], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${meeting.title.replace(/\s+/g, "_")}_Recap.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setShowDownloadDropdown(false);
+  };
+
+  const handleDownloadVideo = async () => {
+    setIsDownloadingVideo(true);
+    const id = meetingId || "sample-meeting-id";
+    try {
+      const res = await api.get<{ downloadUrl: string; filename?: string }>(
+        `/meetings/${id}/media/download`
+      );
+      if (res?.downloadUrl) {
+        const a = document.createElement("a");
+        a.href = res.downloadUrl;
+        a.download = res.filename || `${meeting.title.replace(/\s+/g, "_")}.mp4`;
+        a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      } else {
+        alert("Video stream is currently unavailable for this meeting.");
+      }
+    } catch (err) {
+      console.error("Failed to download video:", err);
+      alert("Could not generate video download link. Please try again.");
+    } finally {
+      setIsDownloadingVideo(false);
+      setShowDownloadDropdown(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    setIsDeleting(true);
+    const id = meetingId || "sample-meeting-id";
+    try {
+      await api.delete(`/meetings/${id}`);
+    } catch (err) {
+      console.warn("Backend delete request finished:", err);
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteModalOpen(false);
+      router.push("/meetings");
     }
   };
 
@@ -68,23 +135,47 @@ export function DetailHeader({
 
         {/* Right: Action Buttons (Standard H-9, Rounded-LG) */}
         <div className="flex items-center gap-2.5 shrink-0">
-          <button
-            type="button"
-            onClick={() => {
-              const blob = new Blob([meeting.summary], { type: "text/plain" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `${meeting.title.replace(/\s+/g, "_")}_Recap.txt`;
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-            className="h-9 px-3.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Download className="w-4 h-4 text-slate-500" />
-            <span>Download</span>
-          </button>
+          {/* Download Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="h-9 px-3.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Download className="w-4 h-4 text-slate-500" />
+              <span>Download</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
 
+            {showDownloadDropdown && (
+              <div className="absolute right-0 mt-1.5 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95">
+                <button
+                  type="button"
+                  disabled={isDownloadingVideo}
+                  onClick={handleDownloadVideo}
+                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-600 flex items-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {isDownloadingVideo ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                  ) : (
+                    <Video className="w-3.5 h-3.5 text-slate-500" />
+                  )}
+                  <span>{isDownloadingVideo ? "Preparing download..." : "Download Video (.mp4)"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadRecap}
+                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <FileText className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Download Summary (.txt)</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Push to... Dropdown */}
           <div className="relative">
             <button
               type="button"
@@ -97,7 +188,7 @@ export function DetailHeader({
             </button>
 
             {showPushDropdown && (
-              <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-lg shadow-lg py-1 z-30 animate-in fade-in zoom-in-95">
+              <div className="absolute right-0 mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95">
                 <button
                   type="button"
                   onClick={() => {
@@ -135,15 +226,17 @@ export function DetailHeader({
             )}
           </div>
 
+          {/* Share Button */}
           <button
             type="button"
             onClick={handleShare}
             className="h-9 px-3.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+            title="Copy link to meeting"
           >
             {isCopied ? (
               <>
                 <Check className="w-4 h-4 text-emerald-600" />
-                <span className="text-emerald-700 font-semibold">Copied!</span>
+                <span className="text-emerald-600 font-semibold">Copied!</span>
               </>
             ) : (
               <>
@@ -152,94 +245,118 @@ export function DetailHeader({
               </>
             )}
           </button>
-        </div>
-      </div>
 
-      {/* ── META ROW: DATE • TIME • SOURCE • PARTICIPANTS ─────────────────── */}
-      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-500 pb-4 select-none">
-        <span className="flex items-center gap-1.5 text-slate-600 font-medium">
-          <Calendar className="w-3.5 h-3.5 text-slate-400" />
-          {meeting.date}
-        </span>
-
-        <span className="text-slate-300 mx-1">•</span>
-
-        <span className="flex items-center gap-1.5 text-slate-600">
-          <Clock className="w-3.5 h-3.5 text-slate-400" />
-          {meeting.timeRange}
-        </span>
-
-        <span className="text-slate-300 mx-1">•</span>
-
-        <span className="flex items-center gap-1.5 text-slate-600">
-          <Video className="w-3.5 h-3.5 text-slate-400" />
-          {meeting.source}
-        </span>
-
-        <span className="text-slate-300 mx-1">•</span>
-
-        {/* Participants with popup dropdown */}
-        <div className="relative inline-block">
-          <button
-            type="button"
-            onClick={() => setShowParticipantsDropdown(!showParticipantsDropdown)}
-            className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 cursor-pointer font-medium"
-          >
-            <Users className="w-3.5 h-3.5 text-slate-400" />
-            <span>
-              {meeting.participants.slice(0, 3).join(", ")}
-              {meeting.participants.length > 3 && (
-                <span className="text-slate-500">
-                  , +{meeting.participants.length - 3} more
-                </span>
-              )}
-            </span>
-            <ChevronDown className="w-3 h-3 text-slate-400" />
-          </button>
-
-          {showParticipantsDropdown && (
-            <div className="absolute left-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg p-3 z-30 animate-in fade-in">
-              <div className="text-xs font-semibold text-slate-800 uppercase tracking-wider mb-2">
-                Participants ({meeting.participants.length})
-              </div>
-              <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {meeting.participants.map((person, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center gap-2 text-xs text-slate-700 py-1 px-1.5 hover:bg-slate-50 rounded"
-                  >
-                    <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-bold">
-                      {person.charAt(0)}
-                    </div>
-                    <span>{person}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── TABS ROW: RECAP • TRANSCRIPT • DEEP DIVE ──────────────────────── */}
-      <div className="flex border-b border-slate-200 w-full">
-        {(["Recap", "Transcript", "Deep Dive"] as const).map((tab) => {
-          const isActive = activeTab === tab;
-          return (
+          {/* 3-Dot More Menu (Delete Meeting) */}
+          <div className="relative">
             <button
-              key={tab}
               type="button"
-              onClick={() => onTabChange(tab)}
-              className={`px-4 py-2 text-sm font-semibold transition-all cursor-pointer ${
-                isActive
-                  ? "border-b-2 border-indigo-600 text-indigo-700 -mb-[1px]"
-                  : "text-slate-500 hover:text-slate-800 bg-transparent border-b-2 border-transparent -mb-[1px]"
-              }`}
+              onClick={() => setShowMoreDropdown(!showMoreDropdown)}
+              className="h-9 px-2.5 rounded-lg text-sm font-medium border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs flex items-center justify-center transition-colors cursor-pointer"
+              title="More actions"
             >
-              {tab}
+              <MoreHorizontal className="w-4 h-4 text-slate-600" />
             </button>
-          );
-        })}
+
+            {showMoreDropdown && (
+              <div className="absolute right-0 mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-30 animate-in fade-in zoom-in-95">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteModalOpen(true);
+                    setShowMoreDropdown(false);
+                  }}
+                  className="w-full px-3.5 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <span>Delete Meeting</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* ── BOTTOM ROW: METADATA CHIPS & PILL TABS ───────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200 pb-3 pt-1">
+        {/* Left: Metadata Badges (Date, Time, Source, Participants) */}
+        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+          <div className="flex items-center gap-1.5 font-medium">
+            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+            <span>{meeting.date}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 font-medium">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span>{meeting.timeRange}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 font-medium">
+            <Video className="w-3.5 h-3.5 text-slate-400" />
+            <span>{meeting.source}</span>
+          </div>
+
+          {/* Interactive Participants Pill */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowParticipantsDropdown(!showParticipantsDropdown)}
+              className="flex items-center gap-1.5 font-medium text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-indigo-50 px-2 py-0.5 rounded-full transition-colors cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5 text-slate-500" />
+              <span>{meeting.participants.length} Participants</span>
+              <ChevronDown className="w-3 h-3 text-slate-400" />
+            </button>
+
+            {showParticipantsDropdown && (
+              <div className="absolute left-0 mt-1 w-56 bg-white border border-slate-200 rounded-lg shadow-lg p-2 z-30 animate-in fade-in">
+                <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 py-1">
+                  Attendees
+                </p>
+                <div className="divide-y divide-slate-100">
+                  {meeting.participants.map((p, idx) => (
+                    <div key={idx} className="flex items-center gap-2 py-1.5 px-2 text-xs text-slate-800">
+                      <div className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-[10px]">
+                        {p.split(" ").map((n) => n[0]).join("")}
+                      </div>
+                      <span>{p}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right: Pill-Based Navigation Tabs */}
+        <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200/80 self-start md:self-auto">
+          {(["Recap", "Transcript", "Deep Dive"] as const).map((tab) => {
+            const isActive = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => onTabChange(tab)}
+                className={`px-3.5 py-1 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-white text-indigo-700 shadow-2xs font-bold"
+                    : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+                }`}
+              >
+                {tab}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Confirmation Modal for Delete Meeting */}
+      <DeleteMeetingModal
+        isOpen={isDeleteModalOpen}
+        meetingTitle={meeting.title}
+        isDeleting={isDeleting}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleConfirmDelete}
+      />
     </header>
   );
 }

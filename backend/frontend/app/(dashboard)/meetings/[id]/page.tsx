@@ -196,7 +196,8 @@ export default function MeetingDetailPage() {
         // Graceful fallback to rich mock data
       }
     }
-    if (meetingId && meetingId !== "sample-meeting-id") {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meetingId);
+    if (isUuid) {
       loadBackendData();
     }
   }, [meetingId]);
@@ -226,6 +227,7 @@ export default function MeetingDetailPage() {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           folderName="1 Folder"
+          meetingId={meetingId}
         />
       </div>
 
@@ -258,6 +260,8 @@ export default function MeetingDetailPage() {
               isPlaying={isPlaying}
               onSeek={handleSeek}
               onTogglePlay={handleTogglePlay}
+              meetingId={meetingId}
+              onOpenChat={() => setIsChatOpen(true)}
             />
           </div>
         </div>
@@ -280,18 +284,8 @@ export default function MeetingDetailPage() {
         </div>
       )}
 
-      {/* ── 5. RAG CHAT FLOATING ACTION BUTTON (PHASE 22) ────────────────── */}
-      <button
-        type="button"
-        onClick={() => setIsChatOpen(true)}
-        className="fixed bottom-6 right-6 z-50 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-full shadow-xl flex items-center gap-2 font-medium transition-transform hover:scale-105 cursor-pointer"
-        title="Ask Knowra about this meeting"
-      >
-        <Sparkles className="w-4 h-4" />
-        <span>Ask Knowra</span>
-      </button>
+      {/* ── 5. RAG CHAT SLIDE-OVER DRAWER ────────────────────────────────── */}
 
-      {/* ── 7. RAG CHAT SLIDE-OVER DRAWER ────────────────────────────────── */}
       <RagChatDrawer
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}

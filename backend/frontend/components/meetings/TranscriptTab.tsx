@@ -9,8 +9,12 @@ import {
   Copy,
   Check,
   RefreshCw,
-  FileText
+  FileText,
+  Pencil,
+  X
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api/client";
 import { useRealTranscript, TranscriptSegment } from "@/hooks/useRealTranscript";
 
 interface TranscriptTabProps {
@@ -42,6 +46,27 @@ export function TranscriptTab({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [copied, setCopied] = useState(false);
+  const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
+  const [editSpeakerName, setEditSpeakerName] = useState("");
+  const [isSavingSpeaker, setIsSavingSpeaker] = useState(false);
+  const queryClient = useQueryClient();
+
+  const handleSaveSpeakerName = async (speakerId: string) => {
+    if (!editSpeakerName.trim()) return;
+    try {
+      setIsSavingSpeaker(true);
+      await api.patch(`/speakers/${speakerId}`, {
+        display_name: editSpeakerName.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["meeting-transcript", meetingId] });
+      await queryClient.invalidateQueries({ queryKey: ["meeting-speakers", meetingId] });
+      setEditingSpeakerId(null);
+    } catch (err) {
+      console.error("Failed to update speaker name:", err);
+    } finally {
+      setIsSavingSpeaker(false);
+    }
+  };
 
   // Filter real segments by search query (speaker name or text)
   const filteredSegments = useMemo(() => {
@@ -265,9 +290,68 @@ export function TranscriptTab({
                     {formatSeconds(segment.start)}
                   </button>
 
-                  <span className="text-sm font-semibold text-slate-900 ml-3 truncate max-w-[120px]">
-                    {segment.speaker.displayName || segment.speaker.label}
-                  </span>
+                  {editingSpeakerId === segment.speaker.id ? (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSaveSpeakerName(segment.speaker.id);
+                      }}
+                      className="flex items-center gap-1 ml-2 shrink-0 z-10"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="text"
+                        value={editSpeakerName}
+                        onChange={(e) => setEditSpeakerName(e.target.value)}
+                        className="text-xs font-semibold px-2 py-0.5 border border-indigo-400 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white w-28 text-slate-900 shadow-2xs"
+                        autoFocus
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSavingSpeaker}
+                        className="p-1 hover:bg-emerald-50 text-emerald-600 rounded transition-colors"
+                        title="Save name"
+                      >
+                        {isSavingSpeaker ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Check className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingSpeakerId(null)}
+                        className="p-1 hover:bg-rose-50 text-rose-500 rounded transition-colors"
+                        title="Cancel"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="flex items-center gap-1.5 ml-3 group/speaker">
+                      <span
+                        className="text-sm font-semibold text-slate-900 truncate max-w-[110px]"
+                        title={segment.speaker.displayName || segment.speaker.label}
+                      >
+                        {segment.speaker.displayName || segment.speaker.label}
+                      </span>
+                      {segment.speaker.id && segment.speaker.id !== "unknown" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSpeakerId(segment.speaker.id);
+                            setEditSpeakerName(
+                              segment.speaker.displayName || segment.speaker.label
+                            );
+                          }}
+                          className="opacity-0 group-hover/speaker:opacity-100 hover:text-indigo-600 text-slate-400 p-0.5 rounded transition-all cursor-pointer"
+                          title="Click to rename speaker"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Right Column (Content): Spoken Text */}

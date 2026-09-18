@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Pencil, Check, X, Loader2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api/client";
 import { Chapter } from "./types";
 import { useMeetingMedia } from "@/hooks/useMeetingMedia";
 import { MeetingThumbnail } from "./MeetingThumbnail";
@@ -39,6 +41,48 @@ export function MediaSidebar({
   onOpenChat,
 }: MediaSidebarProps) {
   const [activeTab, setActiveTab] = useState<"Chapters" | "Highlights" | "Speakers">("Chapters");
+  const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
+  const [editSpeakerName, setEditSpeakerName] = useState("");
+  const [isSavingSpeaker, setIsSavingSpeaker] = useState(false);
+  const queryClient = useQueryClient();
+
+  // Fetch real meeting speakers and talk time statistics
+  const { data: realSpeakers } = useQuery({
+    queryKey: ["meeting-speakers", meetingId],
+    queryFn: async () => {
+      if (!meetingId || meetingId === "sample-meeting-id") return null;
+      try {
+        const res = await api.get<Array<{
+          id: string;
+          speaker_label: string;
+          display_name: string;
+          total_duration_seconds: number;
+          speaking_percentage: number;
+        }>>(`/meetings/${meetingId}/speakers`);
+        return res;
+      } catch {
+        return null;
+      }
+    },
+    enabled: Boolean(meetingId),
+  });
+
+  const handleSaveSidebarSpeaker = async (speakerId: string) => {
+    if (!editSpeakerName.trim()) return;
+    try {
+      setIsSavingSpeaker(true);
+      await api.patch(`/speakers/${speakerId}`, {
+        display_name: editSpeakerName.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["meeting-speakers", meetingId] });
+      await queryClient.invalidateQueries({ queryKey: ["meeting-transcript", meetingId] });
+      setEditingSpeakerId(null);
+    } catch (err) {
+      console.error("Failed to update speaker from sidebar:", err);
+    } finally {
+      setIsSavingSpeaker(false);
+    }
+  };
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Fetch actual media playback URL from MinIO backend if not explicitly provided
@@ -216,27 +260,102 @@ export function MediaSidebar({
 
         {activeTab === "Speakers" && (
           <div className="p-3 space-y-3">
-            {[
-              { name: "Alison Barker", role: "Meeting Host", duration: "5m 24s", percent: 62 },
-              { name: "Eliab Sisay", role: "CRM Lead", duration: "1m 45s", percent: 20 },
-              { name: "Kelcey Hawthorne", role: "Compliance", duration: "1m 40s", percent: 18 },
-            ].map((speaker, idx) => (
-              <div
-                key={idx}
-                className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5"
-              >
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-900">{speaker.name}</span>
-                  <span className="text-slate-500 font-mono text-[11px]">{speaker.duration}</span>
+            {realSpeakers && realSpeakers.length > 0 ? (
+              realSpeakers.map((speaker) => (
+                <div
+                  key={speaker.id}
+                  className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-2 group"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    {editingSpeakerId === speaker.id ? (
+                      <form
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          handleSaveSidebarSpeaker(speaker.id);
+                        }}
+                        className="flex items-center gap-1"
+                      >
+                        <input
+                          type="text"
+                          value={editSpeakerName}
+                          onChange={(e) => setEditSpeakerName(e.target.value)}
+                          className="text-xs font-semibold px-1.5 py-0.5 border border-indigo-400 rounded focus:outline-none bg-white w-24 text-slate-900"
+                          autoFocus
+                        />
+                        <button
+                          type="submit"
+                          disabled={isSavingSpeaker}
+                          className="text-emerald-600 hover:bg-emerald-50 p-0.5 rounded"
+                        >
+                          {isSavingSpeaker ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingSpeakerId(null)}
+                          className="text-rose-500 hover:bg-rose-50 p-0.5 rounded"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </form>
+                    ) : (
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-semibold text-slate-900 truncate" title={speaker.display_name}>
+                          {speaker.display_name || speaker.speaker_label}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingSpeakerId(speaker.id);
+                            setEditSpeakerName(speaker.display_name || speaker.speaker_label);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 hover:text-indigo-600 text-slate-400 p-0.5 transition-opacity cursor-pointer"
+                          title="Rename speaker"
+                        >
+                          <Pencil className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-slate-500 font-mono text-[11px]">
+                        {formatDurationStr(speaker.total_duration_seconds)}
+                      </span>
+                      <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                        {speaker.speaking_percentage}%
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${Math.max(speaker.speaking_percentage, 4)}%` }}
+                    />
+                  </div>
                 </div>
-                <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
-                  <div
-                    className="bg-indigo-600 h-full rounded-full"
-                    style={{ width: `${speaker.percent}%` }}
-                  />
+              ))
+            ) : (
+              [
+                { name: "Presenter", duration: "3m 07s", percent: 89 },
+                { name: "Inquirer", duration: "0m 24s", percent: 11 },
+              ].map((speaker, idx) => (
+                <div
+                  key={idx}
+                  className="p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-1.5"
+                >
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-900">{speaker.name}</span>
+                    <span className="text-slate-500 font-mono text-[11px]">{speaker.duration}</span>
+                  </div>
+                  <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="bg-indigo-600 h-full rounded-full"
+                      style={{ width: `${speaker.percent}%` }}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
       </div>

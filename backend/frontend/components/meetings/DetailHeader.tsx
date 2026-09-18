@@ -26,8 +26,8 @@ import { api } from "@/lib/api/client";
 
 interface DetailHeaderProps {
   meeting: MeetingIntelligence;
-  activeTab: "Recap" | "Transcript" | "Deep Dive";
-  onTabChange: (tab: "Recap" | "Transcript" | "Deep Dive") => void;
+  activeTab: "Recap" | "Transcript";
+  onTabChange: (tab: "Recap" | "Transcript") => void;
   folderName?: string;
   meetingId?: string;
 }
@@ -329,7 +329,7 @@ export function DetailHeader({
 
         {/* Right: Pill-Based Navigation Tabs */}
         <div className="flex items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200/80 self-start md:self-auto">
-          {(["Recap", "Transcript", "Deep Dive"] as const).map((tab) => {
+          {(["Recap", "Transcript"] as const).map((tab) => {
             const isActive = activeTab === tab;
             return (
               <button

@@ -20,6 +20,8 @@ class SpeakerResponse(BaseModel):
     speaker_label: str
     display_name: str
     user_id: Optional[UUID] = None
+    total_duration_seconds: Optional[float] = 0.0
+    speaking_percentage: Optional[int] = 0
 
 
 class SpeakerUpdateRequest(BaseModel):

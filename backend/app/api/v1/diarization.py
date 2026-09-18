@@ -117,16 +117,51 @@ def get_meeting_speakers(
 ):
     service = DiarizationService(db, tenant_ctx.tenant_id)
     speakers = service.get_speakers_for_meeting(meeting_id)
-    return [
-        SpeakerResponse(
-            id=s.id,
-            meeting_id=s.meeting_id,
-            speaker_label=s.speaker_label,
-            display_name=s.display_name,
-            user_id=s.user_id,
+
+    # Calculate speaking duration and percentage from transcript segments
+    from app.models.transcript import Transcript
+    from app.models.transcript_segment import TranscriptSegment
+
+    transcript = (
+        db.query(Transcript)
+        .filter(
+            Transcript.meeting_id == meeting_id,
+            Transcript.tenant_id == tenant_ctx.tenant_id,
         )
-        for s in speakers
-    ]
+        .first()
+    )
+
+    speaker_durations = {}
+    total_speech_seconds = 0.0
+
+    if transcript:
+        segments = (
+            db.query(TranscriptSegment)
+            .filter(TranscriptSegment.transcript_id == transcript.id)
+            .all()
+        )
+        for seg in segments:
+            dur = max(0.0, seg.end_seconds - seg.start_seconds)
+            total_speech_seconds += dur
+            if seg.speaker_id:
+                speaker_durations[seg.speaker_id] = speaker_durations.get(seg.speaker_id, 0.0) + dur
+
+    response_items = []
+    for s in speakers:
+        dur = speaker_durations.get(s.id, 0.0)
+        pct = round((dur / total_speech_seconds) * 100) if total_speech_seconds > 0 else 0
+        response_items.append(
+            SpeakerResponse(
+                id=s.id,
+                meeting_id=s.meeting_id,
+                speaker_label=s.speaker_label,
+                display_name=s.display_name,
+                user_id=s.user_id,
+                total_duration_seconds=round(dur, 1),
+                speaking_percentage=pct,
+            )
+        )
+    return response_items
 
 
 @router.patch(

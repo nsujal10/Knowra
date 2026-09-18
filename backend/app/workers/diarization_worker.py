@@ -130,6 +130,13 @@ def execute_diarization_task(self, job_id: str, tenant_id: str, media_id: str):
             segments_count=len(result.segments),
         )
 
+        # Automatically resolve real speaker identities from dialogue via Groq LLM
+        try:
+            from app.ai.speaker.speaker_identifier import resolve_speaker_identities
+            resolve_speaker_identities(db, UUID(tenant_id), media.meeting_id)
+        except Exception as spk_err:
+            log.warning("AI speaker resolution encountered error", error=str(spk_err))
+
         # Chain intelligence for THIS meeting only
         _trigger_intelligence(db, UUID(tenant_id), media.meeting_id)
 

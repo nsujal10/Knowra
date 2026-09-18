@@ -157,7 +157,7 @@ export default function MeetingDetailPage() {
   const params = useParams();
   const meetingId = (params?.id as string) || "sample-meeting-id";
 
-  const [activeTab, setActiveTab] = useState<"Recap" | "Transcript" | "Deep Dive">("Recap");
+  const [activeTab, setActiveTab] = useState<"Recap" | "Transcript">("Recap");
   const [meetingData, setMeetingData] = useState<MeetingIntelligence>(DEFAULT_MEETING_DATA);
   const [currentTime, setCurrentTime] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -267,22 +267,7 @@ export default function MeetingDetailPage() {
         </div>
       )}
 
-      {/* ── 4. DEEP DIVE VIEW TAB ────────────────────────────────────────── */}
-      {activeTab === "Deep Dive" && (
-        <div className="py-8 text-center text-slate-500 text-sm bg-slate-50 rounded-xl border border-slate-200 mt-4">
-          <p className="font-semibold text-slate-700">Intelligence Deep Dive &amp; Analytics</p>
-          <p className="text-xs text-slate-500 mt-1">
-            Cross-meeting correlation, knowledge graph extraction, and sentiment trends.
-          </p>
-          <button
-            type="button"
-            onClick={() => setActiveTab("Recap")}
-            className="mt-4 px-4 py-1.5 text-xs font-semibold bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors"
-          >
-            Switch to Recap View
-          </button>
-        </div>
-      )}
+
 
       {/* ── 5. RAG CHAT SLIDE-OVER DRAWER ────────────────────────────────── */}
 

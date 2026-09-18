@@ -74,7 +74,7 @@ def resolve_speaker_identities(
 
     speaker_by_label = {s.speaker_label: s for s in speakers}
 
-    # 3. Format dialogue context for LLM prompt
+    # 3. Format dialogue context for LLM prompt with batching to respect Groq OTPM limits
     segment_items = [{"seq": s.sequence_number, "text": s.text} for s in segments]
 
     api_key = getattr(settings, "LLM_API_KEY", "") or os.getenv("LLM_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
@@ -82,14 +82,20 @@ def resolve_speaker_identities(
         log.warning("No LLM API key available; skipping AI speaker resolution")
         return {}
 
-    prompt = f"""You are an expert conversational AI and meeting analyst.
+    model = getattr(settings, "LLM_MODEL", "qwen/qwen3.8-27b") or "qwen/qwen3.8-27b"
+    resolved_names: Dict[str, str] = {}
+    attributions: Dict[str, str] = {}
+
+    # Process first batch to identify speakers and attribute early segments
+    first_batch = segment_items[:45]
+    prompt_1 = f"""You are an expert conversational AI and meeting analyst.
 Given the numbered dialogue transcript below:
 1. Identify each speaker's real human name (look for self-introductions like "I'm Sarah", "My name is Mike", "Sarah here", or addresses like "Thanks John").
 2. If no personal names are mentioned, identify their clear conversational role (e.g. "Presenter", "Inquirer", "Host", "Attendee", "Customer").
 3. Attribute each numbered dialogue turn (by its seq number) to the respective speaker ("Speaker A", "Speaker B", etc.).
 
 Dialogue:
-{json.dumps(segment_items)}
+{json.dumps(first_batch)}
 
 Return a single valid JSON object in this exact format:
 {{
@@ -104,34 +110,71 @@ Return a single valid JSON object in this exact format:
 }}
 """
 
-    model = getattr(settings, "LLM_MODEL", "qwen/qwen3.8-27b") or "qwen/qwen3.8-27b"
-    resolved_names: Dict[str, str] = {}
-    attributions: Dict[str, str] = {}
-
     try:
         res = httpx.post(
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [{"role": "user", "content": prompt_1}],
                 "response_format": {"type": "json_object"},
+                "max_tokens": 600,
                 "temperature": 0.0,
             },
             timeout=45.0,
         )
         if res.status_code == 200:
-            parsed = res.json()["choices"][0]["message"]["content"]
-            data = json.loads(parsed)
+            data = json.loads(res.json()["choices"][0]["message"]["content"])
             resolved_names = data.get("speaker_names", {})
-            attributions = data.get("attributions", {})
-            log.info("LLM resolved speaker names & attributions", names=resolved_names, total_turns=len(attributions))
+            attributions.update(data.get("attributions", {}))
+            log.info("LLM resolved initial speakers & attributions", names=resolved_names, turns=len(attributions))
         else:
             log.error("Groq speaker resolution failed", status=res.status_code, body=res.text)
     except Exception as e:
-        log.exception("Error during LLM speaker resolution", error=str(e))
+        log.exception("Error during LLM speaker resolution batch 1", error=str(e))
 
-    # 4. Apply resolved names to Speaker records
+    # If transcript has subsequent segments, attribute them using identified speakers
+    chunk_size = 45
+    for offset in range(45, len(segment_items), chunk_size):
+        chunk = segment_items[offset : offset + chunk_size]
+        speakers_for_prompt = resolved_names if resolved_names else list(speaker_by_label.keys())
+        prompt_sub = f"""Given these speakers: {json.dumps(speakers_for_prompt)}
+Attribute each numbered dialogue turn (by its seq number) to the most likely speaker.
+
+Dialogue:
+{json.dumps(chunk)}
+
+Return a single valid JSON object:
+{{
+  "attributions": {{
+    "{chunk[0]['seq']}": "Speaker A"
+  }}
+}}
+"""
+        try:
+            res = httpx.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt_sub}],
+                    "response_format": {"type": "json_object"},
+                    "max_tokens": 500,
+                    "temperature": 0.0,
+                },
+                timeout=45.0,
+            )
+            if res.status_code == 200:
+                data = json.loads(res.json()["choices"][0]["message"]["content"])
+                sub_attrs = data.get("attributions", {})
+                attributions.update(sub_attrs)
+            else:
+                log.warning("Groq sub-batch attribution skipped", status=res.status_code)
+        except Exception as e:
+            log.warning("Sub-batch attribution error", error=str(e))
+
+
+    # 4. Apply resolved names to Speaker records (or create new speakers if identified)
     updated_speakers = {}
     for label, new_name in resolved_names.items():
         if not new_name or not isinstance(new_name, str):
@@ -142,25 +185,63 @@ Return a single valid JSON object in this exact format:
             spk.display_name = clean_name
             updated_speakers[str(spk.id)] = clean_name
         else:
-            # Match partial label e.g. "Speaker 1" -> "Speaker A"
+            # Check if matching existing speaker
+            matched_spk = None
             for s in speakers:
                 if s.speaker_label.lower() in label.lower() or label.lower() in s.speaker_label.lower():
-                    s.display_name = clean_name
-                    updated_speakers[str(s.id)] = clean_name
+                    matched_spk = s
                     break
+            
+            if matched_spk:
+                matched_spk.display_name = clean_name
+                speaker_by_label[label] = matched_spk
+                updated_speakers[str(matched_spk.id)] = clean_name
+            else:
+                # Dynamically create new speaker for this meeting
+                new_spk = Speaker(
+                    tenant_id=tenant_id,
+                    meeting_id=meeting_id,
+                    speaker_label=label,
+                    display_name=clean_name,
+                )
+                db.add(new_spk)
+                db.flush()
+                speakers.append(new_spk)
+                speaker_by_label[label] = new_spk
+                updated_speakers[str(new_spk.id)] = clean_name
 
-    # 5. Apply segment attributions to transcript segments
+    # 5. Build lookup map for attribution (supporting both labels & names)
+    speaker_map = {}
+    for s in speakers:
+        if s.speaker_label:
+            speaker_map[s.speaker_label.lower()] = s
+        if s.display_name:
+            speaker_map[s.display_name.lower()] = s
+
+    # 6. Apply segment attributions to transcript segments
     if attributions:
         for s in segments:
-            assigned_label = attributions.get(str(s.sequence_number))
-            if assigned_label and assigned_label in speaker_by_label:
-                s.speaker_id = speaker_by_label[assigned_label].id
-            elif assigned_label:
-                for label, spk in speaker_by_label.items():
-                    if label.lower() in assigned_label.lower() or assigned_label.lower() in label.lower():
-                        s.speaker_id = spk.id
-                        break
+            assigned = attributions.get(str(s.sequence_number))
+            if not assigned:
+                assigned = attributions.get(s.sequence_number)
+
+            matched = None
+            if assigned:
+                assigned_clean = str(assigned).strip().lower()
+                if assigned_clean in speaker_map:
+                    matched = speaker_map[assigned_clean]
+                else:
+                    for k, spk in speaker_map.items():
+                        if k in assigned_clean or assigned_clean in k:
+                            matched = spk
+                            break
+
+            if matched:
+                s.speaker_id = matched.id
+            elif not s.speaker_id and speakers:
+                s.speaker_id = speakers[0].id
 
     db.commit()
     log.info("Speaker resolution & attribution finished", updated_speakers=updated_speakers)
     return updated_speakers
+

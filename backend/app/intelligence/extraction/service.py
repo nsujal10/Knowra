@@ -51,6 +51,11 @@ class IntelligenceNotFoundError(Exception):
     pass
 
 
+class InsufficientTranscriptError(ValueError):
+    """Raised when transcript context is below the minimum required word threshold."""
+    pass
+
+
 class MeetingIntelligenceService:
     def __init__(self, db: Session, tenant_id: UUID) -> None:
         self.db = db
@@ -134,6 +139,21 @@ class MeetingIntelligenceService:
             self.db.add(run)
         self.db.flush()
 
+        # 3.5 Validate Transcript Context Length (prevent LLM hallucinations on empty text)
+        total_words = sum(len(seg.text.split()) for seg in transcript.segments) if transcript.segments else 0
+        if total_words < 50:
+            run.status = "FAILED_NO_TRANSCRIPT"
+            run.error_message = f"Transcript context too brief ({total_words} words). Minimum required: 50 words."
+            self.db.commit()
+            logger.warning(
+                "Aborted intelligence extraction due to insufficient transcript",
+                meeting_id=str(meeting_id),
+                total_words=total_words,
+            )
+            raise InsufficientTranscriptError(
+                f"Transcript has only {total_words} words; minimum 50 required for intelligence extraction."
+            )
+
         try:
             # 4. Build Context
             builder = ContextBuilder()
@@ -215,15 +235,28 @@ class MeetingIntelligenceService:
                     evidence_segment_ids=[str(x) for x in c.evidence_segment_ids],
                 ))
 
-            # 12. Persist Phase 16 Action Items if returned
-            if validated_bundle.action_items:
+            # 12. Persist Phase 16 Action Items (strictly ground-truth items only)
+            action_items_to_persist = list(validated_bundle.action_items)
+            if action_items_to_persist:
                 from app.actions.service import ActionItemService
                 action_service = ActionItemService(db=self.db, tenant_id=self.tenant_id)
                 action_service.ingest_llm_action_items(
                     meeting_id=meeting_id,
                     intelligence_run_id=run.id,
-                    items=validated_bundle.action_items,
+                    items=action_items_to_persist,
                 )
+
+            # 12.5. Persist Immutable Intelligence JSON Artifact to MinIO
+            try:
+                from app.storage.intelligence_storage import IntelligenceStorageService
+                intel_storage = IntelligenceStorageService(self.tenant_id)
+                intel_storage.persist_intelligence_json(
+                    meeting_id=meeting_id,
+                    run_id=run.id,
+                    payload=validated_bundle.model_dump(),
+                )
+            except Exception as storage_err:
+                logger.warning("Could not persist intelligence JSON artifact to MinIO", error=str(storage_err))
 
             # 13. Finalize Run Record
             run.status = "COMPLETED"

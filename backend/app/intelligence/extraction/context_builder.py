@@ -49,7 +49,7 @@ class ContextBuilder:
             start_str = format_seconds(seg.start_seconds)
             end_str = format_seconds(seg.end_seconds)
 
-            line = f"[Segment ID: {seg.id} | {start_str} -> {end_str} | Speaker: {speaker_label}]\n{seg.text}\n"
+            line = f"[{seg.id} | {speaker_label}]: {seg.text}"
             lines.append(line)
 
             segments_meta.append({
@@ -63,6 +63,7 @@ class ContextBuilder:
                 "text": seg.text,
             })
 
+        # When no segments exist, do not fabricate artificial dialogue.
         lines.append("=== END OF TRANSCRIPT ===")
         context_str = "\n".join(lines)
         return context_str, segments_meta

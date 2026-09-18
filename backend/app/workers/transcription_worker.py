@@ -143,15 +143,20 @@ def execute_transcription_task(self, job_id: str, tenant_id: str, media_id: str)
         
     except Exception as e:
         log.exception("Transcription task failed")
-        job = db.query(ProcessingJob).filter(ProcessingJob.id == UUID(job_id)).first()
-        if job:
-            job.status = "FAILED"
-            job.error_message = str(e)
-        run = db.query(TranscriptionRun).filter(TranscriptionRun.job_id == UUID(job_id)).first()
-        if run:
-            run.status = "FAILED"
-            run.completed_at = datetime.now(timezone.utc)
-        db.commit()
+        try:
+            job = db.query(ProcessingJob).filter(ProcessingJob.id == UUID(job_id)).first()
+            if job:
+                job.status = "FAILED"
+                job.error_message = str(e)
+            run = db.query(TranscriptionRun).filter(TranscriptionRun.job_id == UUID(job_id)).first()
+            if run:
+                run.status = "FAILED"
+                run.completed_at = datetime.now(timezone.utc)
+            db.commit()
+        except Exception:
+            pass
+        if self.request.retries >= self.max_retries:
+            return
         raise self.retry(exc=e, countdown=30)
     finally:
         import shutil

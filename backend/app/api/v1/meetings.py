@@ -28,7 +28,8 @@ def _enrich_meeting(meeting: Meeting, media: Optional[MediaAsset]) -> MeetingRes
         ]:
             status_str = "PROCESSING"
         elif media_status_str == MediaStatus.READY.value:
-            status_str = "COMPLETED"
+            # Normalized audio ready — ASR/intelligence may still be running
+            status_str = meeting.status if meeting.status in ("COMPLETED", "FAILED") else "PROCESSING"
         elif media_status_str in [MediaStatus.FAILED.value, MediaStatus.QUARANTINED.value]:
             status_str = "FAILED"
         elif media_status_str in [MediaStatus.CREATED.value, MediaStatus.UPLOAD_PENDING.value]:
@@ -104,14 +105,12 @@ def create_meeting(data: MeetingCreate, db: Session = Depends(get_db), tenant_ct
 
 @router.get("/{meeting_id}", response_model=MeetingResponse)
 def get_meeting(
-    meeting_id: UUID,
+    meeting_id: str,
     db: Session = Depends(get_db),
     tenant_ctx: TenantContext = Depends(get_tenant_context),
 ):
-    meeting = db.query(Meeting).filter(
-        Meeting.id == meeting_id,
-        Meeting.tenant_id == tenant_ctx.tenant_id,
-    ).first()
+    from app.api.v1.intelligence import resolve_meeting
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
     if not meeting:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
     

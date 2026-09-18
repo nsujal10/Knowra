@@ -341,6 +341,8 @@ export class UploadService {
       { signal }
     );
 
+    // Backend queues scan → normalize → transcribe for THIS media_id only.
+    // Return the server-issued meetingId so polling/hooks never reuse another session.
     onProgress?.({
       percentage: 100,
       uploadedBytes: file.size,
@@ -349,6 +351,10 @@ export class UploadService {
       totalChunks: parts.length,
       statusText: "Upload complete! Processing pipeline queued."
     });
+
+    if (!meetingId || !mediaId) {
+      throw new Error("Upload completed but meeting_id/media_id missing from session");
+    }
 
     return {
       meetingId,

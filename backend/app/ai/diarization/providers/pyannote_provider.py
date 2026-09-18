@@ -2,6 +2,7 @@ import os
 import structlog
 from typing import Dict
 from app.ai.diarization.interface import DiarizationProvider
+from app.ai.diarization.postprocess import postprocess_diarization_segments
 from app.ai.diarization.schemas import (
     DiarizationOptions,
     DiarizationResult,
@@ -46,20 +47,28 @@ class PyannoteProvider(DiarizationProvider):
         if self.pipeline is None:
             raise RuntimeError("Pyannote pipeline failed to initialize.")
 
-        logger.info("Starting speaker diarization", audio_path=audio_path)
+        min_speakers = options.min_speakers if options.min_speakers is not None else 1
+        max_speakers = options.max_speakers if options.max_speakers is not None else 10
+        if options.num_speakers is not None:
+            min_speakers = options.num_speakers
+            max_speakers = options.num_speakers
 
-        # Build pipeline kwargs
-        kwargs = {}
+        logger.info(
+            "Starting speaker diarization",
+            audio_path=audio_path,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
+
+        kwargs = {
+            "min_speakers": min_speakers,
+            "max_speakers": max_speakers,
+        }
         if options.num_speakers is not None:
             kwargs["num_speakers"] = options.num_speakers
-        if options.min_speakers is not None:
-            kwargs["min_speakers"] = options.min_speakers
-        if options.max_speakers is not None:
-            kwargs["max_speakers"] = options.max_speakers
 
         diarization = self.pipeline(audio_path, **kwargs)
 
-        # pyannote annotation iteration: (segment, track, speaker)
         raw_segments = []
         speaker_mapping: Dict[str, str] = {}
         speaker_counter = 0
@@ -79,16 +88,22 @@ class PyannoteProvider(DiarizationProvider):
                 )
             )
 
-        unique_speakers = sorted(list(speaker_mapping.values()))
+        # Merge fragmented same-speaker turns and remap to Speaker A/B/...
+        cleaned_segments, unique_speakers = postprocess_diarization_segments(
+            raw_segments,
+            gap_seconds=options.merge_gap_seconds,
+        )
 
         logger.info(
             "Diarization inference completed",
-            segments_count=len(raw_segments),
+            raw_segments_count=len(raw_segments),
+            segments_count=len(cleaned_segments),
             speakers_count=len(unique_speakers),
+            speakers=unique_speakers,
         )
 
         return DiarizationResult(
-            segments=raw_segments,
+            segments=cleaned_segments,
             speakers=unique_speakers,
             model_name="pyannote.audio",
             model_version=self.model_name,

@@ -4,8 +4,10 @@ from typing import List, Optional
 
 class DiarizationOptions(BaseModel):
     num_speakers: Optional[int] = None
-    min_speakers: Optional[int] = None
-    max_speakers: Optional[int] = None
+    min_speakers: Optional[int] = 1
+    max_speakers: Optional[int] = 10
+    # Merge gap for consecutive same-speaker turns (seconds)
+    merge_gap_seconds: float = 0.5
 
 
 class DiarizationSegment(BaseModel):

@@ -354,11 +354,12 @@ export default function MeetingsPage() {
     fetchMeetings();
   };
 
-  // Merge real meetings with mock fallback meetings (prioritizing real meetings)
+  // Use real meetings when loaded from backend, fallback to demo mocks only if empty
   const allMeetings = useMemo(() => {
-    const realIds = new Set(realMeetings.map((m) => m.id));
-    const nonCollidingMocks = MOCK_MEETINGS.filter((m) => !realIds.has(m.id));
-    return [...realMeetings, ...nonCollidingMocks];
+    if (realMeetings.length > 0) {
+      return realMeetings;
+    }
+    return MOCK_MEETINGS;
   }, [realMeetings]);
 
   // Tab counts
@@ -375,9 +376,6 @@ export default function MeetingsPage() {
   const filteredMeetings = useMemo(() => {
     return allMeetings
       .filter((item) => {
-        if (activeTab === "meetings" && (item.status === "PROCESSING" || item.status === "PENDING")) {
-          return false;
-        }
         if (activeTab === "processing" && item.status === "COMPLETED") {
           return false;
         }
@@ -770,7 +768,7 @@ export default function MeetingsPage() {
         onClose={() => setIsUploadModalOpen(false)}
         onUploadComplete={() => {
           handleRefresh();
-          setActiveTab("processing");
+          setActiveTab("meetings");
         }}
       />
     </div>

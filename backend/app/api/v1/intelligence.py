@@ -2,6 +2,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
+from pydantic import BaseModel, Field
 
 from app.core.database import get_db
 from app.security.dependencies import get_current_user
@@ -10,15 +11,35 @@ from app.intelligence.schemas import (
     MeetingIntelligenceResponse,
     TriggerIntelligenceRequest,
     IntelligenceRunSchema,
-    TopicSchema,
-    DecisionSchema,
-    RiskSchema,
-    QuestionSchema,
-    CommitmentSchema,
 )
 from app.intelligence.extraction.service import MeetingIntelligenceService, IntelligenceNotFoundError
+from app.models.meeting import Meeting
+from app.models.media_asset import MediaAsset
+from app.models.transcript import Transcript
+from app.actions.models import ActionItem
+from app.models.transcript_segment import TranscriptSegment
+from app.intelligence.models import IntelligenceRun, Topic
 
 router = APIRouter(prefix="/meetings/{meeting_id}/intelligence", tags=["Meeting Intelligence"])
+
+
+def resolve_meeting(meeting_id_str: str, tenant_id: UUID, db: Session) -> Optional[Meeting]:
+    """
+    Resolve a meeting by UUID within the tenant.
+
+    IMPORTANT: Never fall back to "any meeting with media" — that caused the
+    One-Hit Wonder bug where subsequent meeting routes returned the first video's data.
+    """
+    try:
+        uid = UUID(str(meeting_id_str).strip())
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+    return (
+        db.query(Meeting)
+        .filter(Meeting.id == uid, Meeting.tenant_id == tenant_id)
+        .first()
+    )
 
 
 @router.post(
@@ -28,22 +49,22 @@ router = APIRouter(prefix="/meetings/{meeting_id}/intelligence", tags=["Meeting 
     summary="Trigger or get existing meeting intelligence analysis",
 )
 def analyze_meeting(
-    meeting_id: UUID,
+    meeting_id: str,
     request: Optional[TriggerIntelligenceRequest] = None,
     force_reprocess: bool = Query(False, description="Bypass idempotency cache"),
     db: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ):
-    """
-    Executes structural meeting intelligence extraction (Topics, Decisions, Risks, Questions, Commitments, Action Items)
-    using the configured LLM provider and validates all evidence anchors against the canonical database.
-    """
+    meeting = resolve_meeting(meeting_id, current_user.organization_id, db)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
     service = MeetingIntelligenceService(db=db, tenant_id=current_user.organization_id)
     transcript_version = request.transcript_version if request else None
 
     try:
         return service.run_intelligence(
-            meeting_id=meeting_id,
+            meeting_id=meeting.id,
             transcript_version_number=transcript_version,
             force=force_reprocess,
         )
@@ -57,14 +78,6 @@ def analyze_meeting(
             detail=f"Intelligence extraction failed: {str(e)}",
         )
 
-
-from pydantic import BaseModel, Field
-from app.models.processing_job import ProcessingJob
-from app.models.media_asset import MediaAsset
-from app.models.transcript import Transcript
-from app.actions.models import ActionItem
-from app.models.transcript_segment import TranscriptSegment
-from app.intelligence.models import IntelligenceRun, Topic
 
 class EvidenceAnchor(BaseModel):
     timestampStart: float = 0.0
@@ -86,10 +99,11 @@ class IntelligenceSummary(BaseModel):
 
 class MeetingIntelligencePayload(BaseModel):
     meetingId: str
-    status: str # "READY", "PROCESSING", "FAILED"
+    status: str # "READY", "PROCESSING", "FAILED", "UNPROCESSED"
     summary: IntelligenceSummary
     actionItems: List[IntelligenceActionItem] = Field(default_factory=list)
     topics: List[IntelligenceTopic] = Field(default_factory=list)
+
 
 @router.get(
     "",
@@ -97,126 +111,125 @@ class MeetingIntelligencePayload(BaseModel):
     summary="Get all latest intelligence artifacts for a meeting",
 )
 def get_intelligence(
-    meeting_id: UUID,
+    meeting_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> MeetingIntelligencePayload:
-    service = MeetingIntelligenceService(db=db, tenant_id=current_user.organization_id)
-    
-    # 1. Look up existing completed intelligence run
+    meeting = resolve_meeting(meeting_id, current_user.organization_id, db)
+    if not meeting:
+        return MeetingIntelligencePayload(
+            meetingId=str(meeting_id),
+            status="UNPROCESSED",
+            summary=IntelligenceSummary(executive=""),
+            actionItems=[],
+            topics=[],
+        )
+
+    actual_id = meeting.id
+    service = MeetingIntelligenceService(db=db, tenant_id=meeting.tenant_id)
+
+    # Check for in-flight or failed intelligence runs
+    latest_run = (
+        db.query(IntelligenceRun)
+        .filter(IntelligenceRun.meeting_id == actual_id)
+        .order_by(IntelligenceRun.created_at.desc())
+        .first()
+    )
+
     run = (
         db.query(IntelligenceRun)
         .filter(
-            IntelligenceRun.meeting_id == meeting_id,
-            IntelligenceRun.tenant_id == current_user.organization_id,
+            IntelligenceRun.meeting_id == actual_id,
             IntelligenceRun.status == "COMPLETED",
         )
         .order_by(IntelligenceRun.created_at.desc())
         .first()
     )
 
-    # 2. If no completed run exists, check if processing or attempt automatic extraction
+    # Lazy-trigger extraction only when a transcript exists and no completed run
     if not run:
-        media = db.query(MediaAsset).filter(
-            MediaAsset.meeting_id == meeting_id,
-            MediaAsset.tenant_id == current_user.organization_id,
-        ).first()
-
-        job = None
-        if media:
-            job = (
-                db.query(ProcessingJob)
-                .filter(
-                    ProcessingJob.media_asset_id == media.id,
-                    ProcessingJob.tenant_id == current_user.organization_id,
-                    ProcessingJob.task_name.in_(["TRANSCRIPTION", "INTELLIGENCE", "DIARIZATION"]),
-                )
-                .order_by(ProcessingJob.created_at.desc())
-                .first()
-            )
-
-        # Check if canonical transcript exists so we can run intelligence
-        transcript_exists = (
+        transcript = (
             db.query(Transcript)
-            .filter(
-                Transcript.meeting_id == meeting_id,
-                Transcript.tenant_id == current_user.organization_id,
-            )
+            .filter(Transcript.meeting_id == actual_id, Transcript.tenant_id == meeting.tenant_id)
             .first()
         )
-
-        if not transcript_exists and job and job.status in ["PENDING", "PROCESSING", "IN_PROGRESS"]:
-            return MeetingIntelligencePayload(
-                meetingId=str(meeting_id),
-                status="PROCESSING",
-                summary=IntelligenceSummary(executive=""),
-                actionItems=[],
-                topics=[],
-            )
-
-        # Attempt to run intelligence extraction if transcript is ready
-        try:
-            service.run_intelligence(meeting_id=meeting_id)
-            run = (
-                db.query(IntelligenceRun)
-                .filter(
-                    IntelligenceRun.meeting_id == meeting_id,
-                    IntelligenceRun.tenant_id == current_user.organization_id,
-                    IntelligenceRun.status == "COMPLETED",
+        if transcript:
+            try:
+                service.run_intelligence(meeting_id=actual_id)
+                run = (
+                    db.query(IntelligenceRun)
+                    .filter(
+                        IntelligenceRun.meeting_id == actual_id,
+                        IntelligenceRun.status == "COMPLETED",
+                    )
+                    .order_by(IntelligenceRun.created_at.desc())
+                    .first()
                 )
-                .order_by(IntelligenceRun.created_at.desc())
+            except Exception:
+                # Surface processing/failed state honestly — never invent topics
+                if latest_run and latest_run.status in ("PENDING", "PROCESSING", "IN_PROGRESS"):
+                    return MeetingIntelligencePayload(
+                        meetingId=str(actual_id),
+                        status="PROCESSING",
+                        summary=IntelligenceSummary(executive=""),
+                        actionItems=[],
+                        topics=[],
+                    )
+                return MeetingIntelligencePayload(
+                    meetingId=str(actual_id),
+                    status="FAILED",
+                    summary=IntelligenceSummary(executive=""),
+                    actionItems=[],
+                    topics=[],
+                )
+        else:
+            # Media may still be in the ASR pipeline
+            media = (
+                db.query(MediaAsset)
+                .filter(MediaAsset.meeting_id == actual_id, MediaAsset.tenant_id == meeting.tenant_id)
                 .first()
             )
-        except Exception:
+            status_out = "PROCESSING" if media else "UNPROCESSED"
             return MeetingIntelligencePayload(
-                meetingId=str(meeting_id),
-                status="PROCESSING",
+                meetingId=str(actual_id),
+                status=status_out,
                 summary=IntelligenceSummary(executive=""),
                 actionItems=[],
                 topics=[],
             )
 
-    if not run:
-        return MeetingIntelligencePayload(
-            meetingId=str(meeting_id),
-            status="PROCESSING",
-            summary=IntelligenceSummary(executive=""),
-            actionItems=[],
-            topics=[],
-        )
-
-    # 3. Fetch extracted topics
     topics = (
         db.query(Topic)
-        .filter(Topic.intelligence_run_id == run.id, Topic.tenant_id == current_user.organization_id)
+        .filter(Topic.meeting_id == actual_id)
         .order_by(Topic.importance_score.desc())
         .all()
     )
+
+    actions = (
+        db.query(ActionItem)
+        .options(selectinload(ActionItem.evidence_items))
+        .filter(ActionItem.meeting_id == actual_id)
+        .order_by(ActionItem.created_at.asc())
+        .all()
+    )
+
     topics_payload = [
         IntelligenceTopic(
             id=str(t.id),
             title=t.title,
-            description=t.summary,
+            description=t.summary or "",
             evidence=[EvidenceAnchor(timestampStart=float(t.start_seconds or 0))],
         )
         for t in topics
     ]
 
-    # 4. Fetch extracted action items
-    actions = (
-        db.query(ActionItem)
-        .options(selectinload(ActionItem.evidence_items))
-        .filter(ActionItem.meeting_id == meeting_id, ActionItem.tenant_id == current_user.organization_id)
-        .order_by(ActionItem.created_at.asc())
-        .all()
-    )
     action_items_payload = []
     for a in actions:
         start_time = 0.0
         if a.evidence_items:
             try:
-                first_seg_id = a.evidence_items[0].segment_id
-                seg = db.query(TranscriptSegment).filter(TranscriptSegment.id == first_seg_id).first()
+                first_evidence_seg_id = a.evidence_items[0].segment_id
+                seg = db.query(TranscriptSegment).filter(TranscriptSegment.id == first_evidence_seg_id).first()
                 if seg and seg.start_seconds is not None:
                     start_time = float(seg.start_seconds)
             except Exception:
@@ -230,16 +243,17 @@ def get_intelligence(
             )
         )
 
-    # 5. Build executive summary
     if topics:
-        executive_summary = " ".join([t.summary for t in topics[:3]])
+        executive_summary = " ".join([t.summary for t in topics[:3] if t.summary])
+    elif run and getattr(run, "executive_summary", None):
+        executive_summary = run.executive_summary
     else:
-        executive_summary = "Meeting summary is available."
+        executive_summary = ""
 
     return MeetingIntelligencePayload(
-        meetingId=str(meeting_id),
+        meetingId=str(actual_id),
         status="READY",
-        summary=IntelligenceSummary(executive=executive_summary),
+        summary=IntelligenceSummary(executive=executive_summary or "Meeting summary is available."),
         actionItems=action_items_payload,
         topics=topics_payload,
     )
@@ -251,10 +265,13 @@ def get_intelligence(
     summary="List all intelligence extraction runs for this meeting",
 )
 def list_intelligence_runs(
-    meeting_id: UUID,
+    meeting_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
 ):
-    service = MeetingIntelligenceService(db=db, tenant_id=current_user.organization_id)
-    runs = service.list_runs(meeting_id=meeting_id)
+    meeting = resolve_meeting(meeting_id, current_user.organization_id, db)
+    if not meeting:
+        return []
+    service = MeetingIntelligenceService(db=db, tenant_id=meeting.tenant_id)
+    runs = service.list_runs(meeting_id=meeting.id)
     return [IntelligenceRunSchema.model_validate(r) for r in runs]

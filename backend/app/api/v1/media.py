@@ -118,24 +118,39 @@ def complete_media_upload(
         raise HTTPException(status_code=404, detail="Upload session not found")
 
     if upload_session.is_completed:
-        return media # Idempotent return
+        return media  # Idempotent return
 
     parts_dict = [{"part_number": str(p.part_number), "etag": p.etag} for p in req.parts]
-    success = storage.complete_multipart_upload("knowra-raw", media.storage_key, req.upload_id, parts_dict)
-    
+    try:
+        success = storage.complete_multipart_upload(
+            "knowra-raw", media.storage_key, req.upload_id, parts_dict
+        )
+    except Exception as e:
+        media.status = MediaStatus.FAILED.value
+        db.commit()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Storage finalize failed: {e}",
+        )
+
     if not success:
+        media.status = MediaStatus.FAILED.value
+        db.commit()
         raise HTTPException(status_code=500, detail="Failed to complete multipart upload with storage provider")
 
     # Verify exact size
-    head = storage.head_object("knowra-raw", media.storage_key)
-    if head:
-        media.byte_size = head["size"]
+    try:
+        head = storage.head_object("knowra-raw", media.storage_key)
+        if head:
+            media.byte_size = head["size"]
+    except Exception:
+        pass
 
     upload_session.is_completed = True
     media.status = MediaStatus.UPLOADED.value
     db.commit()
 
-    # Dispatch celery task
+    # Dispatch celery task for THIS media_id only
     trigger_media_pipeline(str(tenant_ctx.tenant_id), str(media.id))
 
     return media

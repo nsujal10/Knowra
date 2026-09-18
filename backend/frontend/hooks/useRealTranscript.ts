@@ -95,11 +95,11 @@ export function useRealTranscript(meetingId: string) {
         throw err;
       }
     },
-    // Poll every 5000ms while status is PROCESSING
+    // Poll every 3000ms while status is PROCESSING
     refetchInterval: (query) => {
       const currentStatus = query.state.data?.status;
       if (currentStatus === "PROCESSING") {
-        return 5000;
+        return 3000;
       }
       return false;
     },

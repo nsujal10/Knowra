@@ -73,7 +73,7 @@ class TranscriptContractResponse(BaseModel):
     tags=["Transcript"],
 )
 def get_canonical_transcript(
-    meeting_id: UUID,
+    meeting_id: str,
     version: Optional[int] = Query(
         None,
         ge=1,
@@ -87,16 +87,22 @@ def get_canonical_transcript(
     Return the canonical speaker-diarized transcript for a meeting.
     Returns status: READY, PROCESSING, FAILED, or UNPROCESSED.
     """
+    from app.api.v1.intelligence import resolve_meeting
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
+    actual_id = meeting.id if meeting else None
+    if not actual_id:
+        return TranscriptContractResponse(status="UNPROCESSED", segments=[])
+
     try:
-        canonical = service.get_canonical(meeting_id=meeting_id, version_number=version)
+        canonical = service.get_canonical(meeting_id=actual_id, version_number=version)
         segments_payload = [
             SegmentContract(
                 id=str(seg.id),
                 start=round(seg.start_seconds, 2),
                 end=round(seg.end_seconds, 2),
                 speaker=SpeakerContract(
-                    id=str(seg.speaker_id or seg.speaker_label or f"SPEAKER_{seg.sequence_number:02d}"),
-                    label=seg.speaker_label or f"SPEAKER_{seg.sequence_number:02d}",
+                    id=str(seg.speaker_id or seg.speaker_label or "unknown"),
+                    label=seg.speaker_label or seg.speaker_display_name or "Unknown",
                     displayName=seg.speaker_display_name,
                 ),
                 text=seg.text,
@@ -111,7 +117,7 @@ def get_canonical_transcript(
     except TranscriptNotFoundError:
         # Check if an active processing job is running or failed
         media = db.query(MediaAsset).filter(
-            MediaAsset.meeting_id == meeting_id,
+            MediaAsset.meeting_id == actual_id,
             MediaAsset.tenant_id == tenant_ctx.tenant_id,
         ).first()
 
@@ -139,6 +145,15 @@ def get_canonical_transcript(
                         status="FAILED",
                         segments=[],
                     )
+
+            # If media itself is still undergoing scan/normalization/audio extraction
+            media_status_str = media.status.value if hasattr(media.status, "value") else str(media.status)
+            if media_status_str in ["UPLOADED", "SCANNING", "VALIDATED", "METADATA_EXTRACTING", "PROCESSING_QUEUED", "PROCESSING"]:
+                return TranscriptContractResponse(
+                    transcriptId=None,
+                    status="PROCESSING",
+                    segments=[],
+                )
 
         return TranscriptContractResponse(
             transcriptId=None,

@@ -13,9 +13,17 @@ logger = structlog.get_logger(__name__)
 
 class MinIOStorage(ObjectStorage):
     def __init__(self, endpoint: str, access_key: str, secret_key: str, secure: bool = False):
+        # Aggressive sub-second timeouts caused upload finalize/hang failures
+        # under load (complete_multipart / head_object / fget_object).
         http_client = urllib3.PoolManager(
-            timeout=urllib3.Timeout(connect=0.5, read=1.0),
-            retries=urllib3.Retry(total=1, connect=1, read=0),
+            timeout=urllib3.Timeout(connect=10.0, read=120.0),
+            retries=urllib3.Retry(
+                total=3,
+                connect=3,
+                read=2,
+                backoff_factor=0.5,
+                status_forcelist=[500, 502, 503, 504],
+            ),
         )
         self.client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure, http_client=http_client)
         self._ensure_buckets(["knowra-raw", "knowra-derived", "knowra-quarantine"])

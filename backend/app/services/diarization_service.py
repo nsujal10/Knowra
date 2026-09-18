@@ -76,12 +76,15 @@ class DiarizationService:
         all_labels = set(result.speakers) | {s.speaker_label for s in result.segments}
         for label in sorted(all_labels):
             if label not in speaker_by_label:
-                # Generate user-friendly display name (e.g. SPEAKER_00 -> Speaker 1)
-                try:
-                    num = int(label.split("_")[-1]) + 1
-                    display_name = f"Speaker {num}"
-                except (ValueError, IndexError):
-                    display_name = label.replace("_", " ").title()
+                # Prefer clean labels from postprocess (e.g. "Speaker A")
+                if label.startswith("Speaker "):
+                    display_name = label
+                else:
+                    try:
+                        num = int(label.split("_")[-1]) + 1
+                        display_name = f"Speaker {num}"
+                    except (ValueError, IndexError):
+                        display_name = label.replace("_", " ").title()
 
                 new_speaker = Speaker(
                     tenant_id=self.tenant_id,
@@ -143,8 +146,10 @@ class DiarizationService:
 
         self.db.commit()
 
-        # 5. Store immutable raw diarization JSON artifact in MinIO
-        json_key = f"tenants/{self.tenant_id}/meetings/{meeting_id}/diarization/diarization.json"
+        # 5. Store immutable raw diarization JSON artifact in MinIO (media-scoped)
+        json_key = (
+            f"tenants/{self.tenant_id}/meetings/{meeting_id}/media/{media_id}/diarization/diarization.json"
+        )
         with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as tmp:
             json.dump(result.model_dump(), tmp)
             tmp_path = tmp.name

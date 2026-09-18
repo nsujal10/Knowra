@@ -17,8 +17,27 @@ router = APIRouter()
 
 @router.post("/meetings/{meeting_id}/transcription", status_code=status.HTTP_202_ACCEPTED)
 @router.post("/meetings/{meeting_id}/transcribe", status_code=status.HTTP_202_ACCEPTED)
-def queue_transcription(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
-    media = db.query(MediaAsset).filter(MediaAsset.meeting_id == meeting_id, MediaAsset.tenant_id == tenant_ctx.tenant_id).first()
+def queue_transcription(meeting_id: str, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
+    from app.api.v1.intelligence import resolve_meeting
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
+    actual_id = meeting.id if meeting else None
+    if not actual_id:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    # If transcript already exists, return completed immediately
+    existing_transcript = db.query(Transcript).filter(
+        Transcript.meeting_id == actual_id,
+        Transcript.tenant_id == tenant_ctx.tenant_id
+    ).first()
+    if existing_transcript:
+        return {
+            "status": "COMPLETED",
+            "run_id": str(existing_transcript.id),
+            "job_id": str(existing_transcript.id),
+            "message": "Transcript is already available",
+        }
+
+    media = db.query(MediaAsset).filter(MediaAsset.meeting_id == actual_id, MediaAsset.tenant_id == tenant_ctx.tenant_id).first()
     if not media:
         raise HTTPException(status_code=404, detail="Media not found for meeting")
         
@@ -40,10 +59,14 @@ def queue_transcription(meeting_id: UUID, db: Session = Depends(get_tenant_db), 
     }
 
 @router.get("/meetings/{meeting_id}/transcription")
-def get_transcription_status(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
-    media = db.query(MediaAsset).filter(MediaAsset.meeting_id == meeting_id, MediaAsset.tenant_id == tenant_ctx.tenant_id).first()
+def get_transcription_status(meeting_id: str, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
+    from app.api.v1.intelligence import resolve_meeting
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
+    actual_id = meeting.id if meeting else None
+
+    media = db.query(MediaAsset).filter(MediaAsset.meeting_id == actual_id, MediaAsset.tenant_id == tenant_ctx.tenant_id).first() if actual_id else None
     if not media:
-        raise HTTPException(status_code=404, detail="Media not found")
+        return {"job_id": "", "status": "UNPROCESSED", "metadata": {}}
         
     job = db.query(ProcessingJob).filter(
         ProcessingJob.media_asset_id == media.id, 
@@ -52,18 +75,22 @@ def get_transcription_status(meeting_id: UUID, db: Session = Depends(get_tenant_
     ).order_by(ProcessingJob.created_at.desc()).first()
     
     if not job:
-        raise HTTPException(status_code=404, detail="No transcription jobs found")
+        return {"job_id": "", "status": "UNPROCESSED", "metadata": {}}
         
     return {"job_id": str(job.id), "status": job.status, "metadata": job.metadata_json}
 
 @router.get("/meetings/{meeting_id}/transcript/raw", response_model=TranscriptResponse)
-def get_transcript_raw(meeting_id: UUID, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
+def get_transcript_raw(meeting_id: str, db: Session = Depends(get_tenant_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
+    from app.api.v1.intelligence import resolve_meeting
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
+    actual_id = meeting.id if meeting else None
+
     transcript = db.query(Transcript).options(
         selectinload(Transcript.segments).selectinload(TranscriptSegment.words)
     ).filter(
-        Transcript.meeting_id == meeting_id,
+        Transcript.meeting_id == actual_id,
         Transcript.tenant_id == tenant_ctx.tenant_id
-    ).first()
+    ).first() if actual_id else None
     
     if not transcript:
         raise HTTPException(status_code=404, detail="Transcript not found")

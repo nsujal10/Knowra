@@ -176,9 +176,19 @@ export default function MeetingDetailPage() {
         }>(`/meetings/${meetingId}`);
 
         if (res && res.title) {
+          let dateStr = "Jan 2, 2026";
+          let timeRangeStr = "2:30 AM - 4:15 AM";
+          try {
+            const d = new Date(res.created_at);
+            dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+            timeRangeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+          } catch {}
+
           setMeetingData((prev) => ({
             ...prev,
             title: res.title,
+            date: dateStr,
+            timeRange: timeRangeStr,
             source: (res.source === "GOOGLE_MEET" ? "Google Meet" : res.source === "TEAMS" ? "Teams" : "Zoom") as any
           }));
         }

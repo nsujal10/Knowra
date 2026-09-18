@@ -1,5 +1,6 @@
 from typing import List, Optional
 from app.ai.diarization.interface import DiarizationProvider
+from app.ai.diarization.postprocess import postprocess_diarization_segments
 from app.ai.diarization.schemas import (
     DiarizationOptions,
     DiarizationResult,
@@ -27,17 +28,26 @@ class MockDiarizationProvider(DiarizationProvider):
                     confidence=0.98,
                 ),
                 DiarizationSegment(
-                    speaker_label="SPEAKER_01",
-                    start_seconds=1.0,
+                    speaker_label="SPEAKER_00",
+                    start_seconds=1.2,
                     end_seconds=2.0,
+                    confidence=0.95,
+                ),
+                DiarizationSegment(
+                    speaker_label="SPEAKER_01",
+                    start_seconds=2.0,
+                    end_seconds=3.5,
                     confidence=0.95,
                 ),
             ]
 
-        unique_speakers = sorted(list({s.speaker_label for s in segments}))
+        cleaned, unique_speakers = postprocess_diarization_segments(
+            segments,
+            gap_seconds=options.merge_gap_seconds,
+        )
 
         return DiarizationResult(
-            segments=segments,
+            segments=cleaned,
             speakers=unique_speakers,
             model_name="mock-pyannote",
             model_version="1.0",

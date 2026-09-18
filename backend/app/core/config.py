@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
     EMBEDDING_DIMENSIONS: int = 384
 
+    # ASR / Transcription Settings
+    ASR_PROVIDER: str = "groq"
+    GROQ_WHISPER_MODEL: str = "whisper-large-v3-turbo"
+
     # SSO / OIDC Settings
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""

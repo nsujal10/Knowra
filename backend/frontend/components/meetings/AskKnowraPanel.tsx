@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useEffect } from "react";
-import { X, Sparkles, Bot, User, CornerDownLeft, Clock } from "lucide-react";
+import { X, Sparkles, Bot, User, CornerDownLeft, Clock, RotateCcw } from "lucide-react";
 import { useMeetingChat, Citation } from "@/hooks/useMeetingChat";
 
 export interface AskKnowraPanelProps {
@@ -24,7 +24,7 @@ export function AskKnowraPanel({
   onClose,
   onSeek,
 }: AskKnowraPanelProps) {
-  const { messages, input, setInput, sendMessage, isTyping } = useMeetingChat({
+  const { messages, input, setInput, sendMessage, clearHistory, isTyping } = useMeetingChat({
     meetingId,
     meetingTitle,
   });
@@ -61,16 +61,26 @@ export function AskKnowraPanel({
             </p>
           </div>
         </div>
-        {onClose && (
+        <div className="flex items-center gap-1 shrink-0">
           <button
             type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer shrink-0"
-            title="Close Assistant"
+            onClick={clearHistory}
+            className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+            title="Reset Chat History"
           >
-            <X className="w-5 h-5" />
+            <RotateCcw className="w-4 h-4" />
           </button>
-        )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors cursor-pointer"
+              title="Close Assistant"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── 2. MESSAGE HISTORY ─────────────────────────────────────────────── */}

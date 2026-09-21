@@ -159,36 +159,86 @@ function generateDynamicFallback(
   };
 }
 
-export function useMeetingChat({ meetingId, meetingTitle }: UseMeetingChatOptions) {
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
+// Meeting-scoped in-memory cache to persist chat across drawer toggles and tab navigation
+const chatHistoryMemoryCache: Record<string, ChatMessage[]> = {};
+
+function loadMeetingMessages(meetingId: string, meetingTitle: string): ChatMessage[] {
+  if (chatHistoryMemoryCache[meetingId] && chatHistoryMemoryCache[meetingId].length > 0) {
+    return chatHistoryMemoryCache[meetingId];
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const saved = sessionStorage.getItem(`knowra_chat_${meetingId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          chatHistoryMemoryCache[meetingId] = parsed;
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const defaultInit: ChatMessage[] = [
     {
       id: `init-${meetingId}`,
       role: "assistant",
       content: `Hello! I'm Knowra AI. I have indexed the entire audio, transcript, decisions, and action items for "${meetingTitle}". How can I assist you?`,
       citations: [],
     },
-  ]);
+  ];
+  chatHistoryMemoryCache[meetingId] = defaultInit;
+  return defaultInit;
+}
+
+export function useMeetingChat({ meetingId, meetingTitle }: UseMeetingChatOptions) {
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    loadMeetingMessages(meetingId, meetingTitle)
+  );
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const currentMeetingIdRef = useRef(meetingId);
 
-  // Synchronize chat greeting when meeting changes
+  // Synchronize when meetingId or meetingTitle changes
   useEffect(() => {
-    if (currentMeetingIdRef.current !== meetingId) {
-      currentMeetingIdRef.current = meetingId;
-      queueMicrotask(() => {
-        setMessages([
-          {
-            id: `init-${meetingId}`,
-            role: "assistant",
-            content: `Hello! I'm Knowra AI. I have indexed the entire audio, transcript, decisions, and action items for "${meetingTitle}". How can I assist you?`,
-            citations: [],
-          },
-        ]);
-        setInput("");
-        setIsTyping(false);
-      });
+    currentMeetingIdRef.current = meetingId;
+    const existing = loadMeetingMessages(meetingId, meetingTitle);
+    setMessages(existing);
+  }, [meetingId, meetingTitle]);
+
+  // Save to memory cache and sessionStorage whenever messages change
+  useEffect(() => {
+    if (!meetingId || messages.length === 0) return;
+    chatHistoryMemoryCache[meetingId] = messages;
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(`knowra_chat_${meetingId}`, JSON.stringify(messages));
+      } catch {
+        // ignore
+      }
     }
+  }, [meetingId, messages]);
+
+  const clearHistory = useCallback(() => {
+    const fresh: ChatMessage[] = [
+      {
+        id: `init-${meetingId}-${Date.now()}`,
+        role: "assistant",
+        content: `Conversation reset. I have indexed the entire audio, transcript, and action items for "${meetingTitle}". How can I assist you?`,
+        citations: [],
+      },
+    ];
+    chatHistoryMemoryCache[meetingId] = fresh;
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.removeItem(`knowra_chat_${meetingId}`);
+      } catch {
+        // ignore
+      }
+    }
+    setMessages(fresh);
+    setInput("");
   }, [meetingId, meetingTitle]);
 
   const sendMessage = useCallback(
@@ -258,6 +308,7 @@ export function useMeetingChat({ meetingId, meetingTitle }: UseMeetingChatOption
     input,
     setInput,
     sendMessage,
+    clearHistory,
     isTyping,
   };
 }

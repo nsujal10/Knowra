@@ -189,7 +189,8 @@ export function IntelligenceFeed({
             }}
             placeholder="Search recap..."
             disabled={isLoading || isProcessing}
-            className="w-full text-xs sm:text-[13px] text-slate-900 placeholder:text-slate-400 bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 font-normal disabled:opacity-60"
+            style={{ outline: "none", boxShadow: "none" }}
+            className="w-full text-xs sm:text-[13px] text-slate-900 placeholder:text-slate-400 bg-transparent border-none outline-none focus:outline-none focus-visible:outline-none ring-0 focus:ring-0 focus-visible:ring-0 p-0 font-normal disabled:opacity-60 shadow-none"
           />
 
           {/* Vertical Divider */}
@@ -201,7 +202,8 @@ export function IntelligenceFeed({
               type="button"
               onClick={handlePrevMatch}
               disabled={totalMatches === 0}
-              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors"
+              style={{ outline: "none" }}
+              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors focus:outline-none focus-visible:outline-none"
               title="Previous match"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
@@ -213,7 +215,8 @@ export function IntelligenceFeed({
               type="button"
               onClick={handleNextMatch}
               disabled={totalMatches === 0}
-              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors"
+              style={{ outline: "none" }}
+              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors focus:outline-none focus-visible:outline-none"
               title="Next match"
             >
               <ChevronRight className="w-3.5 h-3.5" />
@@ -227,7 +230,8 @@ export function IntelligenceFeed({
           <button
             type="button"
             onClick={handleClearSearch}
-            className="text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer shrink-0 transition-colors"
+            style={{ outline: "none" }}
+            className="text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer shrink-0 transition-colors focus:outline-none focus-visible:outline-none"
             title="Clear search"
           >
             <X className="w-4 h-4" />

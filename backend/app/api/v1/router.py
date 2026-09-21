@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.meetings import router as meetings_router
+from app.api.v1.endpoints.chat import router as meeting_chat_router
 from app.api.v1.media import router as media_router
 from app.api.v1.transcription import router as transcription_router
 from app.api.v1.diarization import router as diarization_router
@@ -38,6 +39,12 @@ api_router.include_router(
     meetings_router,
     prefix="/meetings",
     tags=["Meetings"],
+)
+
+api_router.include_router(
+    meeting_chat_router,
+    prefix="/meetings",
+    tags=["Meeting-Scoped Chat"],
 )
 
 api_router.include_router(

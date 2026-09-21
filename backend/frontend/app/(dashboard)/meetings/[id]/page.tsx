@@ -276,6 +276,7 @@ export default function MeetingDetailPage() {
         onClose={() => setIsChatOpen(false)}
         meetingId={meetingId}
         meetingTitle={meetingData.title}
+        onSeek={handleSeek}
       />
     </div>
   );

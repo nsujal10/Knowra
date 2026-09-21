@@ -66,6 +66,23 @@ function generateDynamicFallback(
     };
   }
 
+  // 2b. Pricing / Budget
+  if (
+    q.includes("price") ||
+    q.includes("pricing") ||
+    q.includes("budget") ||
+    q.includes("cost") ||
+    q.includes("deal size")
+  ) {
+    return {
+      content: `Pricing and commercial budget terms were not discussed during "${meetingTitle}". The session focused on the onboarding setup [0:00], CRM integrations [3:20], and Search Copilot permissions [6:03].`,
+      citations: [
+        { timestamp_seconds: 0, label: "0:00 Knowra AI Onboarding Essentials" },
+        { timestamp_seconds: 200, label: "3:20 CRM Integration Pipeline" },
+      ],
+    };
+  }
+
   // 3. CRM / Integrations
   if (
     q.includes("crm") ||

@@ -11,7 +11,9 @@ import {
   RefreshCw,
   FileText,
   Pencil,
-  X
+  X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
@@ -45,6 +47,7 @@ export function TranscriptTab({
   } = useRealTranscript(meetingId);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const [copied, setCopied] = useState(false);
   const [editingSpeakerId, setEditingSpeakerId] = useState<string | null>(null);
   const [editSpeakerName, setEditSpeakerName] = useState("");
@@ -79,6 +82,23 @@ export function TranscriptTab({
         (seg.speaker.displayName && seg.speaker.displayName.toLowerCase().includes(q))
     );
   }, [segments, searchQuery]);
+
+  const totalMatches = searchQuery.trim() ? filteredSegments.length : 0;
+
+  const handlePrevMatch = () => {
+    if (totalMatches === 0) return;
+    setMatchIndex((prev) => (prev - 1 + totalMatches) % totalMatches);
+  };
+
+  const handleNextMatch = () => {
+    if (totalMatches === 0) return;
+    setMatchIndex((prev) => (prev + 1) % totalMatches);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setMatchIndex(0);
+  };
 
   const handleCopyTranscript = () => {
     const text = segments
@@ -215,15 +235,66 @@ export function TranscriptTab({
     <div className="w-full pb-16">
       {/* Search & Actions Header */}
       <div className="flex items-center justify-between gap-4 pt-4 mb-6">
-        <div className="relative w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        {/* Search Transcript Input Widget */}
+        <div
+          className={`relative flex items-center bg-white rounded-xl px-3 py-1.5 transition-all w-full max-w-sm border-2 ${
+            searchQuery.trim()
+              ? "border-indigo-600 ring-2 ring-indigo-500/15 shadow-xs"
+              : "border-indigo-500/80 hover:border-indigo-600 focus-within:border-indigo-600 focus-within:ring-2 focus-within:ring-indigo-500/15 shadow-2xs"
+          }`}
+        >
+          <Search className="w-4 h-4 text-slate-500 shrink-0 mr-2" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setMatchIndex(0);
+            }}
             placeholder="Search transcript & speakers..."
-            className="w-full pl-9 pr-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition-all"
+            className="w-full text-xs sm:text-[13px] text-slate-900 placeholder:text-slate-400 bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 font-normal"
           />
+
+          {/* Vertical Divider */}
+          <div className="h-4 w-px bg-slate-200 mx-2.5 shrink-0" />
+
+          {/* Match Navigation & Counter */}
+          <div className="flex items-center gap-1 shrink-0 select-none">
+            <button
+              type="button"
+              onClick={handlePrevMatch}
+              disabled={totalMatches === 0}
+              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors"
+              title="Previous match"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-xs text-slate-600 font-sans tracking-tight min-w-[36px] text-center">
+              {totalMatches > 0 ? `${matchIndex + 1} of ${totalMatches}` : "0 of 0"}
+            </span>
+            <button
+              type="button"
+              onClick={handleNextMatch}
+              disabled={totalMatches === 0}
+              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors"
+              title="Next match"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Vertical Divider */}
+          <div className="h-4 w-px bg-slate-200 mx-2.5 shrink-0" />
+
+          {/* Clear Search X Button */}
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            className="text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer shrink-0 transition-colors"
+            title="Clear search"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="flex items-center gap-2">

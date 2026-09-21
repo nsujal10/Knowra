@@ -1,12 +1,15 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
   Search,
   Copy,
   Layers,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  X,
   Lock,
   Edit3,
   Check,
@@ -58,6 +61,7 @@ export function IntelligenceFeed({
 
   // ── 2. LOCAL UI STATE ─────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
+  const [matchIndex, setMatchIndex] = useState(0);
   const [selectedTemplate, setSelectedTemplate] = useState("Knowra AI Recap");
   const [showTemplateDropdown, setShowTemplateDropdown] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -127,21 +131,107 @@ export function IntelligenceFeed({
     }
   );
 
+  // Compute total matched items for match counter
+  const totalMatches = useMemo(() => {
+    if (!searchQuery.trim()) return 0;
+    const q = searchQuery.toLowerCase();
+    let count = 0;
+    if (data?.summary?.executive?.toLowerCase().includes(q)) {
+      count++;
+    }
+    (data?.topics || []).forEach((t: IntelligenceTopic) => {
+      if (t.title?.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q)) {
+        count++;
+      }
+    });
+    (data?.actionItems || []).forEach((a: IntelligenceActionItem) => {
+      if (a.owner?.toLowerCase().includes(q) || a.task?.toLowerCase().includes(q)) {
+        count++;
+      }
+    });
+    return count;
+  }, [data, searchQuery]);
+
+  const handlePrevMatch = () => {
+    if (totalMatches === 0) return;
+    setMatchIndex((prev) => (prev - 1 + totalMatches) % totalMatches);
+  };
+
+  const handleNextMatch = () => {
+    if (totalMatches === 0) return;
+    setMatchIndex((prev) => (prev + 1) % totalMatches);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery("");
+    setMatchIndex(0);
+  };
+
   return (
     <div className="w-full pb-16">
       {/* ── TOP CONTROLS: SEARCH & TEMPLATE SELECTOR ───────────────────────── */}
       <div className="flex items-center justify-between gap-4 pt-1 mb-6">
-        {/* Search Recap Input */}
-        <div className="relative w-72">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        {/* Search Recap Input Widget matching exact design */}
+        <div
+          className={`relative flex items-center bg-white rounded-xl px-3 py-1.5 transition-all w-full max-w-sm border-2 ${
+            searchQuery.trim()
+              ? "border-indigo-600 ring-2 ring-indigo-500/15 shadow-xs"
+              : "border-indigo-500/80 hover:border-indigo-600 focus-within:border-indigo-600 focus-within:ring-2 focus-within:ring-indigo-500/15 shadow-2xs"
+          }`}
+        >
+          <Search className="w-4 h-4 text-slate-500 shrink-0 mr-2" />
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setMatchIndex(0);
+            }}
             placeholder="Search recap..."
             disabled={isLoading || isProcessing}
-            className="w-full pl-9 pr-3 py-1.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs transition-all disabled:opacity-60"
+            className="w-full text-xs sm:text-[13px] text-slate-900 placeholder:text-slate-400 bg-transparent border-none outline-none focus:outline-none focus:ring-0 p-0 font-normal disabled:opacity-60"
           />
+
+          {/* Vertical Divider */}
+          <div className="h-4 w-px bg-slate-200 mx-2.5 shrink-0" />
+
+          {/* Match Navigation & Counter */}
+          <div className="flex items-center gap-1 shrink-0 select-none">
+            <button
+              type="button"
+              onClick={handlePrevMatch}
+              disabled={totalMatches === 0}
+              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors"
+              title="Previous match"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <span className="text-xs text-slate-600 font-sans tracking-tight min-w-[36px] text-center">
+              {totalMatches > 0 ? `${matchIndex + 1} of ${totalMatches}` : "0 of 0"}
+            </span>
+            <button
+              type="button"
+              onClick={handleNextMatch}
+              disabled={totalMatches === 0}
+              className="text-slate-400 hover:text-slate-700 disabled:opacity-30 disabled:cursor-not-allowed p-0.5 rounded cursor-pointer transition-colors"
+              title="Next match"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Vertical Divider */}
+          <div className="h-4 w-px bg-slate-200 mx-2.5 shrink-0" />
+
+          {/* Clear Search X Button */}
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            className="text-slate-400 hover:text-slate-700 p-0.5 rounded cursor-pointer shrink-0 transition-colors"
+            title="Clear search"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Template Selector + Copy Button */}

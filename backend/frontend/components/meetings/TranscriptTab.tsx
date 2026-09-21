@@ -32,6 +32,30 @@ function formatSeconds(seconds: number): string {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
+function highlightMatch(text?: string, query?: string): React.ReactNode {
+  if (!text) return "";
+  if (!query || !query.trim()) return text;
+
+  const trimmed = query.trim();
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+
+  return parts.map((part, i) => {
+    if (part.toLowerCase() === trimmed.toLowerCase()) {
+      return (
+        <mark
+          key={i}
+          className="bg-[#FDE047] text-slate-900 font-medium px-0.5 rounded-[2px]"
+        >
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
+}
+
 export function TranscriptTab({
   meetingId,
   onTimeClick,
@@ -408,7 +432,10 @@ export function TranscriptTab({
                         className="text-sm font-semibold text-slate-900 truncate max-w-[110px]"
                         title={segment.speaker.displayName || segment.speaker.label}
                       >
-                        {segment.speaker.displayName || segment.speaker.label}
+                        {highlightMatch(
+                          segment.speaker.displayName || segment.speaker.label,
+                          searchQuery
+                        )}
                       </span>
                       {segment.speaker.id && segment.speaker.id !== "unknown" && (
                         <button
@@ -431,7 +458,7 @@ export function TranscriptTab({
 
                 {/* Right Column (Content): Spoken Text */}
                 <div className="text-sm text-slate-700 leading-relaxed flex-1 pt-0.5">
-                  {segment.text}
+                  {highlightMatch(segment.text, searchQuery)}
                 </div>
               </div>
             );

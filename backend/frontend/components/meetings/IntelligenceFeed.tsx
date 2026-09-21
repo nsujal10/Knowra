@@ -40,6 +40,33 @@ function formatTime(seconds?: number): string {
   return `${m}:${s < 10 ? "0" : ""}${s}`;
 }
 
+/**
+ * Highlights matched search query occurrences with an amber/yellow pill matching the target design
+ */
+function highlightMatch(text?: string, query?: string): React.ReactNode {
+  if (!text) return "";
+  if (!query || !query.trim()) return text;
+
+  const trimmed = query.trim();
+  const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+
+  return parts.map((part, i) => {
+    if (part.toLowerCase() === trimmed.toLowerCase()) {
+      return (
+        <mark
+          key={i}
+          className="bg-[#FDE047] text-slate-900 font-medium px-0.5 rounded-[2px]"
+        >
+          {part}
+        </mark>
+      );
+    }
+    return part;
+  });
+}
+
 export function IntelligenceFeed({
   meetingId: propMeetingId,
   onSeek,
@@ -386,13 +413,18 @@ export function IntelligenceFeed({
         <div className="space-y-8">
           {/* 1. EXECUTIVE SUMMARY SECTION */}
           <section>
-            <h2 className="text-base font-bold text-slate-900 pb-2 border-b border-slate-100">
-              Executive Summary
-            </h2>
+            <div className="flex items-center gap-2 pb-2 border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-900">
+                Summary
+              </h2>
+              <span className="text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200/80 px-2 py-0.5 rounded">
+                Edited
+              </span>
+            </div>
             <div className="mt-3">
               {data?.summary?.executive ? (
                 <p className="text-sm text-slate-700 leading-relaxed font-normal">
-                  {data.summary.executive}
+                  {highlightMatch(data.summary.executive, searchQuery)}
                 </p>
               ) : (
                 <p className="text-sm text-slate-400 italic">
@@ -427,9 +459,9 @@ export function IntelligenceFeed({
                         </button>
                         <div className="flex-1 text-sm text-slate-700 leading-relaxed">
                           <span className="font-semibold text-slate-900 mr-1.5">
-                            {item.owner}:
+                            {highlightMatch(item.owner, searchQuery)}:
                           </span>
-                          <span>{item.task}</span>
+                          <span>{highlightMatch(item.task, searchQuery)}</span>
                         </div>
                       </div>
                     );
@@ -470,11 +502,11 @@ export function IntelligenceFeed({
                             {formatTime(timestamp)}
                           </button>
                           <h3 className="text-lg font-semibold text-slate-900 tracking-tight">
-                            {topic.title}
+                            {highlightMatch(topic.title, searchQuery)}
                           </h3>
                         </div>
                         <p className="text-sm text-slate-600 leading-relaxed font-normal pl-0.5">
-                          {topic.description}
+                          {highlightMatch(topic.description, searchQuery)}
                         </p>
                       </div>
                     );

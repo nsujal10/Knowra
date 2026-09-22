@@ -62,6 +62,7 @@ export function TranscriptTab({
   activeTimestamp = 0,
 }: TranscriptTabProps) {
   const {
+    transcript,
     status,
     segments,
     isGenerating,
@@ -345,6 +346,13 @@ export function TranscriptTab({
             )}
           </button>
 
+          {transcript?.transcriptId === "live-transcript" && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-600 text-[11px] font-semibold animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              <span>LIVE FEED</span>
+            </div>
+          )}
+
           <button
             type="button"
             onClick={() => refetch()}
@@ -379,7 +387,7 @@ export function TranscriptTab({
                 }`}
               >
                 {/* Left Column (Metadata): Clickable Timestamp Pill + Speaker Label */}
-                <div className="flex items-center shrink-0 min-w-[190px]">
+                <div className="flex items-center shrink-0 min-w-[240px]">
                   <button
                     type="button"
                     onClick={() => onTimeClick?.(segment.start)}
@@ -402,7 +410,7 @@ export function TranscriptTab({
                         type="text"
                         value={editSpeakerName}
                         onChange={(e) => setEditSpeakerName(e.target.value)}
-                        className="text-xs font-semibold px-2 py-0.5 border border-indigo-400 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white w-28 text-slate-900 shadow-2xs"
+                        className="text-xs font-semibold px-2 py-0.5 border border-indigo-400 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white w-36 text-slate-900 shadow-2xs"
                         autoFocus
                       />
                       <button
@@ -429,7 +437,7 @@ export function TranscriptTab({
                   ) : (
                     <div className="flex items-center gap-1.5 ml-3 group/speaker">
                       <span
-                        className="text-sm font-semibold text-slate-900 truncate max-w-[110px]"
+                        className="text-sm font-semibold text-slate-900 truncate max-w-[170px]"
                         title={segment.speaker.displayName || segment.speaker.label}
                       >
                         {highlightMatch(

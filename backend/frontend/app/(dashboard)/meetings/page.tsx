@@ -22,10 +22,12 @@ import {
   AlertCircle,
   Download,
   Trash2,
-  Loader2
+  Loader2,
+  Radio
 } from "lucide-react";
 import { format, parseISO, startOfWeek, endOfWeek } from "date-fns";
 import { UploadMeetingModal } from "@/components/meetings/UploadMeetingModal";
+import { LiveMeetingModal } from "@/components/meetings/LiveMeetingModal";
 import { DeleteMeetingModal } from "@/components/meetings/DeleteMeetingModal";
 import { MeetingThumbnail } from "@/components/meetings/MeetingThumbnail";
 import { api } from "@/lib/api/client";
@@ -316,6 +318,7 @@ export default function MeetingsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sortDirection, setSortDirection] = useState<"desc" | "asc">("desc");
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [isLiveModalOpen, setIsLiveModalOpen] = useState(false);
   const [realMeetings, setRealMeetings] = useState<MockMeeting[]>([]);
   const [lastRefreshedTime, setLastRefreshedTime] = useState<string>("Just now");
   const [openMenuMeetingId, setOpenMenuMeetingId] = useState<string | null>(null);
@@ -566,6 +569,16 @@ export default function MeetingsPage() {
               </button>
               <span>Last refreshed at {lastRefreshedTime}</span>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setIsLiveModalOpen(true)}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2 px-3.5 py-2 rounded-lg font-medium text-sm shadow-xs transition-colors cursor-pointer shrink-0"
+              title="Connect Live Meeting (Teams, Zoom, Meet)"
+            >
+              <Radio className="w-4 h-4 animate-pulse text-emerald-100" />
+              <span>Live Meeting</span>
+            </button>
 
             <button
               type="button"
@@ -875,6 +888,15 @@ export default function MeetingsPage() {
         onUploadComplete={() => {
           handleRefresh();
           setActiveTab("meetings");
+        }}
+      />
+
+      {/* Live Meeting Connection Modal (Method 3 & Web Audio) */}
+      <LiveMeetingModal
+        isOpen={isLiveModalOpen}
+        onClose={() => setIsLiveModalOpen(false)}
+        onLiveStarted={() => {
+          handleRefresh();
         }}
       />
 

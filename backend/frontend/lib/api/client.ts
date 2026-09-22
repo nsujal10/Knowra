@@ -5,6 +5,18 @@
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
+export function getWebSocketUrl(path: string): string {
+  let baseWs = process.env.NEXT_PUBLIC_WS_URL;
+  if (!baseWs) {
+    baseWs = API_BASE.replace(/^http:\/\//i, "ws://").replace(/^https:\/\//i, "wss://");
+  }
+  const cleanPath = path.startsWith("/") ? path : `/${path}`;
+  const endpoint = cleanPath.startsWith("/api/v1")
+    ? cleanPath.replace(/^\/api\/v1/, "")
+    : cleanPath;
+  return `${baseWs}${endpoint}`;
+}
+
 // ─── Session Storage Keys ──────────────────────────────────────────────────────
 const ACCESS_TOKEN_KEY = "knowra_access_token";
 const REFRESH_TOKEN_KEY = "knowra_refresh_token";

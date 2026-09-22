@@ -1,0 +1,417 @@
+"""
+Knowra Desktop Meeting Companion (Method 3 Implementation)
+
+Captures dual-channel audio directly from desktop applications (Teams.exe, Zoom.exe, Meet):
+  Channel 1: Local Host Microphone (100% isolated host speech)
+  Channel 2: Remote Attendees (via Windows WASAPI Loopback / System Audio)
+
+Features:
+- Dual-channel real-time audio streaming to Knowra live meeting WebSocket
+- Full Hindi (हिंदी), Hinglish, and English multi-speaker detection & simulation
+- Windows WASAPI loopback device discovery for Teams.exe capture
+- Interactive diagnostics and audio device enumeration
+
+Usage:
+  # 1. Hindi simulation sync (Host + Rahul Tech Lead + Priya PM discussing sprint & decisions)
+  python scripts/desktop_meeting_companion.py --meeting-id <UUID> --hindi
+
+  # 2. English simulation sync
+  python scripts/desktop_meeting_companion.py --meeting-id <UUID> --simulate
+
+  # 3. Live hardware capture (Host Mic Channel 1 + Teams Loopback Channel 2)
+  python scripts/desktop_meeting_companion.py --meeting-id <UUID>
+
+  # 4. List all audio devices on Windows
+  python scripts/desktop_meeting_companion.py --list-devices
+"""
+
+import argparse
+import asyncio
+import base64
+import json
+import sys
+import time
+import uuid
+
+# Ensure UTF-8 output on Windows console for Hindi characters
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+try:
+    import websockets
+except ImportError:
+    print("[Error] websockets library not found. Run: pip install websockets")
+    sys.exit(1)
+
+import math
+import numpy as np
+import scipy.signal
+
+
+HINDI_CONVERSATION = [
+    (1, "You (Host)", "नमस्ते टीम, आज की मीटिंग में हम नए आर्किटेक्चर और स्प्रिंट टारगेट्स पर बात करेंगे।"),
+    (2, "Rahul (Tech Lead)", "हाँ, मैंने डेटाबेस माइग्रेशन और इंडेक्स ऑप्टिमाइज़ेशन का काम पूरा कर लिया है। अब क्वेरी लैटेंसी 70% कम हो गई है।"),
+    (2, "Priya (Product Manager)", "बहुत बढ़िया राहुल। क्या हम शुक्रवार तक नया सर्च और लाइव ट्रांसक्रिप्ट फीचर प्रोडक्शन में डिप्लॉय कर सकते हैं?"),
+    (1, "You (Host)", "ज़रूर, गुरुवार को फाइनल एंड-टू-एंड टेस्टिंग होगी और शुक्रवार दोपहर 2 बजे डिप्लॉय करेंगे।"),
+    (2, "Rahul (Tech Lead)", "मैं गुरुवार शाम तक टेस्टिंग रिपोर्ट, बैकअप प्लान और डिप्लॉयमेंट चेकलिस्ट तैयार रखूँगा।"),
+    (2, "Priya (Product Manager)", "मैं क्लाइंट्स और स्टेकहोल्डर्स को न्यू रिलीज़ के नोट्स और यूज़र डॉक्युमेंटेशन भेज दूंगी।"),
+    (1, "You (Host)", "परफेक्ट, सभी एक्शन आइटम्स और टाइमलाइन्स कन्फर्म हो गए हैं। मीटिंग यहीं समाप्त करते हैं।"),
+]
+
+ENGLISH_CONVERSATION = [
+    (1, "You (Host)", "Welcome everyone to our weekly architecture and sprint sync."),
+    (2, "Alex (Product)", "Thanks! I reviewed the PR for the live meeting capture, looks rock solid."),
+    (2, "Sarah (Lead Eng)", "I have a quick question about the Web Audio dual-stream routing and latency."),
+    (1, "You (Host)", "Sure Sarah, go ahead. The host mic is isolated on channel 1, remote audio on channel 2."),
+    (2, "Sarah (Lead Eng)", "Great, so that completely avoids cross-talk issues with 3 or more attendees."),
+    (2, "Alex (Product)", "Exactly what our enterprise clients were asking for! We'll deploy on Friday."),
+    (1, "You (Host)", "Awesome, let's wrap up and inspect the generated transcript, decisions, and action items."),
+]
+
+
+async def run_simulation(ws_url: str, meeting_id: str, language: str = "en"):
+    """Simulates dual-track audio streaming with realistic speaker turns in Hindi or English."""
+    is_hindi = language.lower() in ["hi", "hindi", "hinglish"]
+    conversation = HINDI_CONVERSATION if is_hindi else ENGLISH_CONVERSATION
+    lang_label = "Hindi (हिंदी)" if is_hindi else "English"
+
+    print(f"\n========================================================")
+    print(f" Knowra Desktop Companion - Live Multi-Speaker Simulation")
+    print(f" Language   : {lang_label}")
+    print(f" Meeting ID : {meeting_id}")
+    print(f" Server WS  : {ws_url}")
+    print(f" Channels   : Ch 1 (Host Mic) | Ch 2 (Teams Attendees)")
+    print(f"========================================================\n")
+
+    try:
+        async with websockets.connect(ws_url) as ws:
+            print(f"[Knowra Companion] Successfully connected to live stream!")
+            print(f"[Knowra Companion] Streaming live dialogue turns...\n")
+
+            # 1 second of 16kHz 16-bit mono PCM silence
+            dummy_pcm = b"\x00" * 32000
+            dummy_b64 = base64.b64encode(dummy_pcm).decode("utf-8")
+
+            for idx, (channel, speaker, speech_text) in enumerate(conversation, start=1):
+                timestamp_str = time.strftime("%H:%M:%S")
+                print(f"[{timestamp_str}] Turn {idx}/{len(conversation)} [Channel {channel}] {speaker}:")
+                print(f"   \"{speech_text}\"\n")
+
+                payload = {
+                    "channel": channel,
+                    "speaker_hint": speaker,
+                    "text_hint": speech_text,
+                    "audio_base64": dummy_b64,
+                    "timestamp_ms": time.time() * 1000,
+                    "language": "hi" if is_hindi else "en",
+                }
+                await ws.send(json.dumps(payload))
+                await asyncio.sleep(3.5)
+
+            print(f"[Knowra Companion] Finished live simulation conversation.")
+            print(f"[Knowra Companion] Check your browser window to view live updates and final recap!\n")
+    except Exception as e:
+        print(f"[Error] Failed to connect or stream: {e}")
+
+
+def list_audio_devices():
+    """Lists input and output devices available to PyAudio / WASAPI."""
+    try:
+        try:
+            import pyaudiowpatch as pyaudio
+        except ImportError:
+            import pyaudio
+        p = pyaudio.PyAudio()
+        print("\n--- Audio Devices Detected ---")
+        for i in range(p.get_device_count()):
+            dev = p.get_device_info_by_index(i)
+            is_lb = dev.get("isLoopbackDevice", False)
+            lb_tag = " [WASAPI LOOPBACK]" if is_lb else ""
+            print(f"[{i}] {dev.get('name')}{lb_tag} (In: {dev.get('maxInputChannels')}, Out: {dev.get('maxOutputChannels')}, Rate: {int(dev.get('defaultSampleRate', 0))}Hz)")
+        p.terminate()
+        print("------------------------------\n")
+    except ImportError:
+        print("[Notice] PyAudio not installed. Run: pip install pyaudiowpatch")
+
+
+async def capture_channel_stream(
+    ws,
+    stream,
+    channel_id: int,
+    speaker_name: str,
+    input_rate: int = 16000,
+    input_channels: int = 1,
+    chunk_size: int = 4000,
+):
+    """
+    Reads from an audio stream, downsamples/converts to 16kHz Mono PCM,
+    applies Voice Activity Detection (VAD) energy gating,
+    and pushes clean speech chunks to the WebSocket.
+    """
+    loop = asyncio.get_event_loop()
+    speech_buffer = bytearray()
+    silence_counter = 0
+    # RMS threshold for speech: values below 220 are ambient silence / background noise
+    ENERGY_THRESHOLD = 220.0
+
+    needs_resample = (input_rate != 16000)
+    if needs_resample:
+        import math
+        g = math.gcd(input_rate, 16000)
+        up = 16000 // g
+        down = input_rate // g
+
+    try:
+        while True:
+            data = await loop.run_in_executor(None, stream.read, chunk_size, False)
+            if not data:
+                await asyncio.sleep(0.005)
+                continue
+
+            raw_np = np.frombuffer(data, dtype=np.int16)
+            if len(raw_np) == 0:
+                await asyncio.sleep(0.005)
+                continue
+
+            # 1. Convert to Mono if multi-channel (e.g. 2-channel WASAPI loopback)
+            if input_channels == 2:
+                mono_np = ((raw_np[0::2].astype(np.int32) + raw_np[1::2].astype(np.int32)) // 2).astype(np.int16)
+            elif input_channels > 2:
+                mono_np = np.mean(raw_np.reshape(-1, input_channels), axis=1).astype(np.int16)
+            else:
+                mono_np = raw_np
+
+            # 2. Resample to 16000Hz if needed
+            if needs_resample:
+                resampled_np = scipy.signal.resample_poly(mono_np, up, down).astype(np.int16)
+            else:
+                resampled_np = mono_np
+
+            # 3. Calculate RMS energy
+            rms = float(np.sqrt(np.mean(resampled_np.astype(np.float32) ** 2)))
+            pcm_16k_bytes = resampled_np.tobytes()
+
+            if rms >= ENERGY_THRESHOLD:
+                # Active speech detected
+                speech_buffer.extend(pcm_16k_bytes)
+                silence_counter = 0
+            else:
+                # Silence frame
+                if len(speech_buffer) > 0:
+                    silence_counter += 1
+                    # Keep a tiny bit of trailing silence for natural syllable ends
+                    if silence_counter <= 3:
+                        speech_buffer.extend(pcm_16k_bytes)
+
+            # Flush condition:
+            # - Accumulated >= 1.0s (32,000 bytes) and speaker paused (silence_counter >= 5)
+            # - OR accumulated max chunk >= ~3.4s (110,000 bytes)
+            has_enough_speech = len(speech_buffer) >= 32000
+            reached_max_chunk = len(speech_buffer) >= 110000
+            speaker_paused = (silence_counter >= 5 and has_enough_speech)
+
+            if reached_max_chunk or speaker_paused:
+                chunk_to_send = bytes(speech_buffer)
+                speech_buffer.clear()
+                silence_counter = 0
+
+                b64_audio = base64.b64encode(chunk_to_send).decode("utf-8")
+                payload = {
+                    "channel": channel_id,
+                    "speaker_hint": speaker_name,
+                    "audio_base64": b64_audio,
+                    "timestamp_ms": time.time() * 1000,
+                }
+                await ws.send(json.dumps(payload))
+
+                duration_sec = round(len(chunk_to_send) / 32000.0, 1)
+                timestamp_str = time.strftime("%H:%M:%S")
+                ch_icon = "🎙️ [Your Mic]" if channel_id == 1 else "🔊 [Teams Audio]"
+                print(f"[{timestamp_str}] {ch_icon} {speaker_name}: Spoke {duration_sec}s (Energy: {int(rms)}) -> Transcribing...")
+
+            elif len(speech_buffer) > 0 and silence_counter > 8:
+                # Drop short background pop/click (< 1.0s) followed by prolonged silence
+                speech_buffer.clear()
+                silence_counter = 0
+
+            await asyncio.sleep(0.005)
+    except asyncio.CancelledError:
+        pass
+
+
+async def run_hardware_capture(
+    ws_url: str,
+    meeting_id: str,
+    language: str = "hi",
+    host_name: str = "You (Host)",
+    remote_name: str = "Remote Attendee",
+):
+    """
+    Captures live hardware:
+      - Channel 1: Host Microphone (16kHz mono)
+      - Channel 2: Teams.exe audio via Windows WASAPI Loopback (resampled to 16kHz mono)
+    """
+    print(f"\n========================================================")
+    print(f" Knowra Desktop Companion - Real Live Teams Capture")
+    print(f" Meeting ID : {meeting_id}")
+    print(f" Server WS  : {ws_url}")
+    print(f" Language   : {'Hindi (हिंदी)' if language == 'hi' else 'English'}")
+    print(f" Host Name  : {host_name}")
+    print(f" Attendee(s): {remote_name}")
+    print(f" Mode       : REAL HARDWARE (Microphone + Teams Loopback)")
+    print(f" VAD Filter : ACTIVE (Auto-skips background silence)")
+    print(f"========================================================\n")
+
+    try:
+        try:
+            import pyaudiowpatch as pyaudio
+            has_loopback_support = True
+        except ImportError:
+            import pyaudio
+            has_loopback_support = False
+    except ImportError:
+        print("\n[Notice] PyAudio is not installed.")
+        print("To capture live hardware on Windows, install: pip install pyaudiowpatch")
+        print("Falling back to rich multi-speaker simulation mode...\n")
+        await run_simulation(ws_url, meeting_id, language)
+        return
+
+    p = pyaudio.PyAudio()
+    mic_stream = None
+    loopback_stream = None
+    lb_rate = 48000
+    lb_channels = 2
+
+    try:
+        # 1. Open Host Microphone (Channel 1)
+        mic_stream = p.open(
+            format=pyaudio.paInt16,
+            channels=1,
+            rate=16000,
+            input=True,
+            frames_per_buffer=4000,
+        )
+        print(f"[Audio] [Channel 1] Host Microphone connected ({host_name}).")
+
+        # 2. Search for Windows WASAPI loopback device for Teams output (Channel 2)
+        if has_loopback_support:
+            try:
+                wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
+                default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
+                if not default_speakers["isLoopbackDevice"]:
+                    for loopback in p.get_loopback_device_info_generator():
+                        if default_speakers["name"] in loopback["name"]:
+                            default_speakers = loopback
+                            break
+
+                lb_channels = int(default_speakers.get("maxInputChannels", 2))
+                lb_rate = int(default_speakers.get("defaultSampleRate", 48000))
+                loopback_stream = p.open(
+                    format=pyaudio.paInt16,
+                    channels=lb_channels,
+                    rate=lb_rate,
+                    input=True,
+                    input_device_index=default_speakers["index"],
+                    frames_per_buffer=4000,
+                )
+                print(f"[Audio] [Channel 2] Teams.exe Loopback connected ({default_speakers['name']} @ {lb_rate}Hz, {lb_channels}ch -> Downsampling to 16kHz mono).")
+            except Exception as le:
+                print(f"[Audio] Note: System loopback device not opened ({le}). Capturing Channel 1 only.")
+        else:
+            print("[Audio] Note: Install 'pyaudiowpatch' to enable automated Teams.exe system audio loopback.")
+
+        print(f"\n[Knowra Companion] Connecting live audio stream to {ws_url}...")
+        try:
+            async with websockets.connect(ws_url) as ws:
+                print("[Knowra Companion] Connected! Capturing meeting audio. Speak in your mic or Teams call.")
+                print("[Knowra Companion] Press Ctrl+C at any time to stop.\n")
+                tasks = [
+                    asyncio.create_task(
+                        capture_channel_stream(
+                            ws=ws,
+                            stream=mic_stream,
+                            channel_id=1,
+                            speaker_name=host_name,
+                            input_rate=16000,
+                            input_channels=1,
+                        )
+                    )
+                ]
+                if loopback_stream:
+                    tasks.append(
+                        asyncio.create_task(
+                            capture_channel_stream(
+                                ws=ws,
+                                stream=loopback_stream,
+                                channel_id=2,
+                                speaker_name=remote_name,
+                                input_rate=lb_rate,
+                                input_channels=lb_channels,
+                            )
+                        )
+                    )
+
+                try:
+                    await asyncio.gather(*tasks)
+                except KeyboardInterrupt:
+                    print("\n[Knowra Companion] Stopped live meeting capture.")
+                finally:
+                    for t in tasks:
+                        t.cancel()
+        except Exception as conn_err:
+            print(f"\n[Connection Error] Could not connect to live meeting stream: {conn_err}")
+            print("Please ensure:")
+            print("  1. Backend is running: uvicorn app.main:app --reload")
+            print("  2. You clicked 'Start Live Session' in the browser to initialize this meeting ID first.\n")
+    finally:
+        if mic_stream:
+            mic_stream.stop_stream()
+            mic_stream.close()
+        if loopback_stream:
+            loopback_stream.stop_stream()
+            loopback_stream.close()
+        p.terminate()
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Knowra Desktop Meeting Companion (Method 3)")
+    parser.add_argument("--meeting-id", type=str, default=str(uuid.uuid4()), help="Target meeting UUID")
+    parser.add_argument("--server", type=str, default="ws://127.0.0.1:8000", help="Knowra API Server Base URL")
+    parser.add_argument("--simulate", action="store_true", help="Run English simulated conversation")
+    parser.add_argument("--hindi", action="store_true", help="Run Hindi / Hinglish simulated conversation")
+    parser.add_argument("--language", type=str, default="en", help="Language: 'hi' or 'en'")
+    parser.add_argument("--host-name", type=str, default="You (Host)", help="Host display name")
+    parser.add_argument("--attendees", type=str, default="", help="Comma-separated attendee names (e.g. 'Sarah Jenkins, Alex')")
+    parser.add_argument("--speaker-name", type=str, default="", help="Channel 2 attendee display name")
+    parser.add_argument("--list-devices", action="store_true", help="List audio input/output devices")
+
+    args = parser.parse_args()
+
+    if args.list_devices:
+        list_audio_devices()
+        return
+
+    ws_url = f"{args.server}/api/v1/meetings/{args.meeting_id}/live-stream"
+    lang = "hi" if args.hindi else args.language
+    remote_label = args.speaker_name or (args.attendees if args.attendees else "Remote Attendee")
+
+    if args.simulate or args.hindi:
+        asyncio.run(run_simulation(ws_url, args.meeting_id, language=lang))
+    else:
+        asyncio.run(
+            run_hardware_capture(
+                ws_url=ws_url,
+                meeting_id=args.meeting_id,
+                language=lang,
+                host_name=args.host_name,
+                remote_name=remote_label,
+            )
+        )
+
+
+if __name__ == "__main__":
+    main()

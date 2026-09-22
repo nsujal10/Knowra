@@ -141,9 +141,9 @@ class MeetingIntelligenceService:
 
         # 3.5 Validate Transcript Context Length (prevent LLM hallucinations on empty text)
         total_words = sum(len(seg.text.split()) for seg in transcript.segments) if transcript.segments else 0
-        if total_words < 50:
+        if total_words < 20:
             run.status = "FAILED_NO_TRANSCRIPT"
-            run.error_message = f"Transcript context too brief ({total_words} words). Minimum required: 50 words."
+            run.error_message = f"Transcript context too brief ({total_words} words). Minimum required: 20 words."
             self.db.commit()
             logger.warning(
                 "Aborted intelligence extraction due to insufficient transcript",

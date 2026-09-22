@@ -3,6 +3,7 @@ import math
 import tempfile
 import subprocess
 import httpx
+from typing import Optional
 import structlog
 from app.core.config import settings
 from app.ai.transcription.interface import TranscriptionProvider
@@ -190,3 +191,40 @@ class GroqWhisperProvider(TranscriptionProvider):
                     os.remove(upload_path)
                 except Exception:
                     pass
+
+    def transcribe_bytes(self, wav_bytes: bytes, language: Optional[str] = None) -> Optional[str]:
+        """Directly transcribes in-memory WAV bytes without disk I/O or ffmpeg."""
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        files = {"file": ("live_chunk.wav", wav_bytes, "audio/wav")}
+        data = {
+            "model": self.model,
+            "response_format": "json",
+            "temperature": "0.0",
+        }
+        if language:
+            data["language"] = language
+
+        try:
+            response = httpx.post(
+                self.base_url,
+                headers=headers,
+                files=files,
+                data=data,
+                timeout=20.0,
+            )
+            if response.status_code == 200:
+                text = response.json().get("text", "").strip()
+                # Filter hallucinated silence artifacts common in Whisper
+                cleaned_lower = text.lower().strip()
+                hallucinations = {
+                    "thank you.", "thank you", "thanks for watching!", "subtitles by...",
+                    ".", "..", "...", "", "you", "you.", "you...", "all right.",
+                    "okay.", "bye.", "yeah.", "so.", "right."
+                }
+                if cleaned_lower in hallucinations:
+                    return None
+                return text
+            return None
+        except Exception as e:
+            logger.debug("transcribe_bytes failed", error=str(e))
+            return None

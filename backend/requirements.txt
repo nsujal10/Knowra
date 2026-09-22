@@ -16,3 +16,5 @@ PyJWT==2.13.0
 bcrypt==4.0.1
 boto3==1.34.80
 cryptography>=42.0.0
+websockets>=12.0.0
+pyaudiowpatch>=0.2.12

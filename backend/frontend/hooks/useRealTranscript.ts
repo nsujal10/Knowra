@@ -1,7 +1,8 @@
 "use client";
 
+import { useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError } from "@/lib/api/client";
+import { api, ApiError, getWebSocketUrl } from "@/lib/api/client";
 
 // ============================================================================
 // 1. DATA MODELS & STRICT BACKEND API CONTRACT (PHASES 11-13)
@@ -40,7 +41,7 @@ export interface TranscribeResponse {
 
 export function useRealTranscript(meetingId: string) {
   const queryClient = useQueryClient();
-  const queryKey = ["meeting-transcript", meetingId];
+  const queryKey = useMemo(() => ["meeting-transcript", meetingId], [meetingId]);
 
   // ── Query Logic: Fetch canonical transcript with dynamic 5s polling ────────
   const {
@@ -105,6 +106,71 @@ export function useRealTranscript(meetingId: string) {
     },
     enabled: Boolean(meetingId) && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meetingId),
   });
+
+  // ── Live WebSocket Listener for Live Meeting Streaming ────────
+  useEffect(() => {
+    if (!meetingId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(meetingId)) {
+      return;
+    }
+
+    const wsUrl = getWebSocketUrl(`/meetings/${meetingId}/live-transcript`);
+
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "TRANSCRIPT_SEGMENT" && data.segment) {
+            queryClient.setQueryData<CanonicalTranscript>(queryKey, (old) => {
+              const prevSegments = old?.segments ?? [];
+              if (prevSegments.some((s) => s.id === data.segment.id)) {
+                return old;
+              }
+              const newSegment: TranscriptSegment = {
+                id: data.segment.id,
+                start: data.segment.start,
+                end: data.segment.end,
+                text: data.segment.text,
+                speaker: {
+                  id: data.segment.speaker.id,
+                  label: data.segment.speaker.label,
+                  displayName: data.segment.speaker.displayName,
+                },
+              };
+              return {
+                transcriptId: old?.transcriptId ?? "live-transcript",
+                status: "READY",
+                segments: [...prevSegments, newSegment],
+              };
+            });
+          } else if (data.type === "MEETING_ENDED") {
+            queryClient.invalidateQueries({ queryKey });
+          }
+        } catch {
+          // Ignore parsing errors
+        }
+      };
+    } catch {
+      // Ignore connection failures when not in live mode
+    }
+
+    return () => {
+      if (ws) {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          ws.onopen = () => {
+            try {
+              ws?.close();
+            } catch {
+              // Ignore
+            }
+          };
+        }
+      }
+    };
+  }, [meetingId, queryClient, queryKey]);
 
   // ── Mutation Logic: Trigger real backend Celery transcription pipeline ─────
   const {

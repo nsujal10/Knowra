@@ -37,9 +37,19 @@ Analyze the provided meeting dialogue and extract structured intelligence across
 You MUST anchor all extracted topics, decisions, risks, questions, commitments, and action items
 to the EXACT segment IDs provided in the dialogue. Do not invent or hallucinate segment IDs.
 
+MULTILINGUAL & HINDI LANGUAGE HANDLING:
+- The dialogue may be in English, Hindi (Devanagari script), Hinglish (Hindi written in Roman/Latin script), or a bilingual mixture.
+- Fully analyze Hindi utterances with the same depth as English. Do NOT discard, skip, or over-summarize Hindi speech.
+- Deeply understand conversational Hindi markers:
+  * Decisions (फैसले / निर्णय): e.g. "हमने तय किया है", "हम यह अप्रोच फॉलो करेंगे", "फाइनल किया गया".
+  * Action items (कार्य / अगले कदम): e.g. "मैं कल तक पूरा कर दूंगा", "आप रिपोर्ट शेयर कर देना", "अगले हफ्ते रिव्यू करेंगे".
+  * Questions (सवाल): e.g. "क्या यह मुमकिन है?", "टाइमलाइन क्या है?".
+  * Risks (जोखिम / आशंका): e.g. "इसमें लेट होने का रिस्क है", "डेटा लॉस हो सकता है".
+- In the output JSON, write titles, summaries, and descriptions in clear, professional English while preserving any specific Hindi terms, project codenames, or nuances in parentheses or quotes where helpful.
+
 CRITICAL INSTRUCTIONS:
 1. "topics": Extract 2 to 4 key discussion points and overarching themes directly grounded in the dialogue.
-2. "action_items": Extract concrete action items, next steps, or follow-ups explicitly discussed in the meeting (e.g. trialing the product, following up). Assign each to the appropriate speaker. If NO action items were discussed, return an empty array ([]). Do NOT invent fictional tasks.
+2. "action_items": Extract concrete action items, next steps, or follow-ups explicitly discussed in the meeting. Assign each to the appropriate speaker. If NO action items were discussed, return an empty array ([]). Do NOT invent fictional tasks.
 3. "evidence_segment_ids": Provide 1 to 3 key segment IDs as evidence anchors. NEVER output more than 3 segment IDs per item.
 4. If the transcript does not support a category, return an empty array for that field.
 
@@ -87,22 +97,27 @@ class GroqLLMProvider(LLMProvider):
                 {"role": "user", "content": transcript_context},
             ],
             "temperature": 0.1,
+            "max_tokens": 850,
         }
 
         data = None
-        for attempt in range(4):
+        for attempt in range(5):
             try:
                 with httpx.Client(timeout=60.0) as client:
                     res = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
-                    if res.status_code == 429 and attempt < 3:
-                        time.sleep(3.5 * (attempt + 1))
+                    if res.status_code == 429 and attempt < 4:
+                        retry_after = float(res.headers.get("retry-after", 7.0 * (attempt + 1)))
+                        logger.warning("Groq rate limit 429 encountered, backing off", retry_after=retry_after, attempt=attempt)
+                        time.sleep(retry_after)
                         continue
                     res.raise_for_status()
                     data = res.json()
                     break
             except httpx.HTTPStatusError as err:
-                if err.response.status_code == 429 and attempt < 3:
-                    time.sleep(3.5 * (attempt + 1))
+                if err.response.status_code == 429 and attempt < 4:
+                    retry_after = float(err.response.headers.get("retry-after", 7.0 * (attempt + 1)))
+                    logger.warning("Groq rate limit 429 HTTPStatusError, backing off", retry_after=retry_after, attempt=attempt)
+                    time.sleep(retry_after)
                     continue
                 logger.error("Groq extraction HTTP error", status=err.response.status_code, error=str(err))
                 raise RuntimeError(f"Groq LLM extraction failed: {err}") from err

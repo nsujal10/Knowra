@@ -19,6 +19,7 @@ from app.api.v1.graph import router as graph_router
 from app.api.v1.evaluation import router as evaluation_router
 from app.api.v1.integrations import router as integrations_router
 from app.api.v1.webhooks import router as webhooks_router
+from app.api.v1.live_meetings import router as live_meetings_router
 
 
 api_router = APIRouter()
@@ -33,6 +34,12 @@ api_router.include_router(
     auth_router,
     prefix="/auth",
     tags=["Authentication"],
+)
+
+api_router.include_router(
+    live_meetings_router,
+    prefix="/meetings",
+    tags=["Live Meetings"],
 )
 
 api_router.include_router(

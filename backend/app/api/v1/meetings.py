@@ -144,3 +144,63 @@ def delete_meeting(
         db.commit()
     return None
 
+
+@router.patch("/{meeting_id}/speakers/{speaker_id}")
+def update_meeting_speaker(
+    meeting_id: str,
+    speaker_id: str,
+    payload: dict,
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    """Updates the display name of a speaker for this meeting."""
+    from app.models.speaker import Speaker
+    from app.api.v1.intelligence import resolve_meeting
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    new_name = payload.get("displayName") or payload.get("display_name")
+    if not new_name or not new_name.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="displayName is required")
+    new_name = new_name.strip()
+
+    speaker = None
+    try:
+        spk_uuid = UUID(speaker_id)
+        speaker = db.query(Speaker).filter(
+            Speaker.id == spk_uuid,
+            Speaker.meeting_id == meeting.id,
+        ).first()
+    except (ValueError, TypeError):
+        pass
+
+    if not speaker:
+        speaker = db.query(Speaker).filter(
+            Speaker.meeting_id == meeting.id,
+            (Speaker.speaker_label == speaker_id) | (Speaker.display_name == speaker_id),
+        ).first()
+
+    if not speaker:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Speaker not found")
+
+    speaker.display_name = new_name
+    db.commit()
+    db.refresh(speaker)
+
+    # Sync live session if active
+    from app.services.live_meeting_service import LiveMeetingManager
+    manager = LiveMeetingManager.get_instance()
+    session = manager.get_session(meeting.id)
+    if session:
+        for ch in session.channels.values():
+            if ch.speaker_id == speaker.id or ch.speaker_label == speaker.speaker_label:
+                ch.display_name = new_name
+
+    return {
+        "id": str(speaker.id),
+        "meetingId": str(meeting.id),
+        "speakerLabel": speaker.speaker_label,
+        "displayName": speaker.display_name,
+    }
+

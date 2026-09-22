@@ -114,9 +114,11 @@ class GroqWhisperProvider(TranscriptionProvider):
                     "response_format": "verbose_json",
                     "temperature": "0.0",
                     "timestamp_granularities[]": ["word", "segment"],
+                    "prompt": self._get_priming_prompt(options.language),
                 }
-                if options.language:
-                    data["language"] = options.language
+                iso_lang = self._normalize_language(options.language)
+                if iso_lang:
+                    data["language"] = iso_lang
 
                 response = httpx.post(
                     self.base_url,
@@ -210,9 +212,22 @@ class GroqWhisperProvider(TranscriptionProvider):
                 except Exception:
                     pass
 
+    @staticmethod
+    def _normalize_language(language: Optional[str]) -> Optional[str]:
+        """Normalizes language strings (e.g. 'hinglish', 'en-IN', 'Hindi') to ISO-639-1."""
+        if not language:
+            return None
+        l = language.strip().lower()
+        if l in ("hi", "hindi", "hi-in", "hinglish"):
+            return "hi"
+        if l in ("en", "english", "en-in", "en-us"):
+            return "en"
+        return l[:2] if len(l) >= 2 else None
+
     def _get_priming_prompt(self, language: Optional[str] = None) -> str:
         """Returns language-aware priming prompt to condition Whisper for verbatim accuracy."""
-        if language and language.lower() in ("hi", "hindi", "hinglish"):
+        norm_lang = self._normalize_language(language)
+        if norm_lang == "hi" or (language and language.lower() in ("hi", "hindi", "hinglish")):
             return self.PROMPT_HI
         return self.PROMPT_EN
 
@@ -229,6 +244,7 @@ class GroqWhisperProvider(TranscriptionProvider):
 
         # Build the priming prompt for verbatim output
         priming_prompt = self._get_priming_prompt(language)
+        iso_lang = self._normalize_language(language)
 
         data = {
             "model": self.model,
@@ -236,8 +252,8 @@ class GroqWhisperProvider(TranscriptionProvider):
             "temperature": "0.0",
             "prompt": priming_prompt,
         }
-        if language:
-            data["language"] = language
+        if iso_lang:
+            data["language"] = iso_lang
 
         try:
             response = httpx.post(

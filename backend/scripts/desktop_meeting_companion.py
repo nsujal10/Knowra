@@ -149,14 +149,25 @@ async def capture_channel_stream(
 ):
     """
     Reads from an audio stream, downsamples/converts to 16kHz Mono PCM,
-    applies Voice Activity Detection (VAD) energy gating,
+    applies peak gain normalization + Voice Activity Detection (VAD) energy gating,
     and pushes clean speech chunks to the WebSocket.
+
+    Accuracy features:
+    - Peak normalization: boosts quiet audio to -3 dBFS so Whisper receives optimal levels
+    - Pre-roll buffer: keeps 2 trailing silence frames as leading context for word boundaries
+    - Post-roll buffer: keeps 3 trailing silence frames after speech for syllable ends
+    - Max chunk ~4.5s: longer context gives Whisper better word-boundary accuracy
     """
     loop = asyncio.get_event_loop()
     speech_buffer = bytearray()
     silence_counter = 0
     # RMS threshold for speech: values below 220 are ambient silence / background noise
     ENERGY_THRESHOLD = 220.0
+    # Target peak amplitude for normalization (~-3 dBFS in int16 range)
+    TARGET_PEAK = 23000.0
+    # Pre-roll ring buffer: keep last 2 silence frames as leading context
+    preroll_ring: list[bytes] = []
+    PREROLL_FRAMES = 2
 
     needs_resample = (input_rate != 16000)
     if needs_resample:
@@ -191,27 +202,44 @@ async def capture_channel_stream(
             else:
                 resampled_np = mono_np
 
-            # 3. Calculate RMS energy
+            # 3. Peak normalization — boost quiet audio to optimal level for Whisper
+            peak = float(np.max(np.abs(resampled_np)))
+            if peak > 0:
+                gain = min(TARGET_PEAK / peak, 10.0)  # Cap gain at 20 dB to avoid amplifying noise
+                if gain > 1.05:  # Only apply if signal is noticeably quiet
+                    resampled_np = np.clip(resampled_np.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
+
+            # 4. Calculate RMS energy
             rms = float(np.sqrt(np.mean(resampled_np.astype(np.float32) ** 2)))
             pcm_16k_bytes = resampled_np.tobytes()
 
             if rms >= ENERGY_THRESHOLD:
-                # Active speech detected
+                # Active speech detected — prepend any pre-roll context first
+                if speech_buffer_empty := (len(speech_buffer) == 0):
+                    # Starting a new utterance: inject pre-roll frames for word-boundary context
+                    for preroll_frame in preroll_ring:
+                        speech_buffer.extend(preroll_frame)
+                    preroll_ring.clear()
                 speech_buffer.extend(pcm_16k_bytes)
                 silence_counter = 0
             else:
                 # Silence frame
                 if len(speech_buffer) > 0:
                     silence_counter += 1
-                    # Keep a tiny bit of trailing silence for natural syllable ends
+                    # Keep a trailing post-roll for natural syllable ends
                     if silence_counter <= 3:
                         speech_buffer.extend(pcm_16k_bytes)
+                else:
+                    # No active speech: store in pre-roll ring buffer
+                    preroll_ring.append(pcm_16k_bytes)
+                    if len(preroll_ring) > PREROLL_FRAMES:
+                        preroll_ring.pop(0)
 
             # Flush condition:
             # - Accumulated >= 1.0s (32,000 bytes) and speaker paused (silence_counter >= 5)
-            # - OR accumulated max chunk >= ~3.4s (110,000 bytes)
+            # - OR accumulated max chunk >= ~4.5s (144,000 bytes) — longer context improves accuracy
             has_enough_speech = len(speech_buffer) >= 32000
-            reached_max_chunk = len(speech_buffer) >= 110000
+            reached_max_chunk = len(speech_buffer) >= 144000
             speaker_paused = (silence_counter >= 5 and has_enough_speech)
 
             if reached_max_chunk or speaker_paused:

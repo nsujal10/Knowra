@@ -286,20 +286,34 @@ class LiveMeetingManager:
                 ch_buf.pcm_chunks.clear()
                 return
 
-            # Check if buffer has reached speech threshold (~32000 bytes = 1.0 sec @ 16kHz 16-bit mono)
-            if len(ch_buf.pcm_chunks) >= 32000:
+            # Check if buffer has reached speech threshold (~48000 bytes = 1.5 sec @ 16kHz 16-bit mono)
+            # Longer chunks give Whisper more context for better word-boundary accuracy
+            if len(ch_buf.pcm_chunks) >= 48000:
                 pcm_data = bytes(ch_buf.pcm_chunks)
                 ch_buf.pcm_chunks.clear()
 
                 # Safety: Check RMS energy on backend to ignore ambient silence
                 try:
                     import numpy as np
-                    samples = np.frombuffer(pcm_data, dtype=np.int16)
+                    samples = np.frombuffer(pcm_data, dtype=np.int16).copy()
                     if len(samples) > 0:
                         rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
                         if rms < 180.0:
                             # Skip transcribing silence to prevent Whisper hallucinations
                             return
+
+                        # Peak gain normalization: boost quiet audio to ~-3 dBFS
+                        peak = float(np.max(np.abs(samples)))
+                        if peak > 0:
+                            target_peak = 23000.0
+                            gain = min(target_peak / peak, 10.0)
+                            if gain > 1.05:
+                                samples = np.clip(
+                                    samples.astype(np.float32) * gain, -32768, 32767
+                                ).astype(np.int16)
+                                pcm_data = samples.tobytes()
+                                logger.debug("Applied gain normalization",
+                                             gain=round(gain, 2), peak=int(peak))
                 except Exception:
                     pass
 

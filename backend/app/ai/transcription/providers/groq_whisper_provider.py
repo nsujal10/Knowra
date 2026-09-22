@@ -26,9 +26,27 @@ class GroqWhisperProvider(TranscriptionProvider):
     Whisper Large-V3 transcription (processing speech at 200x+ real-time speed).
     """
 
+    # Context priming prompts improve verbatim accuracy by conditioning Whisper
+    # on the expected vocabulary, domain, and transcription style.
+    PROMPT_EN = (
+        "Transcribe the following meeting audio verbatim, word-for-word. "
+        "Include filler words (um, uh, like, you know), false starts, and self-corrections exactly as spoken. "
+        "Speakers discuss software architecture, sprint planning, deployments, APIs, "
+        "WebSocket streaming, database migrations, CI/CD pipelines, Kubernetes, and microservices. "
+        "Technical terms: Knowra, WASAPI, loopback, transcription, diarization, Groq, Whisper, "
+        "FastAPI, PostgreSQL, Redis, React, TypeScript, Next.js."
+    )
+    PROMPT_HI = (
+        "इस मीटिंग ऑडियो को शब्दशः ट्रांसक्राइब करें, बिल्कुल वही शब्द जो बोले गए हैं। "
+        "हिंदी, हिंग्लिश और अंग्रेज़ी मिश्रित वाक्यों को सटीक रूप से लिखें। "
+        "तकनीकी शब्द: आर्किटेक्चर, स्प्रिंट, डिप्लॉयमेंट, डेटाबेस, माइग्रेशन, "
+        "ऑप्टिमाइज़ेशन, लैटेंसी, प्रोडक्शन, टेस्टिंग, बैकअप, चेकलिस्ट, "
+        "स्टेकहोल्डर, डॉक्युमेंटेशन, एक्शन आइटम, टाइमलाइन।"
+    )
+
     def __init__(self, api_key: str = "", model: str = ""):
         self.api_key = api_key or os.getenv("GROQ_API_KEY") or getattr(settings, "LLM_API_KEY", "")
-        self.model = model or os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+        self.model = model or os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3")
         self.base_url = "https://api.groq.com/openai/v1/audio/transcriptions"
 
         if not self.api_key:
@@ -192,14 +210,31 @@ class GroqWhisperProvider(TranscriptionProvider):
                 except Exception:
                     pass
 
+    def _get_priming_prompt(self, language: Optional[str] = None) -> str:
+        """Returns language-aware priming prompt to condition Whisper for verbatim accuracy."""
+        if language and language.lower() in ("hi", "hindi", "hinglish"):
+            return self.PROMPT_HI
+        return self.PROMPT_EN
+
     def transcribe_bytes(self, wav_bytes: bytes, language: Optional[str] = None) -> Optional[str]:
-        """Directly transcribes in-memory WAV bytes without disk I/O or ffmpeg."""
+        """Directly transcribes in-memory WAV bytes without disk I/O or ffmpeg.
+
+        Accuracy improvements over baseline:
+        - Uses whisper-large-v3 (not turbo) for higher word-error-rate
+        - Sends a context/priming prompt to condition the model on verbatim output
+        - Extended hallucination filtering catches common Whisper silence artifacts
+        """
         headers = {"Authorization": f"Bearer {self.api_key}"}
         files = {"file": ("live_chunk.wav", wav_bytes, "audio/wav")}
+
+        # Build the priming prompt for verbatim output
+        priming_prompt = self._get_priming_prompt(language)
+
         data = {
             "model": self.model,
             "response_format": "json",
             "temperature": "0.0",
+            "prompt": priming_prompt,
         }
         if language:
             data["language"] = language
@@ -210,20 +245,47 @@ class GroqWhisperProvider(TranscriptionProvider):
                 headers=headers,
                 files=files,
                 data=data,
-                timeout=20.0,
+                timeout=30.0,
             )
             if response.status_code == 200:
                 text = response.json().get("text", "").strip()
                 # Filter hallucinated silence artifacts common in Whisper
                 cleaned_lower = text.lower().strip()
+                # Comprehensive hallucination blocklist — single-word or formulaic
+                # phrases Whisper outputs when it receives ambient noise / silence
                 hallucinations = {
-                    "thank you.", "thank you", "thanks for watching!", "subtitles by...",
-                    ".", "..", "...", "", "you", "you.", "you...", "all right.",
-                    "okay.", "bye.", "yeah.", "so.", "right."
+                    "thank you.", "thank you", "thanks.", "thanks",
+                    "thanks for watching!", "thanks for watching.",
+                    "subtitles by...", "subtitles by the amara.org community",
+                    ".", "..", "...", "", " ",
+                    "you", "you.", "you...", "you you you",
+                    "all right.", "all right", "alright.", "alright",
+                    "okay.", "okay", "ok.", "ok",
+                    "bye.", "bye", "bye bye.",
+                    "yeah.", "yeah", "yep.", "yep",
+                    "so.", "so", "right.", "right",
+                    "hmm.", "hmm", "hm.", "hm",
+                    "uh.", "uh", "um.", "um",
+                    "yes.", "yes", "no.", "no",
+                    "oh.", "oh", "ah.", "ah",
+                    "the end.", "the end",
+                    "subscribe", "subscribe.",
+                    "please subscribe.", "like and subscribe.",
+                    # Hindi hallucinations
+                    "धन्यवाद।", "धन्यवाद", "शुक्रिया।", "शुक्रिया",
+                    "ठीक है।", "ठीक है", "हाँ।", "हाँ", "जी।", "जी",
+                    "नमस्ते।",
                 }
                 if cleaned_lower in hallucinations:
+                    logger.debug("Filtered hallucination", text=text)
+                    return None
+                # Also filter very short single-character outputs
+                if len(cleaned_lower) <= 2 and not cleaned_lower.isalpha():
                     return None
                 return text
+            else:
+                logger.warning("Groq Whisper API error in transcribe_bytes",
+                               status=response.status_code, body=response.text[:200])
             return None
         except Exception as e:
             logger.debug("transcribe_bytes failed", error=str(e))

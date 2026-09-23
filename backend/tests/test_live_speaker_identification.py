@@ -52,9 +52,20 @@ def test_teams_attendee_tracker_roster_and_active_speaker():
 def test_is_valid_person_name_corporate_filtering():
     # Valid real human names
     assert is_valid_person_name("Harshita") is True
+    assert is_valid_person_name("Harshita Baghel") is True
+    assert is_valid_person_name("Yash Lade") is True
     assert is_valid_person_name("Rahul Sharma") is True
     assert is_valid_person_name("Alex Morgan") is True
     assert is_valid_person_name("Priya Verma") is True
+
+    # Pronouns, contractions, slang & conversational noise must be rejected
+    assert is_valid_person_name("Your") is False
+    assert is_valid_person_name("Gonna") is False
+    assert is_valid_person_name("Your daughter") is False
+    assert is_valid_person_name("Gonna system") is False
+    assert is_valid_person_name("System setup") is False
+    assert is_valid_person_name("Audible") is False
+    assert is_valid_person_name("Ready") is False
 
     # Corporate / Tenant names must be rejected
     assert is_valid_person_name("Systematix Infotech Pvt Ltd") is False
@@ -87,13 +98,18 @@ def test_extract_conversational_speaker_name():
     assert extract_conversational_speaker_name("This is Harshita speaking.") == "Harshita"
     assert extract_conversational_speaker_name("Hi everyone, my name is Rahul Sharma.") == "Rahul Sharma"
     assert extract_conversational_speaker_name("Call me Harshita.") == "Harshita"
-    assert extract_conversational_speaker_name("It's Harshita.") == "Harshita"
+    assert extract_conversational_speaker_name("It's Harshita here.") == "Harshita"
+    assert extract_conversational_speaker_name("Hi, Yash here.") == "Yash"
 
     # Hindi / Hinglish intros
     assert extract_conversational_speaker_name("Mera naam Harshita hai.") == "Harshita"
     assert extract_conversational_speaker_name("Main Harshita bol rahi hoon.") == "Harshita"
 
-    # Non-introduction speech must return None
+    # Crucial real-world false positives: conversational speech must return None!
+    assert extract_conversational_speaker_name("You're saying it, but it's your name. I'm saying it, but it's my name.") is None
+    assert extract_conversational_speaker_name("I'm gonna system setup over here.") is None
+    assert extract_conversational_speaker_name("Hello, hello. Oh, your daughter is...") is None
+    assert extract_conversational_speaker_name("Because Yash always rocks. Because Yash always rocks.") is None
     assert extract_conversational_speaker_name("That is my name.") is None
     assert extract_conversational_speaker_name("Am I audible?") is None
     assert extract_conversational_speaker_name("I am audible?") is None
@@ -101,6 +117,14 @@ def test_extract_conversational_speaker_name():
     assert extract_conversational_speaker_name("I can't remember your name.") is None
     assert extract_conversational_speaker_name("I'm going to come to the loopback.") is None
     assert extract_conversational_speaker_name("Goodbye, everyone.") is None
+
+    # Testing with known call roster
+    roster = ["Harshita Baghel", "Yash Lade"]
+    assert extract_conversational_speaker_name("My name is Harshita.", roster=roster) == "Harshita Baghel"
+    assert extract_conversational_speaker_name("Hi, Yash here.", roster=roster) == "Yash Lade"
+    assert extract_conversational_speaker_name("This is Yash speaking.", roster=roster) == "Yash Lade"
+    assert extract_conversational_speaker_name("You're saying it, but it's your name.", roster=roster) is None
+    assert extract_conversational_speaker_name("I'm gonna system setup over here.", roster=roster) is None
 
 
 def test_teams_attendee_tracker_multi_person_comma_parsing():

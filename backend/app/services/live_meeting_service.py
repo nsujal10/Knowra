@@ -70,13 +70,80 @@ UI_KEYWORDS = {
 
 BLOCKED_WORDS = CORP_KEYWORDS | UI_KEYWORDS | TEAMS_STATIC_PAGES
 
-INTRO_STOP_WORDS = {
-    "here", "there", "speaking", "talking", "listening", "audible", "ready",
-    "good", "fine", "sorry", "sure", "okay", "ok", "online", "back", "trying",
-    "going", "coming", "joined", "calling", "working", "happy", "glad", "yes", "no",
-    "the", "a", "an", "in", "on", "at", "to", "for", "with", "from", "just", "still",
-    "also", "now", "so", "then", "too", "very", "not", "asking", "hearing", "done",
-    "that", "what", "who", "this", "name",
+COMMON_NON_NAMES = {
+    # Pronouns & determiners
+    "i", "me", "my", "mine", "myself", "you", "your", "yours", "yourself", "yourselves",
+    "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself",
+    "we", "us", "our", "ours", "ourselves", "they", "them", "their", "theirs", "themselves",
+    "who", "whom", "whose", "which", "what", "whatever", "whoever", "that", "this", "these", "those",
+    "there", "here", "where", "when", "why", "how", "someone", "somebody", "something",
+    "anyone", "anybody", "anything", "everyone", "everybody", "everything",
+    "noone", "nobody", "nothing", "none", "some", "all", "any", "both", "each",
+    "either", "neither", "one", "other", "another", "such",
+    # Contractions & Slang
+    "gonna", "wanna", "gotta", "kinda", "sorta", "dunno", "lemme", "gimme", "ain't",
+    "can't", "won't", "didn't", "doesn't", "isn't", "aren't", "wasn't", "weren't",
+    "haven't", "hasn't", "hadn't", "shouldn't", "wouldn't", "couldn't", "you're", "they're", "we're",
+    # Auxiliary & common verbs
+    "am", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "having", "do", "does", "did", "done", "doing",
+    "will", "would", "shall", "should", "can", "could", "may", "might", "must",
+    "go", "going", "gone", "went", "goes", "say", "saying", "said", "says",
+    "tell", "telling", "told", "tells", "know", "knowing", "knew", "known", "knows",
+    "think", "thinking", "thought", "thinks", "see", "seeing", "saw", "seen", "sees",
+    "come", "coming", "came", "comes", "get", "getting", "got", "gotten", "gets",
+    "make", "making", "made", "makes", "take", "taking", "took", "taken", "takes",
+    "look", "looking", "looked", "looks", "want", "wanting", "wanted", "wants",
+    "give", "giving", "gave", "given", "gives", "use", "using", "used", "uses",
+    "find", "finding", "found", "finds", "ask", "asking", "asked", "asks",
+    "work", "working", "worked", "works", "call", "calling", "called", "calls",
+    "try", "trying", "tried", "tries", "need", "needing", "needed", "needs",
+    "feel", "feeling", "felt", "feels", "leave", "put", "mean", "keep", "let",
+    "begin", "seem", "help", "talk", "turn", "start", "show", "hear", "play",
+    "run", "move", "live", "bring", "happen", "write", "provide", "sit", "stand",
+    "lose", "pay", "meet", "include", "continue", "set", "setup", "learn", "change",
+    "lead", "understand", "watch", "follow", "stop", "create", "speak", "read",
+    "allow", "add", "spend", "grow", "open", "walk", "win", "offer", "remember",
+    "love", "consider", "appear", "buy", "wait", "serve", "send", "expect",
+    "build", "stay", "fall", "cut", "reach", "rock", "rocks", "rocking",
+    "check", "repeat", "checking", "sound", "sounds",
+    # Prepositions & Conjunctions
+    "about", "above", "across", "after", "against", "along", "among", "around",
+    "as", "at", "before", "behind", "below", "beneath", "beside", "between",
+    "beyond", "but", "by", "down", "during", "except", "for", "from", "in",
+    "inside", "into", "like", "near", "of", "off", "on", "onto", "out",
+    "outside", "over", "past", "since", "through", "throughout", "till", "to",
+    "toward", "towards", "under", "underneath", "until", "up", "upon", "with",
+    "within", "without", "and", "or", "nor", "so", "yet", "because", "although",
+    "unless", "while", "whereas", "if", "whether",
+    # Adverbs, Adjectives & Common conversational words
+    "just", "also", "very", "now", "then", "only", "even", "always", "never",
+    "sometimes", "often", "again", "away", "back", "already", "enough", "still",
+    "too", "much", "really", "actually", "probably", "maybe", "sure", "certainly",
+    "well", "good", "new", "first", "last", "long", "great", "little", "own",
+    "other", "old", "right", "big", "high", "different", "small", "large",
+    "next", "early", "young", "important", "few", "public", "bad", "same",
+    "able", "ready", "audible", "online", "offline", "sorry", "okay", "ok",
+    "fine", "happy", "glad", "name", "names", "system", "systems", "stage",
+    "attention", "department", "cover", "people", "person", "man", "woman",
+    "boy", "girl", "bro", "dude", "guy", "daughter", "son", "father", "mother",
+    "friend", "machine", "pc", "laptop", "screen", "mic", "audio", "video",
+    "volume", "meeting", "view", "window", "today", "tomorrow", "yesterday",
+    # Hindi / Hinglish common non-name words
+    "mera", "meri", "mere", "tera", "teri", "tere", "uska", "uski", "uske",
+    "inka", "inki", "inke", "apna", "apni", "apne", "naam", "kya", "hai",
+    "hain", "tha", "thi", "the", "hoga", "hogi", "hoge", "karo", "karna",
+    "karega", "karegi", "bol", "bolo", "bolte", "bolta", "bolti", "bhai",
+    "yaar", "aaj", "kal", "sab", "kuch", "ek", "do", "teen", "bhi", "toh",
+    "aur", "par", "lekin", "kyun", "kaise", "kahan", "kab", "accha", "theek",
+    "haan", "nahi", "na", "matlab", "aayega", "aayegi", "aaya", "gaya",
+    "raha", "rahi", "rahe", "hoon", "baat", "dekh", "dekho", "ruk", "ruko",
+}
+
+FIRST_WORD_DISALLOWED = {
+    "your", "my", "our", "their", "his", "her", "its", "you", "we", "they", "i", "he", "she", "it",
+    "gonna", "wanna", "gotta", "the", "a", "an", "this", "that", "these", "those",
+    "is", "are", "am", "was", "were", "call", "called", "calling", "that's", "it's"
 }
 
 
@@ -88,11 +155,15 @@ def clean_person_name(name: str) -> str:
         "- Call", "| Call", "- Meeting", "| Meeting", " (external)", " (guest)"
     ]:
         c = c.replace(noise, "").strip()
-    return c
+    return c.strip(" ,.-'\":;!?()[]{}")
 
 
 def is_valid_person_name(name: str, host_name: str = "") -> bool:
-    """Validates whether a candidate name is an actual person, not a corporate entity or noise."""
+    """
+    Validates whether a candidate string is an individual person's name
+    rather than a UI control/view, corporate entity, English pronoun/verb/adjective,
+    slang, or general conversational noise.
+    """
     c = clean_person_name(name)
     if not c or len(c) < 2 or len(c) > 35:
         return False
@@ -105,49 +176,90 @@ def is_valid_person_name(name: str, host_name: str = "") -> bool:
         return False
     if "@" in c or "http" in cl or ".com" in cl:
         return False
+
     import re
-    words = set(re.findall(r"[a-zA-Z]+", cl))
-    if words & BLOCKED_WORDS:
+    words = [w.lower() for w in re.findall(r"[a-zA-Z]+", cl)]
+    if not words or len(words) > 4:
         return False
-    if len(c.split()) > 4:
+
+    # Blocked corporate, UI, and static page keywords
+    word_set = set(words)
+    if word_set & BLOCKED_WORDS:
         return False
+
+    # Single-word name validation: must NOT be any common non-name English/Hindi word
+    if len(words) == 1:
+        if words[0] in COMMON_NON_NAMES:
+            return False
+
+    # Multi-word candidate validation:
+    # First word cannot be an English pronoun, determiner, modal, or slang
+    if words[0] in FIRST_WORD_DISALLOWED:
+        return False
+
+    # If every word in the multi-word phrase is in COMMON_NON_NAMES, reject it
+    if all(w in COMMON_NON_NAMES for w in words):
+        return False
+
     return True
 
 
-def extract_conversational_speaker_name(text: str) -> Optional[str]:
+def extract_conversational_speaker_name(text: str, roster: Optional[List[str]] = None) -> Optional[str]:
     """
     Extracts self-introduced attendee names from live transcript text.
-    Handles English, Hinglish, and Hindi conversational intros:
-    - 'My name is Harshita.'
-    - 'Harshita, that is my name.' / 'Harshita is my name.'
-    - 'Hi, I am Harshita.' / 'This is Harshita.'
-    - 'Call me Harshita.' / 'Harshita here.'
-    - 'Mera naam Harshita hai.'
-    - 'Main Harshita bol rahi hoon.'
+    Strictly verifies candidates against non-name vocabularies and prefers
+    matching against the known meeting roster if available.
     """
     import re
     if not text or not text.strip():
         return None
 
+    # 1. If roster is available, check if the utterance is an introduction mentioning a roster member
+    if roster:
+        text_lower = text.lower()
+        for member in roster:
+            parts = member.split()
+            first = parts[0].lower() if parts else ""
+            full = member.lower()
+            intro_roster_patterns = [
+                rf"\b(?:my name is|my name\'s|i am|i\'m|this is|call me)\s+{re.escape(first)}\b",
+                rf"\b(?:my name is|my name\'s|i am|i\'m|this is|call me)\s+{re.escape(full)}\b",
+                rf"\b{re.escape(first)}\s+(?:here|speaking|that is my name|is my name)\b",
+                rf"\b{re.escape(full)}\s+(?:here|speaking|that is my name|is my name)\b",
+                rf"\b(?:mera naam)\s+{re.escape(first)}\s+(?:hai)\b",
+                rf"\b(?:mera naam)\s+{re.escape(full)}\s+(?:hai)\b",
+                rf"\b(?:main|mein)\s+{re.escape(first)}\s+(?:bol raha|bol rahi|hoon)\b",
+                rf"\b(?:main|mein)\s+{re.escape(full)}\s+(?:bol raha|bol rahi|hoon)\b",
+            ]
+            for pat in intro_roster_patterns:
+                if re.search(pat, text_lower):
+                    return member
+
+    # 2. General self-introduction patterns (STRICT: require explicit intro markers)
     patterns = [
-        r"(?:my name is|my name\'s)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
-        r"([a-zA-Z]+(?:\s+[a-zA-Z]+)?)(?:,\s*|\s+)that is my name",
-        r"([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+is my name",
-        r"(?:call me|you can call me)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
-        r"(?:it\'s|it is)\s+([a-zA-Z]+)(?:\s+(?:here|speaking)|\b|\.)",
-        r"(?:i am|i\'m)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
-        r"(?:this is)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
-        r"([a-zA-Z]+)\s+here\b",
-        r"(?:mera naam)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:hai)",
-        r"(?:main|mein)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:bol raha|bol rahi|hoon)",
+        r"\b(?:my name is|my name\'s)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
+        r"\b([A-Za-z]+(?:\s+[A-Za-z]+)?)(?:,\s*|\s+)(?:that is my name|is my name)\b",
+        r"\b(?:call me|you can call me)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\b",
+        r"\b(?:i am|i\'m)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:here|speaking)\b",
+        r"\b(?:this is)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:here|speaking)\b",
+        r"\b(?:it\'s|it is)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:here|speaking)\b",
+        r"\b(?:mera naam)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:hai)\b",
+        r"\b(?:main|mein)\s+([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+(?:bol raha|bol rahi|hoon)\b",
+        r"(?:^|[.!?\n,]|(?:hi|hello|hey))\s*([A-Za-z]+(?:\s+[A-Za-z]+)?)\s+here\b",
     ]
 
     for p in patterns:
         m = re.search(p, text, re.IGNORECASE)
         if m:
             candidate = m.group(1).strip().title()
-            words = candidate.lower().split()
-            if not any(w in INTRO_STOP_WORDS for w in words) and is_valid_person_name(candidate):
+            if is_valid_person_name(candidate):
+                if roster:
+                    cand_lower = candidate.lower()
+                    for r in roster:
+                        if cand_lower == r.lower() or cand_lower in [x.lower() for x in r.split()]:
+                            return r
+                    if len(candidate.split()) < 2:
+                        continue
                 return candidate
     return None
 
@@ -265,19 +377,44 @@ class LiveAcousticDiarizer:
     def note_host_addressed_attendee(self, host_text: str) -> Optional[str]:
         """
         Scans host speech on Channel 1 to detect when host addresses a remote participant.
-        e.g. 'Yash, what do you think?', 'Rahul, can you update us?', 'Harshita...'
+        e.g. 'Yash, what do you think?', 'Rahul, can you update us?', 'Ladhe bol toh kuch', 'Harshita...'
         """
         if not host_text or not self.roster:
             return None
         text_lower = host_text.lower()
+        import difflib
+
         for attendee in self.roster:
-            first_name = attendee.split()[0].lower()
+            parts = [p.lower() for p in attendee.split()]
+            first_name = parts[0] if parts else ""
+            last_name = parts[-1] if len(parts) > 1 else ""
             full_name = attendee.lower()
-            if re.search(rf"\b{re.escape(first_name)}\b", text_lower) or re.search(rf"\b{re.escape(full_name)}\b", text_lower):
+
+            # Exact word boundary match on first, last, or full name
+            if (
+                (first_name and re.search(rf"\b{re.escape(first_name)}\b", text_lower))
+                or (last_name and re.search(rf"\b{re.escape(last_name)}\b", text_lower))
+                or re.search(rf"\b{re.escape(full_name)}\b", text_lower)
+            ):
                 self.last_addressed_name = attendee
                 self.last_addressed_time = time.time()
                 logger.info("Host addressed attendee", host=self.host_name, attendee=attendee)
                 return attendee
+
+            # Fuzzy transliteration matching for STT variations (e.g. 'Ladhe' for 'Lade', 'Arshit' for 'Harshita')
+            tokens = [t for t in re.findall(r"[a-zA-Z]+", text_lower) if len(t) >= 4]
+            for tok in tokens:
+                if first_name and difflib.SequenceMatcher(None, tok, first_name).ratio() >= 0.82:
+                    self.last_addressed_name = attendee
+                    self.last_addressed_time = time.time()
+                    logger.info("Host addressed attendee (fuzzy match)", host=self.host_name, attendee=attendee, token=tok)
+                    return attendee
+                if last_name and difflib.SequenceMatcher(None, tok, last_name).ratio() >= 0.82:
+                    self.last_addressed_name = attendee
+                    self.last_addressed_time = time.time()
+                    logger.info("Host addressed attendee (fuzzy match)", host=self.host_name, attendee=attendee, token=tok)
+                    return attendee
+
         return None
 
     def identify_speaker(
@@ -385,22 +522,46 @@ class LiveAcousticDiarizer:
         Updates the active cluster's display name when attendee introduces themselves.
         Returns the old name if changed, or None.
         """
-        if not self.clusters:
+        if not self.clusters or not name or not is_valid_person_name(name, self.host_name):
             return None
         active_cluster = self.clusters[self.active_cluster_index]
         matched_name = name
         name_lower = name.lower()
         for r in self.roster:
-            if r.lower() == name_lower or r.lower().startswith(name_lower + " "):
+            r_lower = r.lower()
+            r_parts = [p.lower() for p in r.split()]
+            if r_lower == name_lower or name_lower in r_parts or r_lower.startswith(name_lower + " "):
                 matched_name = r
                 break
 
         old_name = active_cluster.display_name
-        if old_name != matched_name:
+        if old_name == matched_name:
+            return None
+
+        # CRITICAL SAFETY GUARD:
+        # If the active cluster is ALREADY attributed to a valid roster member
+        # (e.g. Harshita Baghel or Yash Lade), NEVER overwrite it with a non-roster candidate!
+        if active_cluster.display_name in self.roster and matched_name not in self.roster:
+            logger.info(
+                "Ignored cluster rename: cannot replace confirmed roster member with non-roster name",
+                current=old_name,
+                ignored=matched_name,
+            )
+            return None
+
+        # Only allow update if:
+        # 1. Current name is a placeholder (Participant, Remote Attendee, etc.)
+        # 2. OR new name is a match for a roster member
+        is_placeholder = (
+            old_name.startswith(("Participant", "Remote Attendee", "Unknown", "Speaker"))
+            or not is_valid_person_name(old_name, self.host_name)
+        )
+        if is_placeholder or matched_name in self.roster:
             active_cluster.display_name = matched_name
             active_cluster.is_name_confirmed = True
-            logger.info("Updated speaker cluster via self-intro", old_name=old_name, new_name=matched_name)
+            logger.info("Updated speaker cluster via verified intro", old_name=old_name, new_name=matched_name)
             return old_name
+
         return None
 
 
@@ -702,7 +863,8 @@ class LiveMeetingManager:
                             ch_buf.display_name = speaker_hint
 
                     # Conversational self-introduction detection
-                    intro_name = extract_conversational_speaker_name(text_hint.strip())
+                    active_roster = session.diarizer.roster if session.diarizer else session.known_roster
+                    intro_name = extract_conversational_speaker_name(text_hint.strip(), roster=active_roster)
                     if intro_name and is_valid_person_name(intro_name, host_disp):
                         if session.diarizer:
                             old_name = session.diarizer.update_active_cluster_name(intro_name)
@@ -773,7 +935,8 @@ class LiveMeetingManager:
 
                     # Channel 2: Dynamic conversational self-introduction
                     if channel_id > 1:
-                        intro_name = extract_conversational_speaker_name(text)
+                        active_roster = session.diarizer.roster if session.diarizer else session.known_roster
+                        intro_name = extract_conversational_speaker_name(text, roster=active_roster)
                         if intro_name and is_valid_person_name(intro_name, host_disp):
                             if session.diarizer:
                                 old_name = session.diarizer.update_active_cluster_name(intro_name)
@@ -938,6 +1101,24 @@ class LiveMeetingManager:
         """Retroactively updates previous segments from placeholder/org to the real discovered name."""
         if not new_name or old_name == new_name:
             return
+
+        # SAFETY: Never rename away from an already valid person's name unless it was a placeholder or is an expansion
+        host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
+        is_old_placeholder = (
+            old_name.startswith(("Participant", "Remote Attendee", "SPEAKER_", "Unknown", "Speaker"))
+            or not is_valid_person_name(old_name, host_disp)
+        )
+        is_expansion = (
+            old_name.lower() in new_name.lower() and len(new_name) > len(old_name)
+        )
+        if not (is_old_placeholder or is_expansion):
+            logger.warning(
+                "Blocked speaker reconciliation: refusing to overwrite valid name",
+                old_name=old_name,
+                new_name=new_name,
+            )
+            return
+
         try:
             db = SessionLocal()
             try:

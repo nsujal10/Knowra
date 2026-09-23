@@ -284,7 +284,7 @@ def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Opt
     - 12-dimensional Discrete Cosine Transform (DCT-II) Mel-frequency cepstral coefficients (MFCCs)
     - Formant energy distribution across low (300-800Hz), mid (800-2200Hz), and high (2200-4000Hz) bands
     - Normalized spectral centroid
-    Discriminates 3+ speakers cleanly (same person similarity > 0.96, different person < 0.88).
+    Discriminates 3+ speakers cleanly (same person similarity > 0.95, different person < 0.88).
     """
     if not pcm_data or len(pcm_data) < 1600:
         return None
@@ -379,7 +379,7 @@ class LiveAcousticDiarizer:
         self,
         roster: Optional[List[str]] = None,
         host_name: str = "Sujal Nage",
-        similarity_threshold: float = 0.91,
+        similarity_threshold: float = 0.88,
     ):
         self.host_name = host_name
         self.roster: List[str] = []
@@ -484,72 +484,10 @@ class LiveAcousticDiarizer:
             if speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "Speaker"):
                 addressed_target = speaker_hint
 
-        # If an explicit addressed target or valid UIA speaker hint is present:
-        if addressed_target:
-            target_lower = addressed_target.lower()
-            # 1. Does a cluster already exist for this person?
-            matching_idx = None
-            for idx, c in enumerate(self.clusters):
-                if c.display_name.lower() == target_lower:
-                    matching_idx = idx
-                    break
-
-            if matching_idx is not None:
-                # An established cluster exists for addressed_target!
-                cluster = self.clusters[matching_idx]
-                # Verify acoustic consistency: is this audio actually consistent with addressed_target's voice?
-                if emb is not None:
-                    sim_to_target = float(np.dot(emb, cluster.centroid_embedding))
-                    if sim_to_target >= self.similarity_threshold:
-                        # Confirmed: Audio acoustically matches the target!
-                        self.active_cluster_index = matching_idx
-                        cluster.sample_count += 1
-                        alpha = max(0.90, 1.0 - (1.0 / (cluster.sample_count + 1)))
-                        new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
-                        cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
-                        cluster.last_active_time = time.time()
-                        return (cluster.display_name, False)
-                    else:
-                        # Acoustic mismatch! The hint was stale (e.g. previous speaker's badge before UI update).
-                        # Discard stale addressed_target and let acoustic diarizer resolve the real speaker!
-                        addressed_target = None
-                else:
-                    self.active_cluster_index = matching_idx
-                    cluster.last_active_time = time.time()
-                    return (cluster.display_name, False)
-
-            if addressed_target:
-                # No cluster exists yet for addressed_target:
-                # Check if we can adopt an unconfirmed placeholder cluster
-                if self.clusters:
-                    for idx, c in enumerate(self.clusters):
-                        if not c.is_name_confirmed and c.display_name.startswith(("Participant", "Remote Attendee", "Unknown", "Speaker")):
-                            c.display_name = addressed_target
-                            c.is_name_confirmed = True
-                            self.active_cluster_index = idx
-                            c.sample_count += 1
-                            if emb is not None:
-                                alpha = max(0.90, 1.0 - (1.0 / (c.sample_count + 1)))
-                                new_centroid = alpha * c.centroid_embedding + (1.0 - alpha) * emb
-                                c.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
-                            c.last_active_time = time.time()
-                            return (addressed_target, False)
-
-                # Create a brand-new confirmed cluster for this addressed/hinted speaker
-                fallback_emb = emb if emb is not None else np.zeros(24, dtype=np.float32)
-                new_cluster = SpeakerCluster(
-                    cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
-                    display_name=addressed_target,
-                    centroid_embedding=fallback_emb,
-                    last_active_time=time.time(),
-                    is_name_confirmed=True,
-                )
-                self.clusters.append(new_cluster)
-                self.active_cluster_index = len(self.clusters) - 1
-                return (addressed_target, True)
-
-        # Pure acoustic matching when no hint / addressed target:
+        # Fallback if embedding is None
         if emb is None:
+            if addressed_target:
+                return (addressed_target, False)
             if self.clusters:
                 return (self.clusters[self.active_cluster_index].display_name, False)
             if self.roster:
@@ -558,13 +496,13 @@ class LiveAcousticDiarizer:
 
         # Case 1: First speaker on Channel 2
         if not self.clusters:
-            name = self.roster[0] if self.roster else "Remote Attendee"
+            name = addressed_target or (self.roster[0] if self.roster else "Remote Attendee")
             c = SpeakerCluster(
                 cluster_id="REMOTE_SPK_1",
                 display_name=name,
                 centroid_embedding=emb,
                 last_active_time=time.time(),
-                is_name_confirmed=bool(self.roster),
+                is_name_confirmed=bool(addressed_target or self.roster),
             )
             self.clusters.append(c)
             self.active_cluster_index = 0
@@ -585,17 +523,35 @@ class LiveAcousticDiarizer:
             new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
             cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
             cluster.last_active_time = time.time()
+
+            # If host addressed someone specifically or explicit hint confirmed:
+            # SAFETY: Only apply addressed_target if it doesn't collide with another cluster
+            if addressed_target and not cluster.is_name_confirmed:
+                assigned_other = {
+                    c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
+                }
+                if addressed_target.lower() not in assigned_other:
+                    cluster.display_name = addressed_target
+                    cluster.is_name_confirmed = True
+
             return (cluster.display_name, False)
         else:
             # Different speaker! New turn from another remote participant.
             assigned_names = {c.display_name.lower() for c in self.clusters}
-            available = [r for r in self.roster if r.lower() not in assigned_names]
-            if available:
-                new_name = available[0]
+
+            # CRITICAL: A hint/addressed_target can only name this NEW cluster if it is NOT already assigned to an existing cluster!
+            if addressed_target and addressed_target.lower() not in assigned_names:
+                new_name = addressed_target
                 confirmed = True
             else:
-                new_name = f"Participant {len(self.clusters) + 1}"
-                confirmed = False
+                # Pick next unassigned attendee from roster
+                available = [r for r in self.roster if r.lower() not in assigned_names]
+                if available:
+                    new_name = available[0]
+                    confirmed = True
+                else:
+                    new_name = f"Participant {len(self.clusters) + 1}"
+                    confirmed = False
 
             new_cluster = SpeakerCluster(
                 cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
@@ -979,13 +935,12 @@ class LiveMeetingManager:
             ch_buf = session.channels[channel_id]
             host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
 
-            # SAFETY: Reconcile placeholder on Channel 1 ONLY (host mic)
-            if channel_id == 1 and speaker_hint and ch_buf.display_name != speaker_hint:
+            if speaker_hint and ch_buf.display_name != speaker_hint:
                 old_name = ch_buf.display_name
-                if is_valid_person_name(speaker_hint, host_disp):
+                if channel_id == 1 or is_valid_person_name(speaker_hint, host_disp):
                     ch_buf.display_name = speaker_hint
                     if (
-                        old_name in ("Remote Attendee", "Participant 1", "Unknown", "You (Host)", "Host", "")
+                        old_name in ("Remote Attendee", "Participant 2", "Unknown", "You (Host)", "Host", "Participant 1", "")
                         or not is_valid_person_name(old_name, host_disp)
                     ):
                         asyncio.create_task(

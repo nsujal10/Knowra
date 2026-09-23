@@ -104,12 +104,29 @@ CORP_KEYWORDS = {
     "corporation", "company", "organization", "tenant", "internal", "external tenant",
 }
 
+UI_KEYWORDS = {
+    # Teams / Zoom / Meet window states, layouts, and controls
+    "meeting", "view", "compact", "controls", "control", "chat", "calls", "call", "share",
+    "sharing", "screen", "window", "video", "audio", "device", "devices", "bar",
+    "tile", "grid", "gallery", "panel", "tab", "notification", "notifications",
+    "presence", "calendar", "activity", "general", "teams", "channel", "group",
+    "conversation", "settings", "help", "desktop", "preview", "room", "lobby",
+    "stage", "roster", "participant", "attendee", "attendees", "speaker", "speakers",
+    "volume", "mute", "unmute", "microphone", "mic", "camera", "webcam", "display",
+    "monitor", "dock", "mini", "popup", "dialog", "overlay", "together", "mode",
+    "large", "side", "banner", "whiteboard", "breakout", "reactions", "recording",
+    "transcript", "transcription", "caption", "captions", "subtitles", "raise", "hand",
+}
+
+BLOCKED_WORDS = CORP_KEYWORDS | UI_KEYWORDS | TEAMS_STATIC_PAGES
+
 INTRO_STOP_WORDS = {
     "here", "there", "speaking", "talking", "listening", "audible", "ready",
     "good", "fine", "sorry", "sure", "okay", "ok", "online", "back", "trying",
     "going", "coming", "joined", "calling", "working", "happy", "glad", "yes", "no",
     "the", "a", "an", "in", "on", "at", "to", "for", "with", "from", "just", "still",
     "also", "now", "so", "then", "too", "very", "not", "asking", "hearing", "done",
+    "that", "what", "who", "this", "name",
 }
 
 
@@ -127,14 +144,15 @@ def clean_person_name(name: str) -> str:
 def is_valid_person_name(name: str, host_name: str = "Sujal Nage") -> bool:
     """
     Validates whether a candidate string is an individual person's name
-    rather than a company/tenant name (e.g. 'Systematix Infotech Pvt Ltd'),
+    rather than a UI control/view (e.g. 'Meeting compact view'),
+    company/tenant name (e.g. 'Systematix Infotech Pvt Ltd'),
     group chat channel (e.g. 'Gets 2026'), email, or static UI tab.
     """
     c = clean_person_name(name)
     if not c or len(c) < 2 or len(c) > 35:
         return False
     cl = c.lower()
-    if cl in TEAMS_STATIC_PAGES or cl in ("you", "me", "remote attendee", "speaker", "unknown", "host", "participant 1", "participant 2"):
+    if cl in ("you", "me", "remote attendee", "speaker", "unknown", "host", "participant 1", "participant 2"):
         return False
     if host_name and cl == host_name.lower():
         return False
@@ -144,10 +162,10 @@ def is_valid_person_name(name: str, host_name: str = "Sujal Nage") -> bool:
     # Must not contain @ or urls
     if "@" in c or "http" in cl or ".com" in cl:
         return False
-    # Check corporation/tenant keywords
+    # Check corporation, UI controls, and static page keywords
     import re
     words = set(re.findall(r"[a-zA-Z]+", cl))
-    if words & CORP_KEYWORDS:
+    if words & BLOCKED_WORDS:
         return False
     # Person names typically have 1 to 4 words
     if len(c.split()) > 4:
@@ -160,8 +178,9 @@ def extract_conversational_speaker_name(text: str) -> Optional[str]:
     Extracts self-introduced attendee names from live transcript text.
     Handles English, Hinglish, and Hindi conversational intros:
     - 'My name is Harshita.'
-    - 'Hi, I am Harshita.'
-    - 'This is Harshita speaking.'
+    - 'Harshita, that is my name.' / 'Harshita is my name.'
+    - 'Hi, I am Harshita.' / 'This is Harshita.'
+    - 'Call me Harshita.' / 'Harshita here.'
     - 'Mera naam Harshita hai.'
     - 'Main Harshita bol rahi hoon.'
     """
@@ -171,8 +190,13 @@ def extract_conversational_speaker_name(text: str) -> Optional[str]:
 
     patterns = [
         r"(?:my name is|my name\'s)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"([a-zA-Z]+(?:\s+[a-zA-Z]+)?)(?:,\s*|\s+)that is my name",
+        r"([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+is my name",
+        r"(?:call me|you can call me)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"(?:it\'s|it is)\s+([a-zA-Z]+)(?:\s+(?:here|speaking)|\b|\.)",
         r"(?:i am|i\'m)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
         r"(?:this is)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
+        r"([a-zA-Z]+)\s+here\b",
         r"(?:mera naam)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:hai)",
         r"(?:main|mein)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:bol raha|bol rahi|hoon)",
     ]
@@ -360,12 +384,12 @@ class TeamsLiveAttendeeTracker:
                     nl = name.lower()
                     if "is speaking" in nl or "is talking" in nl:
                         candidate = name.split(" is speaking")[0].split(" is talking")[0].strip()
-                        if candidate:
+                        if candidate and is_valid_person_name(candidate, self.host_name):
                             self.set_active_speaker(candidate)
                             return
                     elif "speaking" in nl and len(name.split()) <= 4:
                         candidate = name.replace("speaking", "").replace("Speaking", "").strip()
-                        if candidate:
+                        if candidate and is_valid_person_name(candidate, self.host_name):
                             self.set_active_speaker(candidate)
                             return
         except Exception:

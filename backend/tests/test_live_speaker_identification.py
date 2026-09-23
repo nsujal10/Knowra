@@ -66,6 +66,13 @@ def test_is_valid_person_name_corporate_filtering():
     assert is_valid_person_name("Calls") is False
     assert is_valid_person_name("Calendar") is False
 
+    # Teams / Zoom UI controls & views must be rejected
+    assert is_valid_person_name("Meeting compact view") is False
+    assert is_valid_person_name("Compact view") is False
+    assert is_valid_person_name("Meeting controls") is False
+    assert is_valid_person_name("Breakout room") is False
+    assert is_valid_person_name("Together mode") is False
+
     # Host name must be rejected for remote attendees
     assert is_valid_person_name("Sujal Nage", host_name="Sujal Nage") is False
 
@@ -73,16 +80,21 @@ def test_is_valid_person_name_corporate_filtering():
 def test_extract_conversational_speaker_name():
     # English intros
     assert extract_conversational_speaker_name("My name is Harshita.") == "Harshita"
+    assert extract_conversational_speaker_name("Harshita, that is my name.") == "Harshita"
+    assert extract_conversational_speaker_name("Harshita is my name.") == "Harshita"
     assert extract_conversational_speaker_name("Hello, hello. My name is Harshita.") == "Harshita"
     assert extract_conversational_speaker_name("I am Harshita here.") == "Harshita"
     assert extract_conversational_speaker_name("This is Harshita speaking.") == "Harshita"
     assert extract_conversational_speaker_name("Hi everyone, my name is Rahul Sharma.") == "Rahul Sharma"
+    assert extract_conversational_speaker_name("Call me Harshita.") == "Harshita"
+    assert extract_conversational_speaker_name("It's Harshita.") == "Harshita"
 
     # Hindi / Hinglish intros
     assert extract_conversational_speaker_name("Mera naam Harshita hai.") == "Harshita"
     assert extract_conversational_speaker_name("Main Harshita bol rahi hoon.") == "Harshita"
 
     # Non-introduction speech must return None
+    assert extract_conversational_speaker_name("That is my name.") is None
     assert extract_conversational_speaker_name("Am I audible?") is None
     assert extract_conversational_speaker_name("I am audible?") is None
     assert extract_conversational_speaker_name("I am ready.") is None

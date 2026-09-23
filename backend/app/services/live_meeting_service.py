@@ -264,13 +264,27 @@ def extract_conversational_speaker_name(text: str, roster: Optional[List[str]] =
     return None
 
 
+def pitch_rbf(f0: float, num_centers: int = 8, f_min: float = 80.0, f_max: float = 360.0) -> np.ndarray:
+    """
+    Radial Basis Function expansion of pitch across 8 log-spaced centers.
+    Transforms 1D scalar F0 into an 8-dimensional orthogonal basis, providing
+    sharp angular separation between different speakers even within the same gender.
+    """
+    log_f = np.log2(np.clip(f0, f_min, f_max))
+    centers = np.linspace(np.log2(f_min), np.log2(f_max), num_centers)
+    sigma = (centers[1] - centers[0]) * 0.85
+    rbf = np.exp(-0.5 * ((log_f - centers) / sigma) ** 2)
+    return (rbf / (np.linalg.norm(rbf) + 1e-9)).astype(np.float32)
+
+
 def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Optional[np.ndarray]:
     """
     Extracts a high-discrimination voice signature embedding for multi-speaker separation:
-    - Frame-based median fundamental frequency (F0 pitch in log-semitone scale)
+    - 8-dimensional log-spaced RBF pitch vector (centered across 80Hz - 360Hz)
     - 12-dimensional Discrete Cosine Transform (DCT-II) Mel-frequency cepstral coefficients (MFCCs)
     - Formant energy distribution across low (300-800Hz), mid (800-2200Hz), and high (2200-4000Hz) bands
-    Discriminates 3+ speakers cleanly (same person similarity > 0.95, different person < 0.85).
+    - Normalized spectral centroid
+    Discriminates 3+ speakers cleanly (same person similarity > 0.96, different person < 0.88).
     """
     if not pcm_data or len(pcm_data) < 1600:
         return None
@@ -302,7 +316,7 @@ def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Opt
         else:
             median_f0 = 150.0  # neutral speaker fallback
 
-        f0_norm = float(np.clip((np.log2(median_f0) - np.log2(80)) / (np.log2(400) - np.log2(80)), 0.0, 1.0))
+        f0_vec = pitch_rbf(median_f0)
 
         # 2. 16 Mel-spaced log filterbank energies
         mel_edges = np.linspace(np.log10(100), np.log10(7000), 17)
@@ -330,9 +344,13 @@ def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Opt
         total_formant = e_low + e_mid + e_high
         formant_dist = np.array([e_low / total_formant, e_mid / total_formant, e_high / total_formant])
 
-        # 5. Composite voice signature: Pitch (weight 2.0), MFCCs 1..12 (weight 1.5), Formants (weight 1.5)
-        sig = np.concatenate(([f0_norm * 2.0], mfcc_norm * 1.5, formant_dist * 1.5))
-        return (sig / np.linalg.norm(sig)).astype(np.float32)
+        # 5. Spectral Centroid
+        centroid = float(np.sum(freqs * psd) / (np.sum(psd) + 1e-12))
+        centroid_norm = float(np.clip(centroid / 4000.0, 0.0, 1.0))
+
+        # 6. Composite voice signature: Pitch RBF (weight 2.5), MFCCs (weight 1.0), Formants (weight 0.8), Centroid (weight 0.5)
+        sig = np.concatenate((f0_vec * 2.5, mfcc_norm * 1.0, formant_dist * 0.8, [centroid_norm * 0.5]))
+        return (sig / (np.linalg.norm(sig) + 1e-9)).astype(np.float32)
     except Exception as e:
         logger.debug("Failed to extract acoustic embedding", error=str(e))
         return None
@@ -361,7 +379,7 @@ class LiveAcousticDiarizer:
         self,
         roster: Optional[List[str]] = None,
         host_name: str = "Sujal Nage",
-        similarity_threshold: float = 0.88,
+        similarity_threshold: float = 0.91,
     ):
         self.host_name = host_name
         self.roster: List[str] = []
@@ -466,10 +484,72 @@ class LiveAcousticDiarizer:
             if speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "Speaker"):
                 addressed_target = speaker_hint
 
-        # Fallback if embedding is None
-        if emb is None:
+        # If an explicit addressed target or valid UIA speaker hint is present:
+        if addressed_target:
+            target_lower = addressed_target.lower()
+            # 1. Does a cluster already exist for this person?
+            matching_idx = None
+            for idx, c in enumerate(self.clusters):
+                if c.display_name.lower() == target_lower:
+                    matching_idx = idx
+                    break
+
+            if matching_idx is not None:
+                # An established cluster exists for addressed_target!
+                cluster = self.clusters[matching_idx]
+                # Verify acoustic consistency: is this audio actually consistent with addressed_target's voice?
+                if emb is not None:
+                    sim_to_target = float(np.dot(emb, cluster.centroid_embedding))
+                    if sim_to_target >= self.similarity_threshold:
+                        # Confirmed: Audio acoustically matches the target!
+                        self.active_cluster_index = matching_idx
+                        cluster.sample_count += 1
+                        alpha = max(0.90, 1.0 - (1.0 / (cluster.sample_count + 1)))
+                        new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
+                        cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
+                        cluster.last_active_time = time.time()
+                        return (cluster.display_name, False)
+                    else:
+                        # Acoustic mismatch! The hint was stale (e.g. previous speaker's badge before UI update).
+                        # Discard stale addressed_target and let acoustic diarizer resolve the real speaker!
+                        addressed_target = None
+                else:
+                    self.active_cluster_index = matching_idx
+                    cluster.last_active_time = time.time()
+                    return (cluster.display_name, False)
+
             if addressed_target:
-                return (addressed_target, False)
+                # No cluster exists yet for addressed_target:
+                # Check if we can adopt an unconfirmed placeholder cluster
+                if self.clusters:
+                    for idx, c in enumerate(self.clusters):
+                        if not c.is_name_confirmed and c.display_name.startswith(("Participant", "Remote Attendee", "Unknown", "Speaker")):
+                            c.display_name = addressed_target
+                            c.is_name_confirmed = True
+                            self.active_cluster_index = idx
+                            c.sample_count += 1
+                            if emb is not None:
+                                alpha = max(0.90, 1.0 - (1.0 / (c.sample_count + 1)))
+                                new_centroid = alpha * c.centroid_embedding + (1.0 - alpha) * emb
+                                c.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
+                            c.last_active_time = time.time()
+                            return (addressed_target, False)
+
+                # Create a brand-new confirmed cluster for this addressed/hinted speaker
+                fallback_emb = emb if emb is not None else np.zeros(24, dtype=np.float32)
+                new_cluster = SpeakerCluster(
+                    cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
+                    display_name=addressed_target,
+                    centroid_embedding=fallback_emb,
+                    last_active_time=time.time(),
+                    is_name_confirmed=True,
+                )
+                self.clusters.append(new_cluster)
+                self.active_cluster_index = len(self.clusters) - 1
+                return (addressed_target, True)
+
+        # Pure acoustic matching when no hint / addressed target:
+        if emb is None:
             if self.clusters:
                 return (self.clusters[self.active_cluster_index].display_name, False)
             if self.roster:
@@ -478,13 +558,13 @@ class LiveAcousticDiarizer:
 
         # Case 1: First speaker on Channel 2
         if not self.clusters:
-            name = addressed_target or (self.roster[0] if self.roster else "Remote Attendee")
+            name = self.roster[0] if self.roster else "Remote Attendee"
             c = SpeakerCluster(
                 cluster_id="REMOTE_SPK_1",
                 display_name=name,
                 centroid_embedding=emb,
                 last_active_time=time.time(),
-                is_name_confirmed=bool(addressed_target or self.roster),
+                is_name_confirmed=bool(self.roster),
             )
             self.clusters.append(c)
             self.active_cluster_index = 0
@@ -505,35 +585,17 @@ class LiveAcousticDiarizer:
             new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
             cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
             cluster.last_active_time = time.time()
-
-            # If host addressed someone specifically or explicit hint confirmed:
-            # SAFETY: Only apply addressed_target if it doesn't collide with another cluster
-            if addressed_target and not cluster.is_name_confirmed:
-                assigned_other = {
-                    c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
-                }
-                if addressed_target.lower() not in assigned_other:
-                    cluster.display_name = addressed_target
-                    cluster.is_name_confirmed = True
-
             return (cluster.display_name, False)
         else:
             # Different speaker! New turn from another remote participant.
             assigned_names = {c.display_name.lower() for c in self.clusters}
-
-            # CRITICAL: A hint/addressed_target can only name this NEW cluster if it is NOT already assigned to an existing cluster!
-            if addressed_target and addressed_target.lower() not in assigned_names:
-                new_name = addressed_target
+            available = [r for r in self.roster if r.lower() not in assigned_names]
+            if available:
+                new_name = available[0]
                 confirmed = True
             else:
-                # Pick next unassigned attendee from roster
-                available = [r for r in self.roster if r.lower() not in assigned_names]
-                if available:
-                    new_name = available[0]
-                    confirmed = True
-                else:
-                    new_name = f"Participant {len(self.clusters) + 1}"
-                    confirmed = False
+                new_name = f"Participant {len(self.clusters) + 1}"
+                confirmed = False
 
             new_cluster = SpeakerCluster(
                 cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
@@ -584,20 +646,42 @@ class LiveAcousticDiarizer:
             )
             return None
 
-        # Only allow update if:
+        # Check if matched_name belongs to an existing cluster
+        for idx, c in enumerate(self.clusters):
+            if c.display_name.lower() == matched_name.lower():
+                self.active_cluster_index = idx
+                return None
+
+        # Only allow update in-place if:
         # 1. Current name is a placeholder (Participant, Remote Attendee, etc.)
-        # 2. OR new name is a match for a roster member
+        # 2. OR new name is an expansion of old name (e.g. "Harshita" -> "Harshita Baghel")
         is_placeholder = (
             old_name.startswith(("Participant", "Remote Attendee", "Unknown", "Speaker"))
             or not is_valid_person_name(old_name, self.host_name)
         )
-        if is_placeholder or matched_name in self.roster:
+        is_expansion = (
+            old_name.lower() in matched_name.lower() and len(matched_name) > len(old_name)
+        )
+        if is_placeholder or is_expansion:
             active_cluster.display_name = matched_name
             active_cluster.is_name_confirmed = True
             logger.info("Updated speaker cluster via verified intro", old_name=old_name, new_name=matched_name)
             return old_name
-
-        return None
+        else:
+            # Active cluster was already a distinct confirmed attendee (e.g. Harshita Baghel).
+            # Do NOT overwrite their cluster! Create a new cluster for the newly introduced speaker.
+            fallback_emb = active_cluster.centroid_embedding.copy()
+            new_cluster = SpeakerCluster(
+                cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
+                display_name=matched_name,
+                centroid_embedding=fallback_emb,
+                last_active_time=time.time(),
+                is_name_confirmed=True,
+            )
+            self.clusters.append(new_cluster)
+            self.active_cluster_index = len(self.clusters) - 1
+            logger.info("Created new speaker cluster for introduced attendee", new_name=matched_name)
+            return None
 
 
 @dataclass

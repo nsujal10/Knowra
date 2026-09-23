@@ -349,4 +349,84 @@ def test_mid_meeting_attendee_addition_reconciles_placeholder_cluster():
     assert is_new is False
 
 
+def test_close_pitch_same_gender_discrimination():
+    """
+    Tests that two male speakers with nearby fundamental frequencies (e.g. 130Hz vs 110Hz)
+    are separated cleanly by the 8-dim RBF pitch + MFCC + formant + centroid embedding
+    instead of collapsing into a single cluster.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer, extract_acoustic_embedding
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+
+    # Speaker 1: Male 130Hz + harmonics
+    s1 = (np.sin(2 * np.pi * 130 * t) + 0.6 * np.sin(2 * np.pi * 260 * t) + 0.3 * np.sin(2 * np.pi * 390 * t)) * 12000
+    # Speaker 1 variation (slight pitch drift ~131Hz)
+    s1_var = (np.sin(2 * np.pi * 131 * t) + 0.58 * np.sin(2 * np.pi * 262 * t) + 0.32 * np.sin(2 * np.pi * 393 * t)) * 12000
+    # Speaker 2: Male 110Hz + harmonics
+    s2 = (np.sin(2 * np.pi * 110 * t) + 0.7 * np.sin(2 * np.pi * 220 * t) + 0.4 * np.sin(2 * np.pi * 330 * t)) * 12000
+
+    pcm_s1 = s1.astype(np.int16).tobytes()
+    pcm_s1_var = s1_var.astype(np.int16).tobytes()
+    pcm_s2 = s2.astype(np.int16).tobytes()
+
+    emb1 = extract_acoustic_embedding(pcm_s1)
+    emb1_v = extract_acoustic_embedding(pcm_s1_var)
+    emb2 = extract_acoustic_embedding(pcm_s2)
+
+    assert float(np.dot(emb1, emb1_v)) >= 0.95  # Same speaker consistency
+    assert float(np.dot(emb1, emb2)) < 0.90     # Different speaker separation
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Yash Lade", "Rahul Sharma"],
+        host_name="Sujal Nage"
+    )
+
+    spk1, is_new1 = diarizer.identify_speaker(pcm_s1)
+    assert spk1 == "Yash Lade"
+    assert is_new1 is False
+
+    # Second male speaks -> must NOT collapse into Yash Lade!
+    spk2, is_new2 = diarizer.identify_speaker(pcm_s2)
+    assert spk2 == "Rahul Sharma"
+    assert is_new2 is True
+
+    # First male speaks again -> must match Yash Lade
+    spk1_again, is_new1_again = diarizer.identify_speaker(pcm_s1_var)
+    assert spk1_again == "Yash Lade"
+    assert is_new1_again is False
+
+
+def test_update_active_cluster_name_does_not_overwrite_confirmed_speaker():
+    """
+    Tests that if attendee A has an active cluster, and attendee B speaks with a
+    conversational self-introduction, attendee A's cluster is NOT overwritten.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    pcm_harshita = (np.sin(2 * np.pi * 240 * t) * 15000).astype(np.int16).tobytes()
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+
+    # Harshita speaks first
+    diarizer.identify_speaker(pcm_harshita)
+    assert diarizer.clusters[diarizer.active_cluster_index].display_name == "Harshita Baghel"
+
+    # Now a turn occurs with self-introduction "Yash Lade"
+    old_name = diarizer.update_active_cluster_name("Yash Lade")
+    # Must NOT have renamed Harshita's cluster
+    assert diarizer.clusters[0].display_name == "Harshita Baghel"
+    # Active cluster should now be Yash Lade
+    assert diarizer.clusters[diarizer.active_cluster_index].display_name == "Yash Lade"
+
+
+
 

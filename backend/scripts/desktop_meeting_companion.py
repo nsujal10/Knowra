@@ -407,11 +407,11 @@ class TeamsLiveAttendeeTracker:
 
     def get_active_speaker_hint(self) -> Optional[str]:
         """
-        Returns active speaker detected via Teams UI Automation within the last 2.5 seconds.
+        Returns active speaker detected via Teams UI Automation within the last 5.0 seconds.
         Returns None when no badge is active so acoustic voice clustering resolves the speaker.
         """
         with self._lock:
-            if self.last_detected_speaker and (time.time() - self.last_detection_time < 2.5):
+            if self.last_detected_speaker and (time.time() - self.last_detection_time < 5.0):
                 return self.last_detected_speaker
             return None
 

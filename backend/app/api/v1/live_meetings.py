@@ -11,7 +11,10 @@ Provides:
 
 import base64
 import json
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 from typing import Optional
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
@@ -20,12 +23,14 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.security.tenant import TenantContext, get_tenant_context
-from app.services.live_meeting_service import LiveMeetingManager
+from app.services.live_meeting_service import LiveMeetingManager, ChannelBuffer
 from app.models.meeting import Meeting
 from app.models.user import User
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
+
+ACTIVE_COMPANION_PROCESSES: dict[str, subprocess.Popen] = {}
 
 
 class StartLiveMeetingRequest(BaseModel):
@@ -120,11 +125,132 @@ async def end_live_meeting(
     manager = LiveMeetingManager.get_instance()
     await manager.end_session(meeting.id)
 
+    # Stop any locally spawned companion subprocess
+    proc = ACTIVE_COMPANION_PROCESSES.pop(str(meeting.id), None)
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
     return EndLiveMeetingResponse(
         meetingId=str(meeting.id),
         status="COMPLETED",
         message="Live meeting ended and canonical transcript finalized.",
     )
+
+
+class LaunchCompanionRequest(BaseModel):
+    hostName: Optional[str] = None
+    attendees: Optional[str] = None
+    language: Optional[str] = "hi"
+    simulate: bool = False
+
+
+@router.get(
+    "/live/active",
+    summary="Get latest active live meeting for companion auto-attach",
+)
+async def get_latest_active_meeting(
+    db: Session = Depends(get_db),
+):
+    """Returns the most recent active live meeting ID for zero-config companion attachment."""
+    manager = LiveMeetingManager.get_instance()
+    for m_id, sess in reversed(list(manager._sessions.items())):
+        if sess.is_active:
+            return {
+                "meetingId": str(m_id),
+                "isActive": True,
+                "hostName": sess.channels.get(1, ChannelBuffer(1, "", "")).display_name if hasattr(sess, "channels") else "Sujal Nage",
+                "language": sess.language,
+                "knownRoster": sess.known_roster,
+            }
+    meeting = db.query(Meeting).filter(Meeting.status == "IN_PROGRESS").order_by(Meeting.created_at.desc()).first()
+    if meeting:
+        return {
+            "meetingId": str(meeting.id),
+            "isActive": True,
+            "title": meeting.title,
+        }
+    return {"meetingId": None, "isActive": False}
+
+
+@router.post(
+    "/{meeting_id}/companion/launch",
+    summary="1-Click Launch companion subprocess locally on host",
+)
+async def launch_local_companion(
+    meeting_id: str,
+    payload: Optional[LaunchCompanionRequest] = None,
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    """
+    1-Click launch of the desktop meeting companion on the local host machine.
+    Spawns scripts/desktop_meeting_companion.py asynchronously in the background.
+    """
+    if meeting_id in ACTIVE_COMPANION_PROCESSES:
+        proc = ACTIVE_COMPANION_PROCESSES[meeting_id]
+        if proc.poll() is None:
+            return {"status": "ALREADY_RUNNING", "meetingId": meeting_id, "pid": proc.pid}
+
+    backend_root = Path(__file__).resolve().parent.parent.parent.parent
+    companion_script = backend_root / "scripts" / "desktop_meeting_companion.py"
+
+    cmd = [
+        sys.executable,
+        str(companion_script),
+        "--meeting-id", meeting_id,
+    ]
+    if payload:
+        if payload.hostName:
+            cmd.extend(["--host-name", payload.hostName])
+        if payload.attendees:
+            cmd.extend(["--attendees", payload.attendees])
+        if payload.language:
+            cmd.extend(["--language", payload.language])
+        if payload.simulate:
+            cmd.append("--simulate")
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(backend_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        ACTIVE_COMPANION_PROCESSES[meeting_id] = proc
+        logger.info("Launched local desktop companion", meeting_id=meeting_id, pid=proc.pid)
+        return {
+            "status": "LAUNCHED",
+            "meetingId": meeting_id,
+            "pid": proc.pid,
+            "message": "Desktop companion started automatically.",
+        }
+    except Exception as e:
+        logger.error("Failed to launch local desktop companion", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to launch companion: {str(e)}")
+
+
+@router.post(
+    "/{meeting_id}/companion/stop",
+    summary="Stop companion subprocess for this meeting",
+)
+async def stop_local_companion(
+    meeting_id: str,
+):
+    proc = ACTIVE_COMPANION_PROCESSES.pop(meeting_id, None)
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        return {"status": "STOPPED", "meetingId": meeting_id}
+    return {"status": "NOT_RUNNING", "meetingId": meeting_id}
 
 
 @router.get(

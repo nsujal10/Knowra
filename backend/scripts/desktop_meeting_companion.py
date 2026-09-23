@@ -28,6 +28,7 @@ Usage:
 import argparse
 import asyncio
 import base64
+import http.server
 import json
 import os
 import subprocess
@@ -807,11 +808,194 @@ async def run_hardware_capture(
         p.terminate()
 
 
+class DesktopAgentController:
+    """
+    Manages the lifecycle of live hardware audio capture on behalf of the browser.
+    Runs capture asynchronously in a dedicated event loop thread.
+    """
+
+    def __init__(self, host_name: str = "Sujal Nage", server_base: str = "http://127.0.0.1:8000"):
+        self.host_name = host_name
+        self.server_base = server_base
+        self.active_meeting_id: Optional[str] = None
+        self.capture_thread: Optional[threading.Thread] = None
+        self.capture_loop: Optional[asyncio.AbstractEventLoop] = None
+        self.is_capturing = False
+        self._lock = threading.Lock()
+
+    def start_capture(
+        self,
+        meeting_id: str,
+        host_name: Optional[str] = None,
+        attendees: str = "",
+        language: str = "hi",
+        server: Optional[str] = None,
+    ) -> bool:
+        with self._lock:
+            if self.is_capturing and self.active_meeting_id == meeting_id:
+                return True
+            self.stop_capture_internal()
+
+            self.active_meeting_id = meeting_id
+            effective_host = host_name or self.host_name
+            effective_server = server or self.server_base
+            ws_url = f"{effective_server.replace('http://', 'ws://').replace('https://', 'wss://')}/api/v1/meetings/{meeting_id}/live-stream"
+
+            def runner():
+                self.capture_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(self.capture_loop)
+                self.is_capturing = True
+                print(f"\n[Knowra Agent] 🚀 1-Click Launch received from browser for meeting {meeting_id}!")
+                print(f"[Knowra Agent] Host: {effective_host} | Attendees: {attendees or 'Auto-Detect via Teams'}\n")
+                try:
+                    self.capture_loop.run_until_complete(
+                        run_hardware_capture(
+                            ws_url=ws_url,
+                            meeting_id=meeting_id,
+                            language=language,
+                            host_name=effective_host,
+                            remote_name="Remote Attendee",
+                            attendees=attendees,
+                        )
+                    )
+                except Exception as e:
+                    print(f"[Knowra Agent] Capture finished or stopped: {e}")
+                finally:
+                    self.is_capturing = False
+                    self.active_meeting_id = None
+                    print("[Knowra Agent] Ready for next 1-click meeting launch.\n")
+
+            self.capture_thread = threading.Thread(target=runner, daemon=True)
+            self.capture_thread.start()
+            return True
+
+    def stop_capture(self) -> bool:
+        with self._lock:
+            return self.stop_capture_internal()
+
+    def stop_capture_internal(self) -> bool:
+        if self.capture_loop and self.capture_loop.is_running():
+            for task in asyncio.all_tasks(self.capture_loop):
+                self.capture_loop.call_soon_threadsafe(task.cancel)
+            self.is_capturing = False
+            self.active_meeting_id = None
+            return True
+        self.is_capturing = False
+        self.active_meeting_id = None
+        return False
+
+    def get_status(self) -> dict:
+        with self._lock:
+            return {
+                "status": "CAPTURING" if self.is_capturing else "READY",
+                "activeMeetingId": self.active_meeting_id,
+                "hostName": self.host_name,
+                "agentVersion": "1.0.0",
+                "port": 9876,
+            }
+
+
+def make_agent_handler(controller: DesktopAgentController):
+    class AgentHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, format, *args):
+            pass  # Suppress default access logs
+
+        def _send_cors_headers(self):
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self._send_cors_headers()
+            self.end_headers()
+
+        def do_GET(self):
+            if self.path.startswith("/status"):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps(controller.get_status()).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def do_POST(self):
+            if self.path.startswith("/start"):
+                content_len = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_len) if content_len > 0 else b"{}"
+                data = json.loads(body.decode("utf-8")) if body else {}
+
+                meeting_id = data.get("meetingId") or data.get("meeting_id")
+                if not meeting_id:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "application/json")
+                    self._send_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"error": "meetingId is required"}).encode("utf-8"))
+                    return
+
+                controller.start_capture(
+                    meeting_id=str(meeting_id),
+                    host_name=data.get("hostName") or data.get("host_name"),
+                    attendees=data.get("attendees", ""),
+                    language=data.get("language", "hi"),
+                    server=data.get("server") or data.get("serverUrl"),
+                )
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "CAPTURING", "meetingId": str(meeting_id)}).encode("utf-8"))
+
+            elif self.path.startswith("/stop"):
+                controller.stop_capture()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "STOPPED"}).encode("utf-8"))
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+    return AgentHandler
+
+
+def run_agent_server(port: int = 9876, host_name: str = "Sujal Nage", server_url: str = "http://127.0.0.1:8000"):
+    """Starts the persistent background agent listening for 1-click browser triggers."""
+    controller = DesktopAgentController(host_name=host_name, server_base=server_url)
+    handler = make_agent_handler(controller)
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
+
+    print("\n========================================================")
+    print(" Knowra Desktop Agent (1-Click Browser Auto-Launch)")
+    print(f" Listening on : http://127.0.0.1:{port}")
+    print(f" Host Name    : {host_name} (Channel 1 - Local Mic)")
+    print(f" Teams Audio  : Windows WASAPI Loopback (Channel 2)")
+    print(f" Status       : READY (Waiting for browser 1-click trigger)")
+    print("========================================================\n")
+    print("💡 You don't need to touch this terminal anymore!")
+    print("Just click 'Start Live Session' in the Knowra web app,")
+    print("and audio capture will start and stop automatically.\n")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n[Agent] Stopping desktop agent server...")
+        controller.stop_capture()
+        server.server_close()
+
+
 def main():
     detected_host = detect_host_display_name()
     parser = argparse.ArgumentParser(description="Knowra Desktop Meeting Companion (Method 3)")
-    parser.add_argument("--meeting-id", type=str, default=str(uuid.uuid4()), help="Target meeting UUID")
-    parser.add_argument("--server", type=str, default="ws://127.0.0.1:8000", help="Knowra API Server Base URL")
+    parser.add_argument("--meeting-id", type=str, default="", help="Target meeting UUID (optional; omit to run 1-click agent server)")
+    parser.add_argument("--server", type=str, default="http://127.0.0.1:8000", help="Knowra API Server Base URL")
+    parser.add_argument("--daemon", action="store_true", help="Run as background agent server on port 9876 for 1-click browser auto-launch")
+    parser.add_argument("--agent", action="store_true", help="Alias for --daemon")
+    parser.add_argument("--port", type=int, default=9876, help="Local agent server port (default: 9876)")
     parser.add_argument("--simulate", action="store_true", help="Run English simulated conversation")
     parser.add_argument("--hindi", action="store_true", help="Run Hindi / Hinglish simulated conversation")
     parser.add_argument("--language", type=str, default="en", help="Language: 'hi' or 'en'")
@@ -826,7 +1010,14 @@ def main():
         list_audio_devices()
         return
 
-    ws_url = f"{args.server}/api/v1/meetings/{args.meeting_id}/live-stream"
+    # If --daemon, --agent, or no meeting-id provided: start 1-click background agent server!
+    if args.daemon or args.agent or (not args.meeting_id and not args.simulate and not args.hindi):
+        run_agent_server(port=args.port, host_name=args.host_name, server_url=args.server)
+        return
+
+    # Direct meeting capture mode
+    ws_base = args.server.replace("http://", "ws://").replace("https://", "wss://")
+    ws_url = f"{ws_base}/api/v1/meetings/{args.meeting_id}/live-stream"
     lang = "hi" if args.hindi else args.language
     remote_label = args.speaker_name or (args.attendees if args.attendees else "Remote Attendee")
 
@@ -847,3 +1038,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

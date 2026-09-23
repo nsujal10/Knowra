@@ -140,6 +140,39 @@ async def end_live_meeting(
     )
 
 
+class AddAttendeesRequest(BaseModel):
+    attendees: str
+
+
+@router.post(
+    "/{meeting_id}/live/attendees",
+    summary="Dynamically add attendee(s) mid-meeting",
+)
+async def add_live_attendees(
+    meeting_id: str,
+    payload: AddAttendeesRequest,
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    try:
+        m_uuid = uuid.UUID(meeting_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid meeting ID format")
+
+    manager = LiveMeetingManager.get_instance()
+    session = manager.get_session(m_uuid)
+    if not session or not session.is_active:
+        raise HTTPException(status_code=404, detail="Active live meeting session not found")
+
+    added = await manager.add_attendees_mid_meeting(m_uuid, payload.attendees)
+    return {
+        "meetingId": meeting_id,
+        "status": "ATTENDEES_ADDED",
+        "added": added,
+        "knownRoster": session.known_roster,
+    }
+
+
 class LaunchCompanionRequest(BaseModel):
     hostName: Optional[str] = None
     attendees: Optional[str] = None
@@ -359,6 +392,12 @@ async def websocket_live_stream(websocket: WebSocket, meeting_id: str):
                     roster_hint = msg.get("roster_hint")
                     audio_b64 = msg.get("audio_base64")
                     audio_bytes = base64.b64decode(audio_b64) if audio_b64 else b""
+
+                    # Check if client sent mid-meeting attendee update
+                    if msg.get("type") in ("ADD_ATTENDEE", "UPDATE_ROSTER") or "add_attendee" in msg:
+                        new_att = msg.get("attendees") or msg.get("attendee") or msg.get("add_attendee")
+                        if new_att:
+                            await manager.add_attendees_mid_meeting(meeting_uuid, str(new_att))
 
                     await manager.ingest_audio_chunk(
                         meeting_id=meeting_uuid,

@@ -246,3 +246,107 @@ def test_live_acoustic_diarizer_comma_separated_roster_input():
     assert spk3 == "Rahul Sharma"
 
 
+def test_mid_meeting_attendee_addition_not_overwritten_by_existing_member():
+    """
+    CRITICAL REGRESSION TEST:
+    When a person is added mid-meeting, and speaks while a stale hint for an
+    existing member is present, the new person MUST NOT be replaced by the existing member!
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    def make_pcm(f0, formants):
+        sig = np.sin(2 * np.pi * f0 * t) * 15000
+        for f, a in formants:
+            sig += np.sin(2 * np.pi * f * t) * a
+        return sig.astype(np.int16).tobytes()
+
+    pcm_harshita = make_pcm(240, [(480, 8000), (1900, 5000)])
+    pcm_yash = make_pcm(155, [(310, 8000), (1200, 6000)])
+    pcm_rahul = make_pcm(105, [(210, 9000), (850, 6000)])
+
+    # Meeting starts with 2 attendees
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+    # Turn 1: Harshita speaks
+    s1, _ = diarizer.identify_speaker(pcm_harshita)
+    assert s1 == "Harshita Baghel"
+
+    # Turn 2: Yash speaks
+    s2, _ = diarizer.identify_speaker(pcm_yash)
+    assert s2 == "Yash Lade"
+
+    # Mid-meeting: Rahul Sharma is added!
+    diarizer.add_to_roster("Rahul Sharma")
+    assert "Rahul Sharma" in diarizer.roster
+
+    # Turn 3: Rahul speaks, but the incoming audio chunk still contains stale speaker_hint='Yash Lade'
+    s3, is_new3 = diarizer.identify_speaker(pcm_rahul, speaker_hint="Yash Lade")
+    # MUST be Rahul Sharma, NEVER Yash Lade!
+    assert s3 == "Rahul Sharma"
+    assert is_new3 is True
+
+    # Turn 4: Harshita speaks again -> Must still be Harshita Baghel!
+    s4, is_new4 = diarizer.identify_speaker(pcm_harshita)
+    assert s4 == "Harshita Baghel"
+    assert is_new4 is False
+
+    # Turn 5: Yash speaks again -> Must still be Yash Lade!
+    s5, is_new5 = diarizer.identify_speaker(pcm_yash)
+    assert s5 == "Yash Lade"
+    assert is_new5 is False
+
+    # Turn 6: Rahul speaks again -> Must still be Rahul Sharma!
+    s6, is_new6 = diarizer.identify_speaker(pcm_rahul)
+    assert s6 == "Rahul Sharma"
+    assert is_new6 is False
+
+
+def test_mid_meeting_attendee_addition_reconciles_placeholder_cluster():
+    """
+    Tests that if a 3rd speaker speaks BEFORE being added to the roster (getting 'Participant 3'),
+    and is subsequently added via add_to_roster('Rahul Sharma'), their placeholder cluster
+    is automatically renamed and reconciled to 'Rahul Sharma'.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    def make_pcm(f0, formants):
+        sig = np.sin(2 * np.pi * f0 * t) * 15000
+        for f, a in formants:
+            sig += np.sin(2 * np.pi * f * t) * a
+        return sig.astype(np.int16).tobytes()
+
+    pcm_harshita = make_pcm(240, [(480, 8000), (1900, 5000)])
+    pcm_yash = make_pcm(155, [(310, 8000), (1200, 6000)])
+    pcm_rahul = make_pcm(105, [(210, 9000), (850, 6000)])
+
+    # Meeting starts with 2 attendees
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+    diarizer.identify_speaker(pcm_harshita)
+    diarizer.identify_speaker(pcm_yash)
+
+    # Unknown 3rd person speaks -> gets assigned 'Participant 3'
+    spk3_before, _ = diarizer.identify_speaker(pcm_rahul)
+    assert spk3_before == "Participant 3"
+
+    # Now Rahul Sharma is added mid-meeting
+    renames = diarizer.add_to_roster("Rahul Sharma")
+    assert renames == [("Participant 3", "Rahul Sharma")]
+
+    # Next turn from Rahul must now be recognized as Rahul Sharma
+    spk3_after, is_new = diarizer.identify_speaker(pcm_rahul)
+    assert spk3_after == "Rahul Sharma"
+    assert is_new is False
+
+
+

@@ -374,25 +374,32 @@ class LiveAcousticDiarizer:
             for r in roster:
                 self.add_to_roster(r)
 
-    def add_to_roster(self, name: str) -> bool:
-        """Adds newly discovered attendee(s) to the diarizer's roster."""
+    def add_to_roster(self, name: str) -> List[Tuple[str, str]]:
+        """
+        Adds newly discovered attendee(s) to the diarizer's roster.
+        Returns a list of (old_placeholder_name, new_attendee_name) renames if any placeholder clusters were updated.
+        """
         if not name:
-            return False
+            return []
         import re
-        added = False
+        renamed_pairs: List[Tuple[str, str]] = []
         parts = re.split(r",| and | & ", name)
+        assigned_names = {c.display_name.lower() for c in self.clusters}
         for part in parts:
             c = clean_person_name(part)
             if is_valid_person_name(c, self.host_name) and c not in self.roster:
                 self.roster.append(c)
-                added = True
-                # If an existing cluster had a generic placeholder, assign the new name
-                for cluster in self.clusters:
-                    if not cluster.is_name_confirmed and cluster.display_name.startswith(("Participant", "Remote Attendee")):
-                        cluster.display_name = c
-                        cluster.is_name_confirmed = True
-                        break
-        return added
+                # If an existing cluster had a generic placeholder and this name isn't already assigned:
+                if c.lower() not in assigned_names:
+                    for cluster in self.clusters:
+                        if not cluster.is_name_confirmed and cluster.display_name.startswith(("Participant", "Remote Attendee")):
+                            old_name = cluster.display_name
+                            cluster.display_name = c
+                            cluster.is_name_confirmed = True
+                            assigned_names.add(c.lower())
+                            renamed_pairs.append((old_name, c))
+                            break
+        return renamed_pairs
 
     def note_host_addressed_attendee(self, host_text: str) -> Optional[str]:
         """
@@ -500,15 +507,22 @@ class LiveAcousticDiarizer:
             cluster.last_active_time = time.time()
 
             # If host addressed someone specifically or explicit hint confirmed:
+            # SAFETY: Only apply addressed_target if it doesn't collide with another cluster
             if addressed_target and not cluster.is_name_confirmed:
-                cluster.display_name = addressed_target
-                cluster.is_name_confirmed = True
+                assigned_other = {
+                    c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
+                }
+                if addressed_target.lower() not in assigned_other:
+                    cluster.display_name = addressed_target
+                    cluster.is_name_confirmed = True
 
             return (cluster.display_name, False)
         else:
             # Different speaker! New turn from another remote participant.
             assigned_names = {c.display_name.lower() for c in self.clusters}
-            if addressed_target:
+
+            # CRITICAL: A hint/addressed_target can only name this NEW cluster if it is NOT already assigned to an existing cluster!
+            if addressed_target and addressed_target.lower() not in assigned_names:
                 new_name = addressed_target
                 confirmed = True
             else:
@@ -807,6 +821,36 @@ class LiveMeetingManager:
         if session:
             session.stream_clients.discard(websocket)
 
+    async def add_attendees_mid_meeting(self, meeting_id: uuid.UUID, attendees_str: str) -> List[str]:
+        """
+        Dynamically adds one or more attendees to an active live meeting session.
+        Splits comma-separated names, updates diarizer roster, and reconciles any placeholder clusters.
+        """
+        session = self._sessions.get(meeting_id)
+        if not session or not session.is_active:
+            return []
+
+        added: List[str] = []
+        async with session.lock:
+            parts = re.split(r",| and | & ", attendees_str)
+            host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
+            for part in parts:
+                c = clean_person_name(part)
+                if is_valid_person_name(c, host_disp):
+                    if c not in session.known_roster:
+                        session.known_roster.append(c)
+                        added.append(c)
+                    if session.diarizer:
+                        renames = session.diarizer.add_to_roster(c)
+                        for old_n, new_n in renames:
+                            if session.channels.get(2) and session.channels[2].display_name == old_n:
+                                session.channels[2].display_name = new_n
+                            asyncio.create_task(
+                                self._reconcile_placeholder_speaker(session, 2, old_n, new_n)
+                            )
+        logger.info("Added attendees mid-meeting", meeting_id=str(meeting_id), added=added)
+        return added
+
     # -------------------------------------------------------------------------
     # Ingestion & Speaker Resolution
     # -------------------------------------------------------------------------
@@ -830,9 +874,15 @@ class LiveMeetingManager:
             # Sync roster_hint from Teams UIA / window title scanner
             if roster_hint and session.diarizer:
                 for r_name in roster_hint:
-                    session.diarizer.add_to_roster(r_name)
+                    renames = session.diarizer.add_to_roster(r_name)
                     if r_name not in session.known_roster:
                         session.known_roster.append(r_name)
+                    for old_n, new_n in renames:
+                        if session.channels.get(2) and session.channels[2].display_name == old_n:
+                            session.channels[2].display_name = new_n
+                        asyncio.create_task(
+                            self._reconcile_placeholder_speaker(session, 2, old_n, new_n)
+                        )
 
             # Ensure channel buffer exists
             if channel_id not in session.channels:
@@ -845,12 +895,13 @@ class LiveMeetingManager:
             ch_buf = session.channels[channel_id]
             host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
 
-            if speaker_hint and ch_buf.display_name != speaker_hint:
+            # SAFETY: Reconcile placeholder on Channel 1 ONLY (host mic)
+            if channel_id == 1 and speaker_hint and ch_buf.display_name != speaker_hint:
                 old_name = ch_buf.display_name
-                if channel_id == 1 or is_valid_person_name(speaker_hint, host_disp):
+                if is_valid_person_name(speaker_hint, host_disp):
                     ch_buf.display_name = speaker_hint
                     if (
-                        old_name in ("Remote Attendee", "Participant 2", "Unknown", "You (Host)", "Host", "Participant 1", "")
+                        old_name in ("Remote Attendee", "Participant 1", "Unknown", "You (Host)", "Host", "")
                         or not is_valid_person_name(old_name, host_disp)
                     ):
                         asyncio.create_task(

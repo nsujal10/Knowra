@@ -50,6 +50,8 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
   // Live Transcripts feed in the modal
   const [liveTranscripts, setLiveTranscripts] = useState<LiveTranscriptItem[]>([]);
   const [interimSpeech, setInterimSpeech] = useState<string>("");
+  const [newAttendeeInput, setNewAttendeeInput] = useState<string>("");
+  const [attendeeAddedAlert, setAttendeeAddedAlert] = useState<string>("");
   const [agentStatus, setAgentStatus] = useState<"checking" | "detected" | "not_running">("checking");
   const [agentAutoLaunched, setAgentAutoLaunched] = useState(false);
 
@@ -518,6 +520,29 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleAddAttendeeMidMeeting = async () => {
+    if (!newAttendeeInput.trim() || !liveMeetingId) return;
+    const nameToAdd = newAttendeeInput.trim();
+    setNewAttendeeInput("");
+    try {
+      await api.post(`/meetings/${liveMeetingId}/live/attendees`, {
+        attendees: nameToAdd,
+      });
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            type: "ADD_ATTENDEE",
+            attendees: nameToAdd,
+          })
+        );
+      }
+      setAttendeeAddedAlert(`Added: ${nameToAdd}`);
+      setTimeout(() => setAttendeeAddedAlert(""), 3500);
+    } catch (e) {
+      console.warn("Could not add attendee mid-meeting:", e);
+    }
+  };
+
   const formatTimer = (secs: number) => {
     const m = Math.floor(secs / 60);
     const s = secs % 60;
@@ -778,6 +803,37 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                     </div>
                   )}
                 </div>
+
+                {/* Inline Mid-Meeting Attendee Addition */}
+                <div className="flex items-center gap-1.5 pt-1">
+                  <input
+                    type="text"
+                    value={newAttendeeInput}
+                    onChange={(e) => setNewAttendeeInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddAttendeeMidMeeting();
+                      }
+                    }}
+                    placeholder="+ Add attendee mid-call (e.g. Rahul Sharma)..."
+                    className="flex-1 text-[11px] h-7.5 px-2.5 rounded-lg border border-slate-200 bg-white placeholder:text-slate-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddAttendeeMidMeeting}
+                    disabled={!newAttendeeInput.trim()}
+                    className="h-7.5 px-2.5 rounded-lg bg-indigo-50 text-indigo-700 hover:bg-indigo-100 disabled:opacity-40 text-[11px] font-semibold transition-colors cursor-pointer"
+                  >
+                    Add
+                  </button>
+                </div>
+                {attendeeAddedAlert && (
+                  <div className="text-[10.5px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1 animate-in fade-in">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span>{attendeeAddedAlert} (Voice clustering synchronized)</span>
+                  </div>
+                )}
               </div>
 
               {mode === "desktop" && liveMeetingId && (

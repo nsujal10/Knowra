@@ -220,15 +220,38 @@ class TeamsLiveAttendeeTracker:
             WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
             user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
 
+            # Navigation pages and common static UI tabs in Teams to ignore
+            TEAMS_STATIC_PAGES = {
+                "chat", "activity", "calendar", "calls", "files", "teams", "apps",
+                "settings", "help", "notifications", "general", "meet", "meeting",
+                "call", "microsoft teams", "teams meeting", "new chat", "search",
+                "desktop 1", "unknown"
+            }
+
             for t in found_titles:
-                t_lower = t.lower()
+                t_clean = t.strip()
+                t_lower = t_clean.lower()
                 if "microsoft teams" in t_lower or "teams" in t_lower:
-                    if "meeting with" in t_lower:
-                        after = t.split("eeting with", 1)[1]
-                        names_part = after.split("|")[0].strip()
-                        for n in names_part.split(","):
-                            for part in n.split(" and "):
-                                self.add_attendee(part.strip())
+                    # Strip suffix "| Microsoft Teams", "- Microsoft Teams", etc.
+                    prefix = t_clean
+                    for sep in ["| Microsoft Teams", "- Microsoft Teams", "| Teams", "- Teams"]:
+                        if sep.lower() in prefix.lower():
+                            idx = prefix.lower().find(sep.lower())
+                            prefix = prefix[:idx].strip()
+                            break
+
+                    pl = prefix.lower()
+                    if "meeting with" in pl or "call with" in pl or "chat with" in pl:
+                        for kw in ["meeting with", "call with", "chat with"]:
+                            if kw in pl:
+                                after = prefix[pl.find(kw) + len(kw):].strip()
+                                for n in after.split(","):
+                                    for part in n.split(" and "):
+                                        self.add_attendee(part.strip())
+                    elif prefix and pl not in TEAMS_STATIC_PAGES and len(prefix) >= 2:
+                        # e.g. "Rahul Sharma" or "Priya Verma" in 1:1 call window title
+                        if not any(noise in pl for noise in ["error", "loading", "connecting"]):
+                            self.add_attendee(prefix.strip())
         except Exception:
             pass
 

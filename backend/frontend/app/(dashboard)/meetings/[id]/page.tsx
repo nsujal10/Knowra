@@ -191,6 +191,31 @@ export default function MeetingDetailPage() {
             timeRange: timeRangeStr,
             source: (res.source === "GOOGLE_MEET" ? "Google Meet" : res.source === "TEAMS" ? "Teams" : "Zoom") as any
           }));
+
+          // Dynamically populate actual meeting participants from transcript
+          try {
+            const transRes = await api.get<{
+              segments: Array<{
+                speaker?: { displayName?: string | null; label?: string | null };
+              }>;
+            }>(`/meetings/${meetingId}/transcript`);
+
+            if (transRes?.segments && transRes.segments.length > 0) {
+              const uniqueSpeakers = Array.from(
+                new Set(
+                  transRes.segments
+                    .map((s) => s.speaker?.displayName || s.speaker?.label)
+                    .filter((n): n is string => Boolean(n && !n.startsWith("SPEAKER_")))
+                )
+              );
+              if (uniqueSpeakers.length > 0) {
+                setMeetingData((prev) => ({
+                  ...prev,
+                  participants: uniqueSpeakers,
+                }));
+              }
+            }
+          } catch {}
         }
       } catch {
         // Graceful fallback to rich mock data

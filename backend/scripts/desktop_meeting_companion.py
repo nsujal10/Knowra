@@ -681,34 +681,35 @@ async def capture_channel_stream(
             else:
                 resampled_np = mono_np
 
-            # 3. Peak normalization — boost quiet audio to optimal level for Whisper
-            peak = float(np.max(np.abs(resampled_np)))
-            if peak > 0:
-                gain = min(TARGET_PEAK / peak, 10.0)  # Cap gain at 20 dB to avoid amplifying noise
-                if gain > 1.05:  # Only apply if signal is noticeably quiet
-                    resampled_np = np.clip(resampled_np.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
+            # 3. Calculate raw RMS energy BEFORE any gain normalization to avoid boosting ambient silence
+            raw_rms = float(np.sqrt(np.mean(resampled_np.astype(np.float32) ** 2)))
 
-            # 4. Calculate RMS energy
-            rms = float(np.sqrt(np.mean(resampled_np.astype(np.float32) ** 2)))
-            pcm_16k_bytes = resampled_np.tobytes()
+            if raw_rms >= ENERGY_THRESHOLD:
+                # Active speech: apply peak normalization for optimal Whisper recognition
+                peak = float(np.max(np.abs(resampled_np)))
+                if peak > 0:
+                    gain = min(TARGET_PEAK / peak, 8.0)
+                    if gain > 1.05:
+                        resampled_np = np.clip(resampled_np.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
+                pcm_16k_bytes = resampled_np.tobytes()
 
-            if rms >= ENERGY_THRESHOLD:
-                # Active speech detected — prepend any pre-roll context first
-                if speech_buffer_empty := (len(speech_buffer) == 0):
+                # Prepend pre-roll context on speech onset
+                if len(speech_buffer) == 0:
                     for preroll_frame in preroll_ring:
                         speech_buffer.extend(preroll_frame)
                     preroll_ring.clear()
                 speech_buffer.extend(pcm_16k_bytes)
                 silence_counter = 0
             else:
-                # Silence frame
+                # Silence / ambient frame - do NOT amplify noise!
+                pcm_16k_bytes = resampled_np.tobytes()
                 if len(speech_buffer) > 0:
                     silence_counter += 1
-                    # Keep a trailing post-roll for natural syllable ends
+                    # Keep a brief trailing post-roll (up to 3 frames) for natural word ends
                     if silence_counter <= 3:
                         speech_buffer.extend(pcm_16k_bytes)
                 else:
-                    # No active speech: store in pre-roll ring buffer
+                    # No active speech: store unamplified frame in pre-roll ring buffer
                     preroll_ring.append(pcm_16k_bytes)
                     if len(preroll_ring) > PREROLL_FRAMES:
                         preroll_ring.pop(0)
@@ -724,6 +725,14 @@ async def capture_channel_stream(
                 chunk_to_send = bytes(speech_buffer)
                 speech_buffer.clear()
                 silence_counter = 0
+
+                # Strict buffer validation: ensure the entire chunk contains genuine voice energy
+                buf_samples = np.frombuffer(chunk_to_send, dtype=np.int16)
+                if len(buf_samples) > 0:
+                    buf_rms = float(np.sqrt(np.mean(buf_samples.astype(np.float32) ** 2)))
+                    if buf_rms < 260.0:
+                        # Chunk was mostly trailing noise or quiet clicks; discard instead of sending phantom turn
+                        continue
 
                 # Resolve dynamic speaker name and roster
                 current_speaker = speaker_resolver() if speaker_resolver else (speaker_name if channel_id == 1 else None)
@@ -745,7 +754,7 @@ async def capture_channel_stream(
                 timestamp_str = time.strftime("%H:%M:%S")
                 ch_icon = "🎙️ [Your Mic]" if channel_id == 1 else "🔊 [Teams Audio]"
                 disp_tag = current_speaker or (speaker_name if channel_id == 1 else "Multi-Speaker Loopback")
-                print(f"[{timestamp_str}] {ch_icon} {disp_tag}: Spoke {duration_sec}s (Energy: {int(rms)}) -> Transcribing...")
+                print(f"[{timestamp_str}] {ch_icon} {disp_tag}: Spoke {duration_sec}s (Energy: {int(buf_rms)}) -> Transcribing...")
 
             elif len(speech_buffer) > 0 and silence_counter > 8:
                 # Drop short background pop/click (< 1.0s) followed by prolonged silence

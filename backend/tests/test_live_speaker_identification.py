@@ -428,5 +428,48 @@ def test_update_active_cluster_name_does_not_overwrite_confirmed_speaker():
     assert diarizer.clusters[diarizer.active_cluster_index].display_name == "Yash Lade"
 
 
+def test_phantom_cluster_suppression_when_roster_assigned():
+    """
+    Tests that once all roster attendees (e.g. Harshita Baghel, Yash Lade) have clusters,
+    subsequent turns with pitch inflections, questions, or noise do NOT spawn
+    phantom clusters like Participant 4, Participant 5, Participant 6, Participant 7.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+
+    # 1. Harshita (230Hz)
+    pcm_harshita = (np.sin(2 * np.pi * 230 * t) * 15000).astype(np.int16).tobytes()
+    # 2. Yash (115Hz)
+    pcm_yash = (np.sin(2 * np.pi * 115 * t) * 15000).astype(np.int16).tobytes()
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+
+    spk1, _ = diarizer.identify_speaker(pcm_harshita)
+    assert spk1 == "Harshita Baghel"
+
+    spk2, _ = diarizer.identify_speaker(pcm_yash)
+    assert spk2 == "Yash Lade"
+
+    # Both roster members are now assigned to clusters
+    assert len(diarizer.clusters) == 2
+
+    # Now simulate 5 varying turns (inflected pitch, noise, varying speech tones)
+    for freq in [120, 140, 210, 245, 128]:
+        pcm_var = (np.sin(2 * np.pi * freq * t) * 15000).astype(np.int16).tobytes()
+        spk_res, is_new = diarizer.identify_speaker(pcm_var)
+        # Must map to one of the actual speakers or at most 1 placeholder, NEVER Participant 4, 5, 6, 7!
+        assert spk_res in ("Harshita Baghel", "Yash Lade", "Participant 3")
+        assert not spk_res.startswith(("Participant 4", "Participant 5", "Participant 6", "Participant 7"))
+
+    # The total number of clusters must NOT exceed max_allowed (2 + 1 = 3)
+    assert len(diarizer.clusters) <= 3
+
+
 
 

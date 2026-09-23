@@ -270,6 +270,8 @@ def pitch_rbf(f0: float, num_centers: int = 8, f_min: float = 80.0, f_max: float
     Transforms 1D scalar F0 into an 8-dimensional orthogonal basis, providing
     sharp angular separation between different speakers even within the same gender.
     """
+    if f0 <= 0:
+        return np.zeros(num_centers, dtype=np.float32)
     log_f = np.log2(np.clip(f0, f_min, f_max))
     centers = np.linspace(np.log2(f_min), np.log2(f_max), num_centers)
     sigma = (centers[1] - centers[0]) * 0.85
@@ -313,10 +315,10 @@ def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Opt
 
         if len(pitches) >= 3:
             median_f0 = float(np.median(pitches))
+            f0_vec = pitch_rbf(median_f0)
         else:
-            median_f0 = 150.0  # neutral speaker fallback
-
-        f0_vec = pitch_rbf(median_f0)
+            # Unvoiced speech or short utterance: zero out pitch so matching relies purely on vocal tract MFCCs!
+            f0_vec = np.zeros(8, dtype=np.float32)
 
         # 2. 16 Mel-spaced log filterbank energies
         mel_edges = np.linspace(np.log10(100), np.log10(7000), 17)
@@ -348,8 +350,8 @@ def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Opt
         centroid = float(np.sum(freqs * psd) / (np.sum(psd) + 1e-12))
         centroid_norm = float(np.clip(centroid / 4000.0, 0.0, 1.0))
 
-        # 6. Composite voice signature: Pitch RBF (weight 2.5), MFCCs (weight 1.0), Formants (weight 0.8), Centroid (weight 0.5)
-        sig = np.concatenate((f0_vec * 2.5, mfcc_norm * 1.0, formant_dist * 0.8, [centroid_norm * 0.5]))
+        # 6. Composite voice signature: Pitch RBF (weight 2.0), MFCCs (weight 1.0), Formants (weight 0.8), Centroid (weight 0.4)
+        sig = np.concatenate((f0_vec * 2.0, mfcc_norm * 1.0, formant_dist * 0.8, [centroid_norm * 0.4]))
         return (sig / (np.linalg.norm(sig) + 1e-9)).astype(np.float32)
     except Exception as e:
         logger.debug("Failed to extract acoustic embedding", error=str(e))
@@ -550,6 +552,17 @@ class LiveAcousticDiarizer:
                     new_name = available[0]
                     confirmed = True
                 else:
+                    # SAFETY GUARD: Prevent spawning phantom clusters!
+                    # When all roster attendees already have a cluster, or if an unconfirmed placeholder already exists,
+                    # any audio chunk MUST map to the closest existing cluster rather than creating Participant 4, 5, 6, 7!
+                    has_unconfirmed = any(not c.is_name_confirmed for c in self.clusters)
+                    max_allowed = max(len(self.roster), 2) + 1
+                    if has_unconfirmed or len(self.clusters) >= max_allowed:
+                        cluster = self.clusters[best_idx]
+                        self.active_cluster_index = best_idx
+                        cluster.last_active_time = time.time()
+                        return (cluster.display_name, False)
+
                     new_name = f"Participant {len(self.clusters) + 1}"
                     confirmed = False
 
@@ -1031,14 +1044,17 @@ class LiveMeetingManager:
                 start_sec = max(0.0, now_rel - duration)
                 end_sec = now_rel
 
-                # Channel 2: Identify speaker using acoustic voice clustering
+                # Perform speech-to-text on this chunk FIRST so silence does not create phantom clusters
+                text = await self._transcribe_pcm_chunk(pcm_data, channel_id, ch_buf.display_name, session.language)
+                if not text or not text.strip():
+                    return
+
+                # Genuine speech validated! Now resolve speaker for Channel 2
                 turn_speaker = ch_buf.display_name
                 if channel_id > 1 and session.diarizer:
                     turn_speaker, _ = session.diarizer.identify_speaker(pcm_data, speaker_hint=speaker_hint)
                     ch_buf.display_name = turn_speaker
 
-                # Perform speech-to-text on this chunk
-                text = await self._transcribe_pcm_chunk(pcm_data, channel_id, turn_speaker, session.language)
                 if text and text.strip():
                     # Channel 1: Host speaking -> note if host addresses an attendee
                     if channel_id == 1 and session.diarizer:
@@ -1107,6 +1123,27 @@ class LiveMeetingManager:
                 finally:
                     if os.path.exists(tf_path):
                         os.remove(tf_path)
+
+            if result:
+                res_clean = result.strip().lower().rstrip(".,!?;:")
+                # Common Whisper hallucination phrases on quiet ambient audio / silence
+                WHISPER_SILENCE_HALLUCINATIONS = {
+                    "thank you for watching",
+                    "thanks for watching",
+                    "thank you",
+                    "thanks",
+                    "please subscribe",
+                    "subtitles by",
+                    "subtitles by the amara.org community",
+                    "bye",
+                    "watching",
+                    "see you next time",
+                    "you",
+                }
+                if res_clean in WHISPER_SILENCE_HALLUCINATIONS or res_clean.startswith("thank you for watching"):
+                    logger.info("Discarded Whisper silence hallucination turn", text=result)
+                    return ""
+
             return result
         except Exception as e:
             logger.debug("Local live transcription fallback", reason=str(e), channel=channel_id)
@@ -1321,8 +1358,34 @@ class LiveMeetingManager:
             if transcript:
                 transcript.duration_seconds = round(duration, 2)
 
+            # Post-meeting speaker consolidation:
+            # Query all speakers recorded for this meeting
+            all_speakers = db.query(Speaker).filter(
+                Speaker.meeting_id == meeting_id,
+                Speaker.tenant_id == session.tenant_id,
+            ).all()
+
+            confirmed_speakers = [s for s in all_speakers if not s.display_name.startswith(("Participant", "Remote Attendee", "Unknown"))]
+            placeholder_speakers = [s for s in all_speakers if s.display_name.startswith(("Participant", "Remote Attendee", "Unknown"))]
+
+            if confirmed_speakers and placeholder_speakers:
+                # Merge leftover placeholder speakers into the primary remote confirmed speaker and delete fake records
+                primary_target = confirmed_speakers[-1] if len(confirmed_speakers) > 1 else confirmed_speakers[0]
+                for p_spk in placeholder_speakers:
+                    db.query(TranscriptSegment).filter(
+                        TranscriptSegment.speaker_id == p_spk.id
+                    ).update({"speaker_id": primary_target.id})
+                    db.delete(p_spk)
+
+            # Clean up any residual Whisper hallucination segments
+            for hall_text in ["Thank you for watching.", "Thank you for watching", "Thanks for watching.", "Please subscribe."]:
+                db.query(TranscriptSegment).filter(
+                    TranscriptSegment.transcript_id == session.transcript_id,
+                    TranscriptSegment.text.ilike(hall_text),
+                ).delete(synchronize_session=False)
+
             db.commit()
-            logger.info("Finalized live meeting", meeting_id=str(meeting_id), duration=duration)
+            logger.info("Finalized live meeting and consolidated speakers", meeting_id=str(meeting_id), duration=duration)
         except Exception as e:
             logger.error("Error finalizing live meeting", error=str(e))
         finally:

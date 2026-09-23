@@ -385,6 +385,12 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                 time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
               },
             ]);
+          } else if (data.type === "SPEAKER_RENAME" && data.oldName && data.newName) {
+            setLiveTranscripts((prev) =>
+              prev.map((item) =>
+                item.speaker === data.oldName ? { ...item, speaker: data.newName } : item
+              )
+            );
           }
         } catch (e) {
           console.error("Error parsing live transcript message:", e);

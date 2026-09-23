@@ -263,7 +263,15 @@ class LiveMeetingManager:
 
             ch_buf = session.channels[channel_id]
             if speaker_hint and ch_buf.display_name != speaker_hint:
+                old_name = ch_buf.display_name
                 ch_buf.display_name = speaker_hint
+                if (
+                    old_name in ("Remote Attendee", "Participant 2", "Unknown", "")
+                    and speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "")
+                ):
+                    asyncio.create_task(
+                        self._reconcile_placeholder_speaker(session, channel_id, old_name, speaker_hint)
+                    )
 
             # Append audio bytes
             if audio_bytes:
@@ -465,6 +473,52 @@ class LiveMeetingManager:
                 dead_sockets.add(ws)
 
         session.subscribers.difference_update(dead_sockets)
+
+    async def _reconcile_placeholder_speaker(
+        self,
+        session: LiveSession,
+        channel_id: int,
+        old_name: str,
+        new_name: str,
+    ) -> None:
+        """Retroactively updates previous segments from 'Remote Attendee' to the real discovered name."""
+        try:
+            db = SessionLocal()
+            try:
+                placeholder_speaker = db.query(Speaker).filter(
+                    Speaker.meeting_id == session.meeting_id,
+                    Speaker.tenant_id == session.tenant_id,
+                    Speaker.display_name == old_name,
+                ).first()
+                if placeholder_speaker:
+                    placeholder_speaker.display_name = new_name
+                    db.commit()
+                    logger.info(
+                        "Reconciled placeholder speaker in DB",
+                        meeting_id=str(session.meeting_id),
+                        old_name=old_name,
+                        new_name=new_name,
+                    )
+
+                # Broadcast live rename event to all connected UI clients
+                rename_payload = {
+                    "type": "SPEAKER_RENAME",
+                    "meeting_id": str(session.meeting_id),
+                    "channel": channel_id,
+                    "oldName": old_name,
+                    "newName": new_name,
+                }
+                dead = set()
+                for ws in session.subscribers:
+                    try:
+                        await ws.send_json(rename_payload)
+                    except Exception:
+                        dead.add(ws)
+                session.subscribers.difference_update(dead)
+            finally:
+                db.close()
+        except Exception as e:
+            logger.debug("Failed to reconcile placeholder speaker", error=str(e))
 
     # -------------------------------------------------------------------------
     # Finalization

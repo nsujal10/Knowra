@@ -241,26 +241,27 @@ class TeamsLiveAttendeeTracker:
                 t_clean = t.strip()
                 t_lower = t_clean.lower()
                 if "microsoft teams" in t_lower or "teams" in t_lower:
-                    # In Enterprise Teams, title is pipe-separated:
-                    # e.g. "Call with Priya | Project | Org | email | Microsoft Teams"
-                    # or "Priya, Rahul | Project | Org | email | Microsoft Teams"
+                    # In Teams, the caller, chat, or meeting title is ALWAYS before the first '|' or '-'
                     pipe_parts = [p.strip() for p in t_clean.split("|")]
-                    for part in pipe_parts[:-2]:  # exclude tenant org and email
-                        pl = part.lower()
-                        if "meeting with" in pl or "call with" in pl or "chat with" in pl:
-                            for kw in ["meeting with", "call with", "chat with"]:
-                                if kw in pl:
-                                    after = part[pl.find(kw) + len(kw):].strip()
-                                    for n in after.split(","):
-                                        for sub in n.split(" and "):
-                                            self.add_attendee(sub.strip())
-                        elif pl not in TEAMS_STATIC_PAGES and len(part) >= 2:
-                            for candidate in part.split(","):
-                                cand_clean = candidate.strip()
-                                cand_lower = cand_clean.lower()
-                                if cand_lower not in TEAMS_STATIC_PAGES and len(cand_clean) >= 2:
-                                    if not any(noise in cand_lower for noise in ["error", "loading", "connecting"]):
-                                        self.add_attendee(cand_clean)
+                    first_part = pipe_parts[0].split(" - ")[0].strip()
+                    pl = first_part.lower()
+
+                    if any(k in pl for k in ["meeting with", "call with", "chat with"]):
+                        for kw in ["meeting with", "call with", "chat with"]:
+                            if kw in pl:
+                                after = first_part[pl.find(kw) + len(kw):].strip()
+                                for n in after.split(","):
+                                    for sub in n.split(" and "):
+                                        s_clean = sub.strip()
+                                        if s_clean.lower() not in TEAMS_STATIC_PAGES and len(s_clean) >= 2:
+                                            self.add_attendee(s_clean)
+                    elif pl not in TEAMS_STATIC_PAGES and len(first_part) >= 2:
+                        for candidate in first_part.split(","):
+                            c_clean = candidate.strip()
+                            c_lower = c_clean.lower()
+                            if c_lower not in TEAMS_STATIC_PAGES and len(c_clean) >= 2:
+                                if not any(noise in c_lower for noise in ["error", "loading", "connecting"]):
+                                    self.add_attendee(c_clean)
         except Exception:
             pass
 

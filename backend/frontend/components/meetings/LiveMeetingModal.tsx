@@ -519,11 +519,11 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                     type="text"
                     value={attendees}
                     onChange={(e) => setAttendees(e.target.value)}
-                    placeholder="e.g. Sarah Jenkins, Alex Connor"
+                    placeholder="e.g. Harshita, Yash Lade, Rahul Sharma"
                     className="w-full text-xs h-9 px-3 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                   <p className="text-[10.5px] text-slate-400">
-                    Names of people in your Teams call. Used to label attendees instead of &ldquo;Remote Attendee&rdquo;.
+                    Names of attendees (separated by commas). Acoustic voice clustering automatically separates and attributes 3+ participants on the call.
                   </p>
                 </div>
 

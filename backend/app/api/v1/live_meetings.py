@@ -230,6 +230,7 @@ async def websocket_live_stream(websocket: WebSocket, meeting_id: str):
                     channel = int(msg.get("channel", 1))
                     speaker_hint = msg.get("speaker_hint")
                     text_hint = msg.get("text_hint")
+                    roster_hint = msg.get("roster_hint")
                     audio_b64 = msg.get("audio_base64")
                     audio_bytes = base64.b64decode(audio_b64) if audio_b64 else b""
 
@@ -239,6 +240,7 @@ async def websocket_live_stream(websocket: WebSocket, meeting_id: str):
                         audio_bytes=audio_bytes,
                         speaker_hint=speaker_hint,
                         text_hint=text_hint,
+                        roster_hint=roster_hint,
                     )
                 except Exception as e:
                     logger.debug("Error parsing live audio message", error=str(e))

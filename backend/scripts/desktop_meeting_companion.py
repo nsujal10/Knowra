@@ -226,14 +226,17 @@ class TeamsLiveAttendeeTracker:
         self.known_roster: List[str] = []
         if initial_attendees:
             for a in initial_attendees:
-                cleaned = a.strip()
-                if (
-                    cleaned
-                    and cleaned not in self.known_roster
-                    and cleaned != self.host_name
-                    and cleaned.lower() != "you"
-                ):
-                    self.known_roster.append(cleaned)
+                import re
+                for sub in re.split(r",| and | & ", a):
+                    cleaned = clean_person_name(sub)
+                    if (
+                        cleaned
+                        and is_valid_person_name(cleaned, host_name=self.host_name)
+                        and cleaned not in self.known_roster
+                        and cleaned != self.host_name
+                        and cleaned.lower() != "you"
+                    ):
+                        self.known_roster.append(cleaned)
 
         self.current_speaker: str = self.known_roster[0] if self.known_roster else "Remote Attendee"
         self.last_detected_speaker: Optional[str] = None
@@ -289,6 +292,21 @@ class TeamsLiveAttendeeTracker:
                 timestamp_str = time.strftime("%H:%M:%S")
                 print(f"[{timestamp_str}] 🎙️ [Teams Active Speaker] Identified: {cleaned}")
 
+    def get_known_roster(self) -> List[str]:
+        """Returns a copy of all known attendees in the call roster."""
+        with self._lock:
+            return list(self.known_roster)
+
+    def get_active_speaker_hint(self) -> Optional[str]:
+        """
+        Returns active speaker detected via Teams UI Automation within the last 7 seconds.
+        Returns None when no badge is active so acoustic voice clustering resolves the speaker.
+        """
+        with self._lock:
+            if self.last_detected_speaker and (time.time() - self.last_detection_time < 7.0):
+                return self.last_detected_speaker
+            return None
+
     def get_current_speaker(self) -> str:
         """Returns the most up-to-date speaker name for Channel 2 audio chunks."""
         with self._lock:
@@ -317,6 +335,7 @@ class TeamsLiveAttendeeTracker:
         try:
             import ctypes
             from ctypes import wintypes
+            import re
             user32 = ctypes.windll.user32
 
             # Ensure this thread is attached to the interactive 'Default' desktop
@@ -346,8 +365,8 @@ class TeamsLiveAttendeeTracker:
                 t_lower = t_clean.lower()
                 if "microsoft teams" in t_lower or "teams" in t_lower:
                     # In Teams, title is pipe or dash separated:
-                    # e.g. "Chat with Harshita | Systematix Infotech Pvt Ltd | sujal.nage@softude.com | Microsoft Teams"
-                    # or "Harshita | Systematix Infotech Pvt Ltd | sujal.nage@softude.com | Microsoft Teams"
+                    # e.g. "Chat with Harshita, Yash Lade | Systematix Infotech Pvt Ltd | ... | Microsoft Teams"
+                    # or "Harshita, Yash Lade, Rahul | Systematix Infotech Pvt Ltd | ... | Microsoft Teams"
                     # or "Meeting with Harshita, Rahul | Microsoft Teams"
                     pipe_parts = [p.strip() for p in t_clean.split("|")]
                     for part in pipe_parts:
@@ -356,15 +375,15 @@ class TeamsLiveAttendeeTracker:
                             for kw in ["meeting with", "call with", "chat with"]:
                                 if kw in pl:
                                     after = part[pl.find(kw) + len(kw):].strip()
-                                    for n in after.split(","):
-                                        for sub in n.split(" and "):
-                                            sub_clean = clean_person_name(sub)
-                                            if is_valid_person_name(sub_clean, host_name=self.host_name):
-                                                self.add_attendee(sub_clean)
+                                    for n in re.split(r",| and | & ", after):
+                                        sub_clean = clean_person_name(n)
+                                        if is_valid_person_name(sub_clean, host_name=self.host_name):
+                                            self.add_attendee(sub_clean)
                         else:
-                            clean_part = clean_person_name(part)
-                            if is_valid_person_name(clean_part, host_name=self.host_name):
-                                self.add_attendee(clean_part)
+                            for sub in re.split(r",| and | & ", part):
+                                clean_sub = clean_person_name(sub)
+                                if is_valid_person_name(clean_sub, host_name=self.host_name):
+                                    self.add_attendee(clean_sub)
         except Exception:
             pass
 
@@ -492,7 +511,8 @@ async def capture_channel_stream(
     input_rate: int = 16000,
     input_channels: int = 1,
     chunk_size: int = 4000,
-    speaker_resolver: Optional[Callable[[], str]] = None,
+    speaker_resolver: Optional[Callable[[], Optional[str]]] = None,
+    roster_resolver: Optional[Callable[[], List[str]]] = None,
 ):
     """
     Reads from an audio stream, downsamples/converts to 16kHz Mono PCM,
@@ -594,8 +614,10 @@ async def capture_channel_stream(
                 speech_buffer.clear()
                 silence_counter = 0
 
-                # Resolve dynamic speaker name (e.g. from Teams active speaker tracker)
-                current_speaker = speaker_resolver() if speaker_resolver else speaker_name
+                # Resolve dynamic speaker name and roster
+                current_speaker = speaker_resolver() if speaker_resolver else (speaker_name if channel_id == 1 else None)
+                known_roster = roster_resolver() if roster_resolver else None
+
                 b64_audio = base64.b64encode(chunk_to_send).decode("utf-8")
                 payload = {
                     "channel": channel_id,
@@ -603,12 +625,16 @@ async def capture_channel_stream(
                     "audio_base64": b64_audio,
                     "timestamp_ms": time.time() * 1000,
                 }
+                if known_roster:
+                    payload["roster_hint"] = known_roster
+
                 await ws.send(json.dumps(payload))
 
                 duration_sec = round(len(chunk_to_send) / 32000.0, 1)
                 timestamp_str = time.strftime("%H:%M:%S")
                 ch_icon = "🎙️ [Your Mic]" if channel_id == 1 else "🔊 [Teams Audio]"
-                print(f"[{timestamp_str}] {ch_icon} {current_speaker}: Spoke {duration_sec}s (Energy: {int(rms)}) -> Transcribing...")
+                disp_tag = current_speaker or (speaker_name if channel_id == 1 else "Multi-Speaker Loopback")
+                print(f"[{timestamp_str}] {ch_icon} {disp_tag}: Spoke {duration_sec}s (Energy: {int(rms)}) -> Transcribing...")
 
             elif len(speech_buffer) > 0 and silence_counter > 8:
                 # Drop short background pop/click (< 1.0s) followed by prolonged silence
@@ -634,12 +660,21 @@ async def run_hardware_capture(
       - Channel 2: Teams.exe audio via Windows WASAPI Loopback (resampled to 16kHz mono)
       - Teams Live Attendee & Active Speaker Tracker: detects real participant names via UIA & window inspection
     """
-    # Initialize live attendee tracker
+    # Initialize live attendee tracker with individually parsed attendee names
     initial_roster: List[str] = []
+    import re
     if attendees:
-        initial_roster.extend([a.strip() for a in attendees.split(",") if a.strip()])
-    if remote_name and remote_name not in initial_roster and remote_name != "Remote Attendee":
-        initial_roster.insert(0, remote_name)
+        for item in re.split(r",| and | & ", attendees):
+            clean_item = clean_person_name(item)
+            if clean_item and is_valid_person_name(clean_item, host_name=host_name):
+                if clean_item not in initial_roster:
+                    initial_roster.append(clean_item)
+    if remote_name and remote_name != "Remote Attendee":
+        for item in re.split(r",| and | & ", remote_name):
+            clean_item = clean_person_name(item)
+            if clean_item and is_valid_person_name(clean_item, host_name=host_name):
+                if clean_item not in initial_roster:
+                    initial_roster.append(clean_item)
 
     tracker = TeamsLiveAttendeeTracker(initial_attendees=initial_roster, host_name=host_name)
     tracker.start()
@@ -743,7 +778,8 @@ async def run_hardware_capture(
                                 speaker_name=remote_name,
                                 input_rate=lb_rate,
                                 input_channels=lb_channels,
-                                speaker_resolver=tracker.get_current_speaker,
+                                speaker_resolver=tracker.get_active_speaker_hint,
+                                roster_resolver=tracker.get_known_roster,
                             )
                         )
                     )

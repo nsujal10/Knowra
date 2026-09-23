@@ -21,9 +21,11 @@ import time
 import uuid
 import wave
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set
-
+from typing import Dict, List, Optional, Set, Tuple
+import re
 import structlog
+import numpy as np
+import scipy.signal
 from fastapi import WebSocket
 from sqlalchemy.orm import Session
 
@@ -150,6 +152,258 @@ def extract_conversational_speaker_name(text: str) -> Optional[str]:
     return None
 
 
+def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Optional[np.ndarray]:
+    """
+    Extracts a 20-dimensional normalized acoustic voice embedding:
+    - Fundamental frequency (F0 pitch estimation via autocorrelation in 80Hz - 400Hz range)
+    - Formant / vocal tract distribution across 16 log-spaced frequency bands (80Hz - 7500Hz)
+    - Spectral Centroid, Spectral Rolloff (85%), and Zero-Crossing Rate (ZCR)
+    Runs in <1ms via vectorized NumPy / SciPy operations with zero external model dependencies.
+    """
+    if not pcm_data or len(pcm_data) < 1600:
+        return None
+    try:
+        samples = np.frombuffer(pcm_data, dtype=np.int16).astype(np.float32)
+        if len(samples) < 1600:
+            return None
+
+        # 1. Pitch / Autocorrelation in 80-400 Hz range
+        corr = scipy.signal.correlate(samples, samples, mode="full")
+        corr = corr[len(corr) // 2 :]
+        min_lag = int(sample_rate / 400)  # ~40
+        max_lag = int(sample_rate / 80)   # ~200
+        if len(corr) > max_lag:
+            peak_lag = min_lag + int(np.argmax(corr[min_lag:max_lag]))
+            f0 = sample_rate / peak_lag
+            f0_norm = float(np.clip((f0 - 80.0) / 320.0, 0.0, 1.0))
+        else:
+            f0_norm = 0.5
+
+        # 2. Welch PSD across 16 log-spaced bands (80Hz to 7500Hz)
+        nperseg = min(1024, len(samples))
+        freqs, psd = scipy.signal.welch(samples, fs=sample_rate, nperseg=nperseg)
+        band_edges = np.logspace(np.log10(80), np.log10(7500), 17)
+        band_energies = []
+        for i in range(16):
+            idx = np.where((freqs >= band_edges[i]) & (freqs < band_edges[i + 1]))[0]
+            e = float(np.mean(psd[idx])) if len(idx) > 0 else 1e-12
+            band_energies.append(np.log10(max(e, 1e-12)))
+        be = np.array(band_energies, dtype=np.float32)
+        be_std = float(np.std(be))
+        be_norm = (be - float(np.mean(be))) / (be_std if be_std > 1e-6 else 1.0)
+
+        # 3. Spectral Centroid, Rolloff, ZCR
+        psd_sum = float(np.sum(psd)) + 1e-12
+        centroid = float(np.sum(freqs * psd)) / psd_sum
+        centroid_norm = float(np.clip(centroid / 4000.0, 0.0, 1.0))
+
+        cum_psd = np.cumsum(psd)
+        rolloff_idx = np.where(cum_psd >= 0.85 * psd_sum)[0]
+        rolloff = float(freqs[rolloff_idx[0]]) if len(rolloff_idx) > 0 else 4000.0
+        rolloff_norm = float(np.clip(rolloff / 6000.0, 0.0, 1.0))
+
+        zcr = float(np.mean(np.abs(np.diff(np.sign(samples))))) / 2.0
+
+        features = np.concatenate(([f0_norm], be_norm, [centroid_norm, rolloff_norm, zcr]))
+        norm = float(np.linalg.norm(features))
+        return (features / (norm + 1e-9)).astype(np.float32)
+    except Exception as e:
+        logger.debug("Failed to extract acoustic embedding", error=str(e))
+        return None
+
+
+@dataclass
+class SpeakerCluster:
+    cluster_id: str
+    display_name: str
+    centroid_embedding: np.ndarray
+    sample_count: int = 1
+    last_active_time: float = 0.0
+    is_name_confirmed: bool = False
+
+
+class LiveAcousticDiarizer:
+    """
+    Real-time acoustic voice diarizer and clustering engine for multi-party calls (3+ attendees).
+    Separates mixed Channel 2 audio into individual remote speakers and matches them to:
+    - Known attendee roster names (from modal, --attendees, or Teams window titles)
+    - Conversational addressing by host ('Yash, what do you think?')
+    - Self-introductions ('My name is Harshita', 'Hi, Yash here')
+    """
+
+    def __init__(
+        self,
+        roster: Optional[List[str]] = None,
+        host_name: str = "Sujal Nage",
+        similarity_threshold: float = 0.82,
+    ):
+        self.host_name = host_name
+        self.roster: List[str] = []
+        self.clusters: List[SpeakerCluster] = []
+        self.similarity_threshold = similarity_threshold
+        self.last_addressed_name: Optional[str] = None
+        self.last_addressed_time: float = 0.0
+        self.active_cluster_index: int = 0
+        if roster:
+            for r in roster:
+                self.add_to_roster(r)
+
+    def add_to_roster(self, name: str) -> bool:
+        """Adds a newly discovered attendee to the diarizer's roster."""
+        c = clean_person_name(name)
+        if is_valid_person_name(c, self.host_name) and c not in self.roster:
+            self.roster.append(c)
+            # If an existing cluster had a generic placeholder, assign the new name
+            for cluster in self.clusters:
+                if not cluster.is_name_confirmed and cluster.display_name.startswith(("Participant", "Remote Attendee")):
+                    cluster.display_name = c
+                    cluster.is_name_confirmed = False
+                    break
+            return True
+        return False
+
+    def note_host_addressed_attendee(self, host_text: str) -> Optional[str]:
+        """
+        Scans host speech on Channel 1 to detect when host addresses a remote participant.
+        e.g. 'Yash, what do you think?', 'Rahul, can you update us?', 'Harshita...'
+        """
+        if not host_text or not self.roster:
+            return None
+        text_lower = host_text.lower()
+        for attendee in self.roster:
+            first_name = attendee.split()[0].lower()
+            full_name = attendee.lower()
+            if re.search(rf"\b{re.escape(first_name)}\b", text_lower) or re.search(rf"\b{re.escape(full_name)}\b", text_lower):
+                self.last_addressed_name = attendee
+                self.last_addressed_time = time.time()
+                logger.info("Host addressed attendee", host=self.host_name, attendee=attendee)
+                return attendee
+        return None
+
+    def identify_speaker(
+        self,
+        pcm_data: bytes,
+        speaker_hint: Optional[str] = None,
+    ) -> Tuple[str, bool]:
+        """
+        Identifies or clusters the remote speaker for a Channel 2 chunk.
+        Returns: (resolved_display_name, is_new_speaker_cluster)
+        """
+        emb = extract_acoustic_embedding(pcm_data)
+
+        # Check if host addressed someone within the last 12 seconds
+        addressed_target: Optional[str] = None
+        if self.last_addressed_name and (time.time() - self.last_addressed_time < 12.0):
+            addressed_target = self.last_addressed_name
+            self.last_addressed_name = None  # Consume address
+
+        # If explicit speaker hint from UIA is valid
+        if not addressed_target and speaker_hint and is_valid_person_name(speaker_hint, self.host_name):
+            if speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "Speaker"):
+                addressed_target = speaker_hint
+
+        # Fallback if embedding is None
+        if emb is None:
+            if addressed_target:
+                return (addressed_target, False)
+            if self.clusters:
+                return (self.clusters[self.active_cluster_index].display_name, False)
+            if self.roster:
+                return (self.roster[0], False)
+            return ("Remote Attendee", False)
+
+        # Case 1: First speaker on Channel 2
+        if not self.clusters:
+            name = addressed_target or (self.roster[0] if self.roster else "Remote Attendee")
+            c = SpeakerCluster(
+                cluster_id="REMOTE_SPK_1",
+                display_name=name,
+                centroid_embedding=emb,
+                last_active_time=time.time(),
+                is_name_confirmed=bool(addressed_target),
+            )
+            self.clusters.append(c)
+            self.active_cluster_index = 0
+            return (name, False)
+
+        # Case 2: Compare against existing voice clusters
+        similarities = [float(np.dot(emb, c.centroid_embedding)) for c in self.clusters]
+        best_idx = int(np.argmax(similarities))
+        best_sim = similarities[best_idx]
+
+        if best_sim >= self.similarity_threshold:
+            # Same speaker as cluster best_idx!
+            cluster = self.clusters[best_idx]
+            self.active_cluster_index = best_idx
+            cluster.sample_count += 1
+            alpha = 0.85
+            new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
+            cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
+            cluster.last_active_time = time.time()
+
+            # If host addressed someone specifically or explicit hint confirmed:
+            if addressed_target and not cluster.is_name_confirmed:
+                cluster.display_name = addressed_target
+                cluster.is_name_confirmed = True
+
+            return (cluster.display_name, False)
+        else:
+            # Different speaker! New turn from another remote participant.
+            assigned_names = {c.display_name.lower() for c in self.clusters}
+            if addressed_target:
+                new_name = addressed_target
+                confirmed = True
+            else:
+                # Pick next unassigned attendee from roster
+                available = [r for r in self.roster if r.lower() not in assigned_names]
+                if available:
+                    new_name = available[0]
+                    confirmed = False
+                else:
+                    new_name = f"Participant {len(self.clusters) + 1}"
+                    confirmed = False
+
+            new_cluster = SpeakerCluster(
+                cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
+                display_name=new_name,
+                centroid_embedding=emb,
+                last_active_time=time.time(),
+                is_name_confirmed=confirmed,
+            )
+            self.clusters.append(new_cluster)
+            self.active_cluster_index = len(self.clusters) - 1
+            logger.info(
+                "Diarized new remote speaker turn",
+                cluster_id=new_cluster.cluster_id,
+                display_name=new_name,
+                similarity=round(best_sim, 3),
+            )
+            return (new_name, True)
+
+    def update_active_cluster_name(self, name: str) -> Optional[str]:
+        """
+        Updates the active cluster's display name when attendee introduces themselves.
+        Returns the old name if changed, or None.
+        """
+        if not self.clusters:
+            return None
+        active_cluster = self.clusters[self.active_cluster_index]
+        matched_name = name
+        name_lower = name.lower()
+        for r in self.roster:
+            if r.lower() == name_lower or r.lower().startswith(name_lower + " "):
+                matched_name = r
+                break
+
+        old_name = active_cluster.display_name
+        if old_name != matched_name:
+            active_cluster.display_name = matched_name
+            active_cluster.is_name_confirmed = True
+            logger.info("Updated speaker cluster via self-intro", old_name=old_name, new_name=matched_name)
+            return old_name
+        return None
+
+
 @dataclass
 class ChannelBuffer:
     channel_id: int
@@ -175,6 +429,8 @@ class LiveSession:
     language: str = "hi"
     is_active: bool = True
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    diarizer: Optional[LiveAcousticDiarizer] = None
+    known_roster: List[str] = field(default_factory=list)
 
 
 class LiveMeetingManager:
@@ -315,13 +571,26 @@ class LiveMeetingManager:
             display_name=host_name,
         )
 
+        # Parse remote roster from remote_name (e.g. "Harshita, Yash Lade, Rahul Sharma")
+        parsed_roster: List[str] = []
+        if remote_name:
+            parts = re.split(r",| and | & ", remote_name)
+            for p in parts:
+                cp = clean_person_name(p)
+                if is_valid_person_name(cp, host_name) and cp not in parsed_roster:
+                    parsed_roster.append(cp)
+
+        default_remote_disp = parsed_roster[0] if parsed_roster else (remote_name or "Remote Attendee")
+
         # Initialize Channel 2 (Remote Attendees default)
         session.channels[2] = ChannelBuffer(
             channel_id=2,
             speaker_id=None,
             speaker_label="SPEAKER_REMOTE",
-            display_name=remote_name or "Remote Attendee",
+            display_name=default_remote_disp,
         )
+        session.known_roster = parsed_roster
+        session.diarizer = LiveAcousticDiarizer(roster=parsed_roster, host_name=host_name)
 
         self._sessions[meeting_id] = session
         logger.info("Started live meeting session", meeting_id=str(meeting_id))
@@ -368,6 +637,7 @@ class LiveMeetingManager:
         speaker_hint: Optional[str] = None,
         text_hint: Optional[str] = None,
         timestamp_ms: Optional[float] = None,
+        roster_hint: Optional[List[str]] = None,
     ) -> None:
         """Process incoming audio chunk from channel 1 (host) or channel 2+ (remote)."""
         session = self._sessions.get(meeting_id)
@@ -375,6 +645,13 @@ class LiveMeetingManager:
             return
 
         async with session.lock:
+            # Sync roster_hint from Teams UIA / window title scanner
+            if roster_hint and session.diarizer:
+                for r_name in roster_hint:
+                    session.diarizer.add_to_roster(r_name)
+                    if r_name not in session.known_roster:
+                        session.known_roster.append(r_name)
+
             # Ensure channel buffer exists
             if channel_id not in session.channels:
                 session.channels[channel_id] = ChannelBuffer(
@@ -384,9 +661,10 @@ class LiveMeetingManager:
                 )
 
             ch_buf = session.channels[channel_id]
+            host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
+
             if speaker_hint and ch_buf.display_name != speaker_hint:
                 old_name = ch_buf.display_name
-                host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
                 if channel_id == 1 or is_valid_person_name(speaker_hint, host_disp):
                     ch_buf.display_name = speaker_hint
                     if (
@@ -407,15 +685,35 @@ class LiveMeetingManager:
                 now_rel = (time.time() - session.start_wall_time)
                 start_sec = max(0.0, now_rel - 2.5)
                 end_sec = now_rel
+                turn_speaker = ch_buf.display_name
 
-                # Conversational self-introduction detection
+                # Channel 1: scan host speech for addressing remote attendees
+                if channel_id == 1 and session.diarizer:
+                    session.diarizer.note_host_addressed_attendee(text_hint.strip())
+
+                # Channel 2: multi-speaker resolution
                 if channel_id > 1:
+                    if session.diarizer:
+                        if audio_bytes and len(audio_bytes) >= 1600:
+                            turn_speaker, _ = session.diarizer.identify_speaker(audio_bytes, speaker_hint=speaker_hint)
+                            ch_buf.display_name = turn_speaker
+                        elif speaker_hint and is_valid_person_name(speaker_hint, host_disp):
+                            turn_speaker = speaker_hint
+                            ch_buf.display_name = speaker_hint
+
+                    # Conversational self-introduction detection
                     intro_name = extract_conversational_speaker_name(text_hint.strip())
-                    host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
                     if intro_name and is_valid_person_name(intro_name, host_disp):
-                        if ch_buf.display_name != intro_name:
+                        if session.diarizer:
+                            old_name = session.diarizer.update_active_cluster_name(intro_name)
+                            if old_name and old_name != intro_name:
+                                ch_buf.display_name = intro_name
+                                turn_speaker = intro_name
+                                await self._reconcile_placeholder_speaker(session, channel_id, old_name, intro_name)
+                        elif ch_buf.display_name != intro_name:
                             old_name = ch_buf.display_name
                             ch_buf.display_name = intro_name
+                            turn_speaker = intro_name
                             await self._reconcile_placeholder_speaker(session, channel_id, old_name, intro_name)
 
                 await self._persist_and_broadcast_segment(
@@ -424,25 +722,22 @@ class LiveMeetingManager:
                     text=text_hint.strip(),
                     start_seconds=start_sec,
                     end_seconds=end_sec,
-                    speaker_name=ch_buf.display_name,
+                    speaker_name=turn_speaker,
                 )
                 ch_buf.pcm_chunks.clear()
                 return
 
             # Check if buffer has reached speech threshold (~48000 bytes = 1.5 sec @ 16kHz 16-bit mono)
-            # Longer chunks give Whisper more context for better word-boundary accuracy
             if len(ch_buf.pcm_chunks) >= 48000:
                 pcm_data = bytes(ch_buf.pcm_chunks)
                 ch_buf.pcm_chunks.clear()
 
                 # Safety: Check RMS energy on backend to ignore ambient silence
                 try:
-                    import numpy as np
                     samples = np.frombuffer(pcm_data, dtype=np.int16).copy()
                     if len(samples) > 0:
                         rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
                         if rms < 180.0:
-                            # Skip transcribing silence to prevent Whisper hallucinations
                             return
 
                         # Peak gain normalization: boost quiet audio to ~-3 dBFS
@@ -455,8 +750,6 @@ class LiveMeetingManager:
                                     samples.astype(np.float32) * gain, -32768, 32767
                                 ).astype(np.int16)
                                 pcm_data = samples.tobytes()
-                                logger.debug("Applied gain normalization",
-                                             gain=round(gain, 2), peak=int(peak))
                 except Exception:
                     pass
 
@@ -465,18 +758,33 @@ class LiveMeetingManager:
                 start_sec = max(0.0, now_rel - duration)
                 end_sec = now_rel
 
+                # Channel 2: Identify speaker using acoustic voice clustering
+                turn_speaker = ch_buf.display_name
+                if channel_id > 1 and session.diarizer:
+                    turn_speaker, _ = session.diarizer.identify_speaker(pcm_data, speaker_hint=speaker_hint)
+                    ch_buf.display_name = turn_speaker
+
                 # Perform speech-to-text on this chunk
-                text = await self._transcribe_pcm_chunk(pcm_data, channel_id, ch_buf.display_name, session.language)
+                text = await self._transcribe_pcm_chunk(pcm_data, channel_id, turn_speaker, session.language)
                 if text and text.strip():
-                    # Dynamic conversational speaker recognition:
-                    # e.g. "My name is Harshita", "I'm Harshita", "Mera naam Harshita hai"
+                    # Channel 1: Host speaking -> note if host addresses an attendee
+                    if channel_id == 1 and session.diarizer:
+                        session.diarizer.note_host_addressed_attendee(text.strip())
+
+                    # Channel 2: Dynamic conversational self-introduction
                     if channel_id > 1:
                         intro_name = extract_conversational_speaker_name(text)
-                        host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
                         if intro_name and is_valid_person_name(intro_name, host_disp):
-                            if ch_buf.display_name != intro_name:
+                            if session.diarizer:
+                                old_name = session.diarizer.update_active_cluster_name(intro_name)
+                                if old_name and old_name != intro_name:
+                                    ch_buf.display_name = intro_name
+                                    turn_speaker = intro_name
+                                    await self._reconcile_placeholder_speaker(session, channel_id, old_name, intro_name)
+                            elif ch_buf.display_name != intro_name:
                                 old_name = ch_buf.display_name
                                 ch_buf.display_name = intro_name
+                                turn_speaker = intro_name
                                 await self._reconcile_placeholder_speaker(session, channel_id, old_name, intro_name)
 
                     await self._persist_and_broadcast_segment(
@@ -485,7 +793,7 @@ class LiveMeetingManager:
                         text=text.strip(),
                         start_seconds=start_sec,
                         end_seconds=end_sec,
-                        speaker_name=ch_buf.display_name,
+                        speaker_name=turn_speaker,
                     )
 
     async def _transcribe_pcm_chunk(

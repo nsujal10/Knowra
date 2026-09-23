@@ -206,6 +206,15 @@ class TeamsLiveAttendeeTracker:
             import ctypes
             from ctypes import wintypes
             user32 = ctypes.windll.user32
+
+            # Ensure this thread is attached to the interactive 'Default' desktop
+            try:
+                hdesk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+                if hdesk:
+                    user32.SetThreadDesktop(hdesk)
+            except Exception:
+                pass
+
             found_titles: List[str] = []
 
             def enum_cb(hwnd, _):
@@ -232,26 +241,26 @@ class TeamsLiveAttendeeTracker:
                 t_clean = t.strip()
                 t_lower = t_clean.lower()
                 if "microsoft teams" in t_lower or "teams" in t_lower:
-                    # Strip suffix "| Microsoft Teams", "- Microsoft Teams", etc.
-                    prefix = t_clean
-                    for sep in ["| Microsoft Teams", "- Microsoft Teams", "| Teams", "- Teams"]:
-                        if sep.lower() in prefix.lower():
-                            idx = prefix.lower().find(sep.lower())
-                            prefix = prefix[:idx].strip()
-                            break
-
-                    pl = prefix.lower()
-                    if "meeting with" in pl or "call with" in pl or "chat with" in pl:
-                        for kw in ["meeting with", "call with", "chat with"]:
-                            if kw in pl:
-                                after = prefix[pl.find(kw) + len(kw):].strip()
-                                for n in after.split(","):
-                                    for part in n.split(" and "):
-                                        self.add_attendee(part.strip())
-                    elif prefix and pl not in TEAMS_STATIC_PAGES and len(prefix) >= 2:
-                        # e.g. "Rahul Sharma" or "Priya Verma" in 1:1 call window title
-                        if not any(noise in pl for noise in ["error", "loading", "connecting"]):
-                            self.add_attendee(prefix.strip())
+                    # In Enterprise Teams, title is pipe-separated:
+                    # e.g. "Call with Priya | Project | Org | email | Microsoft Teams"
+                    # or "Priya, Rahul | Project | Org | email | Microsoft Teams"
+                    pipe_parts = [p.strip() for p in t_clean.split("|")]
+                    for part in pipe_parts[:-2]:  # exclude tenant org and email
+                        pl = part.lower()
+                        if "meeting with" in pl or "call with" in pl or "chat with" in pl:
+                            for kw in ["meeting with", "call with", "chat with"]:
+                                if kw in pl:
+                                    after = part[pl.find(kw) + len(kw):].strip()
+                                    for n in after.split(","):
+                                        for sub in n.split(" and "):
+                                            self.add_attendee(sub.strip())
+                        elif pl not in TEAMS_STATIC_PAGES and len(part) >= 2:
+                            for candidate in part.split(","):
+                                cand_clean = candidate.strip()
+                                cand_lower = cand_clean.lower()
+                                if cand_lower not in TEAMS_STATIC_PAGES and len(cand_clean) >= 2:
+                                    if not any(noise in cand_lower for noise in ["error", "loading", "connecting"]):
+                                        self.add_attendee(cand_clean)
         except Exception:
             pass
 

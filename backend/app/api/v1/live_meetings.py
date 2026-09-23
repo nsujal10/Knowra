@@ -22,6 +22,7 @@ from app.core.database import get_db
 from app.security.tenant import TenantContext, get_tenant_context
 from app.services.live_meeting_service import LiveMeetingManager
 from app.models.meeting import Meeting
+from app.models.user import User
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -29,7 +30,7 @@ router = APIRouter()
 
 class StartLiveMeetingRequest(BaseModel):
     title: Optional[str] = "Live Meeting"
-    hostName: Optional[str] = "You (Host)"
+    hostName: Optional[str] = None
     attendees: Optional[str] = None
     language: Optional[str] = "hi"
 
@@ -62,6 +63,15 @@ async def start_live_meeting(
     meeting_id = uuid.uuid4()
     manager = LiveMeetingManager.get_instance()
 
+    # Resolve host name: prefer explicit payload, otherwise look up user's real full_name
+    resolved_host = payload.hostName
+    if not resolved_host or resolved_host in ("You (Host)", "Host", ""):
+        user = db.query(User).filter(User.id == tenant_ctx.user_id).first()
+        if user and user.full_name:
+            resolved_host = user.full_name
+        else:
+            resolved_host = "Host"
+
     meeting = Meeting(
         id=meeting_id,
         tenant_id=tenant_ctx.tenant_id,
@@ -78,7 +88,7 @@ async def start_live_meeting(
         meeting_id=meeting_id,
         tenant_id=tenant_ctx.tenant_id,
         owner_id=tenant_ctx.user_id,
-        host_name=payload.hostName or "You (Host)",
+        host_name=resolved_host,
         remote_name=payload.attendees or "Remote Attendee",
         language=payload.language or "hi",
     )

@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { api, getWebSocketUrl } from "@/lib/api/client";
+import { useSession } from "@/lib/auth/session";
 
 export interface LiveMeetingModalProps {
   isOpen: boolean;
@@ -34,8 +35,9 @@ interface LiveTranscriptItem {
 
 export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeetingModalProps) {
   const router = useRouter();
+  const { session } = useSession();
   const [meetingTitle, setMeetingTitle] = useState("");
-  const [hostName, setHostName] = useState("You (Host)");
+  const [hostName, setHostName] = useState(session?.user?.full_name || "Host");
   const [attendees, setAttendees] = useState("");
   const [mode, setMode] = useState<"browser" | "desktop">("browser");
   const [language, setLanguage] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
@@ -67,6 +69,9 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
     if (isOpen) {
       const now = new Date();
       setMeetingTitle(`Live Sync • ${now.toLocaleDateString([], { month: "short", day: "numeric" })}`);
+      if (session?.user?.full_name) {
+        setHostName(session.user.full_name);
+      }
     } else {
       stopAllAudio();
       setIsRecording(false);
@@ -488,7 +493,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                     type="text"
                     value={hostName}
                     onChange={(e) => setHostName(e.target.value)}
-                    placeholder="You (Host)"
+                    placeholder={session?.user?.full_name || "Host"}
                     className="w-full text-xs h-9 px-3 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>

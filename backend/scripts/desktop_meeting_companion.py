@@ -29,9 +29,13 @@ import argparse
 import asyncio
 import base64
 import json
+import os
+import subprocess
 import sys
+import threading
 import time
 import uuid
+from typing import Callable, List, Optional, Set
 
 # Ensure UTF-8 output on Windows console for Hindi characters
 if sys.platform == "win32":
@@ -50,6 +54,210 @@ except ImportError:
 import math
 import numpy as np
 import scipy.signal
+
+
+def detect_host_display_name() -> str:
+    """
+    Auto-detects the host's real name instead of generic 'You (Host)'.
+    Checks:
+    1. Environment variable: KNOWRA_HOST_NAME
+    2. Git config user.name (e.g. 'Sujal Nage')
+    3. Formatted Windows OS login (e.g. 'sujal.nage' -> 'Sujal Nage')
+    4. Fallback: 'Host'
+    """
+    env_name = os.getenv("KNOWRA_HOST_NAME")
+    if env_name and env_name.strip():
+        return env_name.strip()
+    try:
+        git_res = subprocess.run(
+            ["git", "config", "user.name"],
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+        if git_res.returncode == 0 and git_res.stdout.strip():
+            return git_res.stdout.strip()
+    except Exception:
+        pass
+    try:
+        login = os.getlogin()
+        if login:
+            parts = [p.capitalize() for p in login.replace(".", " ").replace("_", " ").split()]
+            if parts:
+                return " ".join(parts)
+    except Exception:
+        pass
+    return "Host"
+
+
+class TeamsLiveAttendeeTracker:
+    """
+    Monitors Microsoft Teams (and other meeting apps) in real time:
+    1. Inspects Windows UI Automation (uiautomation) for active speaker badges
+       ('... is speaking', '... is talking', unmuted active video tiles).
+    2. Scans Teams window titles to extract meeting participants ('Meeting with Alex, Sarah').
+    3. Maintains a live attendee roster, logging new participants as they join.
+    4. Provides dynamic speaker attribution on Channel 2 so speech is assigned to the real person.
+    """
+
+    def __init__(self, initial_attendees: Optional[List[str]] = None, host_name: str = ""):
+        self.host_name = host_name
+        self.known_roster: List[str] = []
+        if initial_attendees:
+            for a in initial_attendees:
+                cleaned = a.strip()
+                if (
+                    cleaned
+                    and cleaned not in self.known_roster
+                    and cleaned != self.host_name
+                    and cleaned.lower() != "you"
+                ):
+                    self.known_roster.append(cleaned)
+
+        self.current_speaker: str = self.known_roster[0] if self.known_roster else "Remote Attendee"
+        self.last_detected_speaker: Optional[str] = None
+        self.last_detection_time: float = 0.0
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._lock = threading.Lock()
+        self._has_uia = False
+
+        try:
+            import uiautomation
+            self._has_uia = True
+        except ImportError:
+            pass
+
+    def start(self):
+        if self._running:
+            return
+        self._running = True
+        self._thread = threading.Thread(target=self._tracker_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._running = False
+
+    def add_attendee(self, name: str) -> bool:
+        """Adds a newly discovered attendee to the call roster."""
+        cleaned = name.strip()
+        for noise in ["(Guest)", "(External)", "(Presenter)", "(Organizer)", "(You)"]:
+            cleaned = cleaned.replace(noise, "").strip()
+
+        if (
+            cleaned
+            and len(cleaned) >= 2
+            and cleaned not in self.known_roster
+            and cleaned != self.host_name
+            and cleaned.lower() not in ("you", "me", "remote attendee", "speaker", "unknown")
+        ):
+            with self._lock:
+                self.known_roster.append(cleaned)
+                if self.current_speaker == "Remote Attendee":
+                    self.current_speaker = cleaned
+            timestamp_str = time.strftime("%H:%M:%S")
+            print(f"[{timestamp_str}] 👤 [Teams Roster] Detected attendee in call: {cleaned}")
+            return True
+        return False
+
+    def set_active_speaker(self, name: str):
+        """Sets the currently active speaker with a timestamp."""
+        cleaned = name.strip()
+        for noise in ["(Guest)", "(External)", "(Presenter)", "(Organizer)", "(You)"]:
+            cleaned = cleaned.replace(noise, "").strip()
+
+        if cleaned and cleaned != self.host_name and cleaned.lower() not in ("you", "remote attendee"):
+            self.add_attendee(cleaned)
+            with self._lock:
+                old_speaker = self.last_detected_speaker
+                self.last_detected_speaker = cleaned
+                self.last_detection_time = time.time()
+                self.current_speaker = cleaned
+            if old_speaker != cleaned:
+                timestamp_str = time.strftime("%H:%M:%S")
+                print(f"[{timestamp_str}] 🎙️ [Teams Active Speaker] Identified: {cleaned}")
+
+    def get_current_speaker(self) -> str:
+        """Returns the most up-to-date speaker name for Channel 2 audio chunks."""
+        with self._lock:
+            # If an active speaker was detected within the last 7 seconds, attribute to them
+            if self.last_detected_speaker and (time.time() - self.last_detection_time < 7.0):
+                return self.last_detected_speaker
+            if self.current_speaker and self.current_speaker != "Remote Attendee":
+                return self.current_speaker
+            if self.known_roster:
+                return self.known_roster[0]
+            return "Remote Attendee"
+
+    def _tracker_loop(self):
+        """Background thread polling Windows UI Automation and window titles."""
+        while self._running:
+            try:
+                self._scan_window_titles()
+                if self._has_uia:
+                    self._scan_teams_uia()
+            except Exception:
+                pass
+            time.sleep(0.4)
+
+    def _scan_window_titles(self):
+        """Scans window titles using Win32 API to find Teams meeting titles and attendees."""
+        try:
+            import ctypes
+            from ctypes import wintypes
+            user32 = ctypes.windll.user32
+            found_titles: List[str] = []
+
+            def enum_cb(hwnd, _):
+                if user32.IsWindowVisible(hwnd):
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buff = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(hwnd, buff, length + 1)
+                        found_titles.append(buff.value)
+                return True
+
+            WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
+
+            for t in found_titles:
+                t_lower = t.lower()
+                if "microsoft teams" in t_lower or "teams" in t_lower:
+                    if "meeting with" in t_lower:
+                        after = t.split("eeting with", 1)[1]
+                        names_part = after.split("|")[0].strip()
+                        for n in names_part.split(","):
+                            for part in n.split(" and "):
+                                self.add_attendee(part.strip())
+        except Exception:
+            pass
+
+    def _scan_teams_uia(self):
+        """Inspects Microsoft Teams UI elements for 'is speaking' badges and active video tiles."""
+        try:
+            import uiautomation as auto
+            teams_win = auto.WindowControl(searchDepth=2, SubName="Microsoft Teams")
+            if not teams_win.Exists(0.05):
+                teams_win = auto.WindowControl(searchDepth=2, SubName="Teams")
+            if not teams_win.Exists(0.05):
+                teams_win = auto.WindowControl(searchDepth=2, ClassName="TeamsWebView")
+
+            if teams_win.Exists(0.05):
+                for ctrl in teams_win.GetChildren():
+                    name = ctrl.Name or ""
+                    nl = name.lower()
+                    if "is speaking" in nl or "is talking" in nl:
+                        candidate = name.split(" is speaking")[0].split(" is talking")[0].strip()
+                        if candidate:
+                            self.set_active_speaker(candidate)
+                            return
+                    elif "speaking" in nl and len(name.split()) <= 4:
+                        candidate = name.replace("speaking", "").replace("Speaking", "").strip()
+                        if candidate:
+                            self.set_active_speaker(candidate)
+                            return
+        except Exception:
+            pass
 
 
 HINDI_CONVERSATION = [
@@ -73,7 +281,7 @@ ENGLISH_CONVERSATION = [
 ]
 
 
-async def run_simulation(ws_url: str, meeting_id: str, language: str = "en"):
+async def run_simulation(ws_url: str, meeting_id: str, language: str = "en", host_name: str = "Host"):
     """Simulates dual-track audio streaming with realistic speaker turns in Hindi or English."""
     is_hindi = language.lower() in ["hi", "hindi", "hinglish"]
     conversation = HINDI_CONVERSATION if is_hindi else ENGLISH_CONVERSATION
@@ -82,6 +290,7 @@ async def run_simulation(ws_url: str, meeting_id: str, language: str = "en"):
     print(f"\n========================================================")
     print(f" Knowra Desktop Companion - Live Multi-Speaker Simulation")
     print(f" Language   : {lang_label}")
+    print(f" Host Name  : {host_name} (Channel 1 - Local Mic)")
     print(f" Meeting ID : {meeting_id}")
     print(f" Server WS  : {ws_url}")
     print(f" Channels   : Ch 1 (Host Mic) | Ch 2 (Teams Attendees)")
@@ -97,13 +306,14 @@ async def run_simulation(ws_url: str, meeting_id: str, language: str = "en"):
             dummy_b64 = base64.b64encode(dummy_pcm).decode("utf-8")
 
             for idx, (channel, speaker, speech_text) in enumerate(conversation, start=1):
+                actual_speaker = host_name if (channel == 1 and speaker == "You (Host)") else speaker
                 timestamp_str = time.strftime("%H:%M:%S")
-                print(f"[{timestamp_str}] Turn {idx}/{len(conversation)} [Channel {channel}] {speaker}:")
+                print(f"[{timestamp_str}] Turn {idx}/{len(conversation)} [Channel {channel}] {actual_speaker}:")
                 print(f"   \"{speech_text}\"\n")
 
                 payload = {
                     "channel": channel,
-                    "speaker_hint": speaker,
+                    "speaker_hint": actual_speaker,
                     "text_hint": speech_text,
                     "audio_base64": dummy_b64,
                     "timestamp_ms": time.time() * 1000,
@@ -146,13 +356,15 @@ async def capture_channel_stream(
     input_rate: int = 16000,
     input_channels: int = 1,
     chunk_size: int = 4000,
+    speaker_resolver: Optional[Callable[[], str]] = None,
 ):
     """
     Reads from an audio stream, downsamples/converts to 16kHz Mono PCM,
     applies peak gain normalization + Voice Activity Detection (VAD) energy gating,
-    and pushes clean speech chunks to the WebSocket.
+    and pushes clean speech chunks to the WebSocket with dynamic speaker attribution.
 
     Accuracy features:
+    - Dynamic speaker resolver: queries Teams UIA / window tracker to attribute turns to real names
     - Peak normalization: boosts quiet audio to -3 dBFS so Whisper receives optimal levels
     - Pre-roll buffer: keeps 2 trailing silence frames as leading context for word boundaries
     - Post-roll buffer: keeps 3 trailing silence frames after speech for syllable ends
@@ -216,7 +428,6 @@ async def capture_channel_stream(
             if rms >= ENERGY_THRESHOLD:
                 # Active speech detected — prepend any pre-roll context first
                 if speech_buffer_empty := (len(speech_buffer) == 0):
-                    # Starting a new utterance: inject pre-roll frames for word-boundary context
                     for preroll_frame in preroll_ring:
                         speech_buffer.extend(preroll_frame)
                     preroll_ring.clear()
@@ -237,7 +448,7 @@ async def capture_channel_stream(
 
             # Flush condition:
             # - Accumulated >= 1.0s (32,000 bytes) and speaker paused (silence_counter >= 5)
-            # - OR accumulated max chunk >= ~4.5s (144,000 bytes) — longer context improves accuracy
+            # - OR accumulated max chunk >= ~4.5s (144,000 bytes)
             has_enough_speech = len(speech_buffer) >= 32000
             reached_max_chunk = len(speech_buffer) >= 144000
             speaker_paused = (silence_counter >= 5 and has_enough_speech)
@@ -247,10 +458,12 @@ async def capture_channel_stream(
                 speech_buffer.clear()
                 silence_counter = 0
 
+                # Resolve dynamic speaker name (e.g. from Teams active speaker tracker)
+                current_speaker = speaker_resolver() if speaker_resolver else speaker_name
                 b64_audio = base64.b64encode(chunk_to_send).decode("utf-8")
                 payload = {
                     "channel": channel_id,
-                    "speaker_hint": speaker_name,
+                    "speaker_hint": current_speaker,
                     "audio_base64": b64_audio,
                     "timestamp_ms": time.time() * 1000,
                 }
@@ -259,7 +472,7 @@ async def capture_channel_stream(
                 duration_sec = round(len(chunk_to_send) / 32000.0, 1)
                 timestamp_str = time.strftime("%H:%M:%S")
                 ch_icon = "🎙️ [Your Mic]" if channel_id == 1 else "🔊 [Teams Audio]"
-                print(f"[{timestamp_str}] {ch_icon} {speaker_name}: Spoke {duration_sec}s (Energy: {int(rms)}) -> Transcribing...")
+                print(f"[{timestamp_str}] {ch_icon} {current_speaker}: Spoke {duration_sec}s (Energy: {int(rms)}) -> Transcribing...")
 
             elif len(speech_buffer) > 0 and silence_counter > 8:
                 # Drop short background pop/click (< 1.0s) followed by prolonged silence
@@ -275,21 +488,35 @@ async def run_hardware_capture(
     ws_url: str,
     meeting_id: str,
     language: str = "hi",
-    host_name: str = "You (Host)",
+    host_name: str = "Host",
     remote_name: str = "Remote Attendee",
+    attendees: str = "",
 ):
     """
     Captures live hardware:
-      - Channel 1: Host Microphone (16kHz mono)
+      - Channel 1: Host Microphone (16kHz mono, attributed to host_name)
       - Channel 2: Teams.exe audio via Windows WASAPI Loopback (resampled to 16kHz mono)
+      - Teams Live Attendee & Active Speaker Tracker: detects real participant names via UIA & window inspection
     """
+    # Initialize live attendee tracker
+    initial_roster: List[str] = []
+    if attendees:
+        initial_roster.extend([a.strip() for a in attendees.split(",") if a.strip()])
+    if remote_name and remote_name not in initial_roster and remote_name != "Remote Attendee":
+        initial_roster.insert(0, remote_name)
+
+    tracker = TeamsLiveAttendeeTracker(initial_attendees=initial_roster, host_name=host_name)
+    tracker.start()
+
     print(f"\n========================================================")
     print(f" Knowra Desktop Companion - Real Live Teams Capture")
     print(f" Meeting ID : {meeting_id}")
     print(f" Server WS  : {ws_url}")
     print(f" Language   : {'Hindi (हिंदी)' if language == 'hi' else 'English'}")
-    print(f" Host Name  : {host_name}")
-    print(f" Attendee(s): {remote_name}")
+    print(f" Host Name  : {host_name} (Channel 1 - Local Mic)")
+    attendee_display = ", ".join(tracker.known_roster) if tracker.known_roster else "Auto-detecting via Teams UI"
+    print(f" Attendee(s): {attendee_display} (Channel 2 - Teams)")
+    print(f" Teams Sync : ACTIVE (Real-time UIA Active Speaker & Roster Tracker)")
     print(f" Mode       : REAL HARDWARE (Microphone + Teams Loopback)")
     print(f" VAD Filter : ACTIVE (Auto-skips background silence)")
     print(f"========================================================\n")
@@ -305,7 +532,8 @@ async def run_hardware_capture(
         print("\n[Notice] PyAudio is not installed.")
         print("To capture live hardware on Windows, install: pip install pyaudiowpatch")
         print("Falling back to rich multi-speaker simulation mode...\n")
-        await run_simulation(ws_url, meeting_id, language)
+        await run_simulation(ws_url, meeting_id, language, host_name=host_name)
+        tracker.stop()
         return
 
     p = pyaudio.PyAudio()
@@ -379,6 +607,7 @@ async def run_hardware_capture(
                                 speaker_name=remote_name,
                                 input_rate=lb_rate,
                                 input_channels=lb_channels,
+                                speaker_resolver=tracker.get_current_speaker,
                             )
                         )
                     )
@@ -396,6 +625,7 @@ async def run_hardware_capture(
             print("  1. Backend is running: uvicorn app.main:app --reload")
             print("  2. You clicked 'Start Live Session' in the browser to initialize this meeting ID first.\n")
     finally:
+        tracker.stop()
         if mic_stream:
             mic_stream.stop_stream()
             mic_stream.close()
@@ -406,14 +636,15 @@ async def run_hardware_capture(
 
 
 def main():
+    detected_host = detect_host_display_name()
     parser = argparse.ArgumentParser(description="Knowra Desktop Meeting Companion (Method 3)")
     parser.add_argument("--meeting-id", type=str, default=str(uuid.uuid4()), help="Target meeting UUID")
     parser.add_argument("--server", type=str, default="ws://127.0.0.1:8000", help="Knowra API Server Base URL")
     parser.add_argument("--simulate", action="store_true", help="Run English simulated conversation")
     parser.add_argument("--hindi", action="store_true", help="Run Hindi / Hinglish simulated conversation")
     parser.add_argument("--language", type=str, default="en", help="Language: 'hi' or 'en'")
-    parser.add_argument("--host-name", type=str, default="You (Host)", help="Host display name")
-    parser.add_argument("--attendees", type=str, default="", help="Comma-separated attendee names (e.g. 'Sarah Jenkins, Alex')")
+    parser.add_argument("--host-name", type=str, default=detected_host, help=f"Host display name (defaults to auto-detected: '{detected_host}')")
+    parser.add_argument("--attendees", type=str, default="", help="Comma-separated attendee names (e.g. 'Sarah Jenkins, Alex Rivera')")
     parser.add_argument("--speaker-name", type=str, default="", help="Channel 2 attendee display name")
     parser.add_argument("--list-devices", action="store_true", help="List audio input/output devices")
 
@@ -428,7 +659,7 @@ def main():
     remote_label = args.speaker_name or (args.attendees if args.attendees else "Remote Attendee")
 
     if args.simulate or args.hindi:
-        asyncio.run(run_simulation(ws_url, args.meeting_id, language=lang))
+        asyncio.run(run_simulation(ws_url, args.meeting_id, language=lang, host_name=args.host_name))
     else:
         asyncio.run(
             run_hardware_capture(
@@ -437,6 +668,7 @@ def main():
                 language=lang,
                 host_name=args.host_name,
                 remote_name=remote_label,
+                attendees=args.attendees,
             )
         )
 

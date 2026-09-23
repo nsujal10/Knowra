@@ -37,7 +37,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
   const router = useRouter();
   const { session } = useSession();
   const [meetingTitle, setMeetingTitle] = useState("");
-  const [hostName, setHostName] = useState(session?.user?.full_name || "Host");
+  const [hostName, setHostName] = useState(session?.user?.full_name || "Sujal Nage");
   const [attendees, setAttendees] = useState("");
   const [mode, setMode] = useState<"browser" | "desktop">("browser");
   const [language, setLanguage] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
@@ -64,6 +64,12 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
 
   const [micActive, setMicActive] = useState(false);
   const [tabAudioActive, setTabAudioActive] = useState(false);
+
+  useEffect(() => {
+    if (session?.user?.full_name) {
+      setHostName(session.user.full_name);
+    }
+  }, [session?.user?.full_name]);
 
   useEffect(() => {
     if (isOpen) {
@@ -422,7 +428,8 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
   const copyCommand = (simulate: boolean = false) => {
     if (!liveMeetingId) return;
     const attendeesFlag = attendees.trim() ? ` --attendees "${attendees.trim()}"` : "";
-    const hostFlag = hostName.trim() && hostName !== "You (Host)" ? ` --host-name "${hostName.trim()}"` : "";
+    const effectiveHost = hostName.trim() || session?.user?.full_name || "Sujal Nage";
+    const hostFlag = ` --host-name "${effectiveHost}"`;
     const langFlag = language.startsWith("hi") ? (simulate ? " --hindi" : " --language hi") : "";
 
     const cmd = simulate
@@ -697,7 +704,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                       python scripts/desktop_meeting_companion.py --meeting-id {liveMeetingId}
                       {language.startsWith("hi") ? " --language hi" : ""}
                       {attendees.trim() ? ` --attendees "${attendees.trim()}"` : ""}
-                      {hostName.trim() && hostName !== "You (Host)" ? ` --host-name "${hostName.trim()}"` : ""}
+                      {` --host-name "${hostName.trim() || session?.user?.full_name || "Sujal Nage"}"`}
                     </span>
                     <button
                       type="button"

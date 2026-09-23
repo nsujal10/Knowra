@@ -63,7 +63,7 @@ def detect_host_display_name() -> str:
     1. Environment variable: KNOWRA_HOST_NAME
     2. Git config user.name (e.g. 'Sujal Nage')
     3. Formatted Windows OS login (e.g. 'sujal.nage' -> 'Sujal Nage')
-    4. Fallback: 'Host'
+    4. Fallback: 'Sujal Nage'
     """
     env_name = os.getenv("KNOWRA_HOST_NAME")
     if env_name and env_name.strip():
@@ -87,7 +87,104 @@ def detect_host_display_name() -> str:
                 return " ".join(parts)
     except Exception:
         pass
-    return "Host"
+    return "Sujal Nage"
+
+
+TEAMS_STATIC_PAGES = {
+    "chat", "activity", "calendar", "calls", "files", "teams", "apps",
+    "settings", "help", "notifications", "general", "meet", "meeting",
+    "call", "microsoft teams", "teams meeting", "new chat", "search",
+    "desktop 1", "unknown"
+}
+
+CORP_KEYWORDS = {
+    "pvt", "ltd", "inc", "corp", "llc", "infotech", "technologies", "technology",
+    "solutions", "systems", "software", "consulting", "enterprise", "services",
+    "systematix", "softude", "microsoft", "google", "zoom", "private", "limited",
+    "corporation", "company", "organization", "tenant", "internal", "external tenant",
+}
+
+INTRO_STOP_WORDS = {
+    "here", "there", "speaking", "talking", "listening", "audible", "ready",
+    "good", "fine", "sorry", "sure", "okay", "ok", "online", "back", "trying",
+    "going", "coming", "joined", "calling", "working", "happy", "glad", "yes", "no",
+    "the", "a", "an", "in", "on", "at", "to", "for", "with", "from", "just", "still",
+    "also", "now", "so", "then", "too", "very", "not", "asking", "hearing", "done",
+}
+
+
+def clean_person_name(name: str) -> str:
+    """Strips common conference tags, suffixes, and noise from a person's display name."""
+    c = name.strip()
+    for noise in [
+        "(Guest)", "(External)", "(Presenter)", "(Organizer)", "(You)",
+        "- Call", "| Call", "- Meeting", "| Meeting", " (external)", " (guest)"
+    ]:
+        c = c.replace(noise, "").strip()
+    return c
+
+
+def is_valid_person_name(name: str, host_name: str = "Sujal Nage") -> bool:
+    """
+    Validates whether a candidate string is an individual person's name
+    rather than a company/tenant name (e.g. 'Systematix Infotech Pvt Ltd'),
+    group chat channel (e.g. 'Gets 2026'), email, or static UI tab.
+    """
+    c = clean_person_name(name)
+    if not c or len(c) < 2 or len(c) > 35:
+        return False
+    cl = c.lower()
+    if cl in TEAMS_STATIC_PAGES or cl in ("you", "me", "remote attendee", "speaker", "unknown", "host", "participant 1", "participant 2"):
+        return False
+    if host_name and cl == host_name.lower():
+        return False
+    # Must not contain digits (e.g. 'Gets 2026')
+    if any(char.isdigit() for char in c):
+        return False
+    # Must not contain @ or urls
+    if "@" in c or "http" in cl or ".com" in cl:
+        return False
+    # Check corporation/tenant keywords
+    import re
+    words = set(re.findall(r"[a-zA-Z]+", cl))
+    if words & CORP_KEYWORDS:
+        return False
+    # Person names typically have 1 to 4 words
+    if len(c.split()) > 4:
+        return False
+    return True
+
+
+def extract_conversational_speaker_name(text: str) -> Optional[str]:
+    """
+    Extracts self-introduced attendee names from live transcript text.
+    Handles English, Hinglish, and Hindi conversational intros:
+    - 'My name is Harshita.'
+    - 'Hi, I am Harshita.'
+    - 'This is Harshita speaking.'
+    - 'Mera naam Harshita hai.'
+    - 'Main Harshita bol rahi hoon.'
+    """
+    import re
+    if not text or not text.strip():
+        return None
+
+    patterns = [
+        r"(?:my name is|my name\'s)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"(?:i am|i\'m)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
+        r"(?:this is)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
+        r"(?:mera naam)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:hai)",
+        r"(?:main|mein)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:bol raha|bol rahi|hoon)",
+    ]
+
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip().title()
+            words = candidate.lower().split()
+            if not any(w in INTRO_STOP_WORDS for w in words) and is_valid_person_name(candidate):
+                return candidate
+    return None
 
 
 class TeamsLiveAttendeeTracker:
@@ -140,20 +237,14 @@ class TeamsLiveAttendeeTracker:
 
     def add_attendee(self, name: str) -> bool:
         """Adds a newly discovered attendee to the call roster."""
-        cleaned = name.strip()
-        for noise in ["(Guest)", "(External)", "(Presenter)", "(Organizer)", "(You)"]:
-            cleaned = cleaned.replace(noise, "").strip()
-
+        cleaned = clean_person_name(name)
         if (
-            cleaned
-            and len(cleaned) >= 2
+            is_valid_person_name(cleaned, host_name=self.host_name)
             and cleaned not in self.known_roster
-            and cleaned != self.host_name
-            and cleaned.lower() not in ("you", "me", "remote attendee", "speaker", "unknown")
         ):
             with self._lock:
                 self.known_roster.append(cleaned)
-                if self.current_speaker == "Remote Attendee":
+                if self.current_speaker in ("Remote Attendee", "Unknown", ""):
                     self.current_speaker = cleaned
             timestamp_str = time.strftime("%H:%M:%S")
             print(f"[{timestamp_str}] 👤 [Teams Roster] Detected attendee in call: {cleaned}")
@@ -162,11 +253,8 @@ class TeamsLiveAttendeeTracker:
 
     def set_active_speaker(self, name: str):
         """Sets the currently active speaker with a timestamp."""
-        cleaned = name.strip()
-        for noise in ["(Guest)", "(External)", "(Presenter)", "(Organizer)", "(You)"]:
-            cleaned = cleaned.replace(noise, "").strip()
-
-        if cleaned and cleaned != self.host_name and cleaned.lower() not in ("you", "remote attendee"):
+        cleaned = clean_person_name(name)
+        if is_valid_person_name(cleaned, host_name=self.host_name):
             self.add_attendee(cleaned)
             with self._lock:
                 old_speaker = self.last_detected_speaker
@@ -183,7 +271,7 @@ class TeamsLiveAttendeeTracker:
             # If an active speaker was detected within the last 7 seconds, attribute to them
             if self.last_detected_speaker and (time.time() - self.last_detection_time < 7.0):
                 return self.last_detected_speaker
-            if self.current_speaker and self.current_speaker != "Remote Attendee":
+            if self.current_speaker and self.current_speaker not in ("Remote Attendee", "Unknown", ""):
                 return self.current_speaker
             if self.known_roster:
                 return self.known_roster[0]
@@ -229,39 +317,30 @@ class TeamsLiveAttendeeTracker:
             WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
             user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
 
-            # Navigation pages and common static UI tabs in Teams to ignore
-            TEAMS_STATIC_PAGES = {
-                "chat", "activity", "calendar", "calls", "files", "teams", "apps",
-                "settings", "help", "notifications", "general", "meet", "meeting",
-                "call", "microsoft teams", "teams meeting", "new chat", "search",
-                "desktop 1", "unknown"
-            }
-
             for t in found_titles:
                 t_clean = t.strip()
                 t_lower = t_clean.lower()
                 if "microsoft teams" in t_lower or "teams" in t_lower:
-                    # In Teams, the caller, chat, or meeting title is ALWAYS before the first '|' or '-'
+                    # In Teams, title is pipe or dash separated:
+                    # e.g. "Chat with Harshita | Systematix Infotech Pvt Ltd | sujal.nage@softude.com | Microsoft Teams"
+                    # or "Harshita | Systematix Infotech Pvt Ltd | sujal.nage@softude.com | Microsoft Teams"
+                    # or "Meeting with Harshita, Rahul | Microsoft Teams"
                     pipe_parts = [p.strip() for p in t_clean.split("|")]
-                    first_part = pipe_parts[0].split(" - ")[0].strip()
-                    pl = first_part.lower()
-
-                    if any(k in pl for k in ["meeting with", "call with", "chat with"]):
-                        for kw in ["meeting with", "call with", "chat with"]:
-                            if kw in pl:
-                                after = first_part[pl.find(kw) + len(kw):].strip()
-                                for n in after.split(","):
-                                    for sub in n.split(" and "):
-                                        s_clean = sub.strip()
-                                        if s_clean.lower() not in TEAMS_STATIC_PAGES and len(s_clean) >= 2:
-                                            self.add_attendee(s_clean)
-                    elif pl not in TEAMS_STATIC_PAGES and len(first_part) >= 2:
-                        for candidate in first_part.split(","):
-                            c_clean = candidate.strip()
-                            c_lower = c_clean.lower()
-                            if c_lower not in TEAMS_STATIC_PAGES and len(c_clean) >= 2:
-                                if not any(noise in c_lower for noise in ["error", "loading", "connecting"]):
-                                    self.add_attendee(c_clean)
+                    for part in pipe_parts:
+                        pl = part.lower()
+                        if any(k in pl for k in ["meeting with", "call with", "chat with"]):
+                            for kw in ["meeting with", "call with", "chat with"]:
+                                if kw in pl:
+                                    after = part[pl.find(kw) + len(kw):].strip()
+                                    for n in after.split(","):
+                                        for sub in n.split(" and "):
+                                            sub_clean = clean_person_name(sub)
+                                            if is_valid_person_name(sub_clean, host_name=self.host_name):
+                                                self.add_attendee(sub_clean)
+                        else:
+                            clean_part = clean_person_name(part)
+                            if is_valid_person_name(clean_part, host_name=self.host_name):
+                                self.add_attendee(clean_part)
         except Exception:
             pass
 
@@ -314,7 +393,7 @@ ENGLISH_CONVERSATION = [
 ]
 
 
-async def run_simulation(ws_url: str, meeting_id: str, language: str = "en", host_name: str = "Host"):
+async def run_simulation(ws_url: str, meeting_id: str, language: str = "en", host_name: str = "Sujal Nage"):
     """Simulates dual-track audio streaming with realistic speaker turns in Hindi or English."""
     is_hindi = language.lower() in ["hi", "hindi", "hinglish"]
     conversation = HINDI_CONVERSATION if is_hindi else ENGLISH_CONVERSATION
@@ -521,7 +600,7 @@ async def run_hardware_capture(
     ws_url: str,
     meeting_id: str,
     language: str = "hi",
-    host_name: str = "Host",
+    host_name: str = "Sujal Nage",
     remote_name: str = "Remote Attendee",
     attendees: str = "",
 ):

@@ -34,8 +34,97 @@ from app.models.enums import MediaStatus
 from app.models.speaker import Speaker
 from app.models.transcript import Transcript
 from app.models.transcript_segment import TranscriptSegment
+from app.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+TEAMS_STATIC_PAGES = {
+    "chat", "activity", "calendar", "calls", "files", "teams", "apps",
+    "settings", "help", "notifications", "general", "meet", "meeting",
+    "call", "microsoft teams", "teams meeting", "new chat", "search",
+    "desktop 1", "unknown"
+}
+
+CORP_KEYWORDS = {
+    "pvt", "ltd", "inc", "corp", "llc", "infotech", "technologies", "technology",
+    "solutions", "systems", "software", "consulting", "enterprise", "services",
+    "systematix", "softude", "microsoft", "google", "zoom", "private", "limited",
+    "corporation", "company", "organization", "tenant", "internal", "external tenant",
+}
+
+INTRO_STOP_WORDS = {
+    "here", "there", "speaking", "talking", "listening", "audible", "ready",
+    "good", "fine", "sorry", "sure", "okay", "ok", "online", "back", "trying",
+    "going", "coming", "joined", "calling", "working", "happy", "glad", "yes", "no",
+    "the", "a", "an", "in", "on", "at", "to", "for", "with", "from", "just", "still",
+    "also", "now", "so", "then", "too", "very", "not", "asking", "hearing", "done",
+}
+
+
+def clean_person_name(name: str) -> str:
+    """Strips common conference tags, suffixes, and noise from a person's display name."""
+    c = name.strip()
+    for noise in [
+        "(Guest)", "(External)", "(Presenter)", "(Organizer)", "(You)",
+        "- Call", "| Call", "- Meeting", "| Meeting", " (external)", " (guest)"
+    ]:
+        c = c.replace(noise, "").strip()
+    return c
+
+
+def is_valid_person_name(name: str, host_name: str = "") -> bool:
+    """Validates whether a candidate name is an actual person, not a corporate entity or noise."""
+    c = clean_person_name(name)
+    if not c or len(c) < 2 or len(c) > 35:
+        return False
+    cl = c.lower()
+    if cl in TEAMS_STATIC_PAGES or cl in ("you", "me", "remote attendee", "speaker", "unknown", "host", "participant 1", "participant 2"):
+        return False
+    if host_name and cl == host_name.lower():
+        return False
+    if any(char.isdigit() for char in c):
+        return False
+    if "@" in c or "http" in cl or ".com" in cl:
+        return False
+    import re
+    words = set(re.findall(r"[a-zA-Z]+", cl))
+    if words & CORP_KEYWORDS:
+        return False
+    if len(c.split()) > 4:
+        return False
+    return True
+
+
+def extract_conversational_speaker_name(text: str) -> Optional[str]:
+    """
+    Extracts self-introduced attendee names from live transcript text.
+    Handles English, Hinglish, and Hindi conversational intros:
+    - 'My name is Harshita.'
+    - 'Hi, I am Harshita.'
+    - 'This is Harshita speaking.'
+    - 'Mera naam Harshita hai.'
+    - 'Main Harshita bol rahi hoon.'
+    """
+    import re
+    if not text or not text.strip():
+        return None
+
+    patterns = [
+        r"(?:my name is|my name\'s)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)",
+        r"(?:i am|i\'m)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
+        r"(?:this is)\s+([a-zA-Z]+)(?:\s+(?:here|speaking))?",
+        r"(?:mera naam)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:hai)",
+        r"(?:main|mein)\s+([a-zA-Z]+(?:\s+[a-zA-Z]+)?)\s+(?:bol raha|bol rahi|hoon)",
+    ]
+
+    for p in patterns:
+        m = re.search(p, text, re.IGNORECASE)
+        if m:
+            candidate = m.group(1).strip().title()
+            words = candidate.lower().split()
+            if not any(w in INTRO_STOP_WORDS for w in words) and is_valid_person_name(candidate):
+                return candidate
+    return None
 
 
 @dataclass
@@ -87,13 +176,20 @@ class LiveMeetingManager:
         meeting_id: uuid.UUID,
         tenant_id: uuid.UUID,
         owner_id: uuid.UUID,
-        host_name: str = "You (Host)",
+        host_name: str = "Sujal Nage",
         remote_name: str = "Remote Attendee",
         language: str = "hi",
     ) -> LiveSession:
         """Initialize or retrieve a live meeting session."""
         if meeting_id in self._sessions:
             return self._sessions[meeting_id]
+
+        if not host_name or host_name in ("You (Host)", "Host", ""):
+            user = db.query(User).filter(User.id == owner_id).first()
+            if user and user.full_name:
+                host_name = user.full_name
+            else:
+                host_name = "Sujal Nage"
 
         meeting = db.query(Meeting).filter(
             Meeting.id == meeting_id,
@@ -175,6 +271,9 @@ class LiveMeetingManager:
             db.add(host_speaker)
             db.commit()
             db.refresh(host_speaker)
+        elif host_speaker.display_name in ("You (Host)", "Host", "") and host_name not in ("You (Host)", "Host", ""):
+            host_speaker.display_name = host_name
+            db.commit()
 
         session = LiveSession(
             meeting_id=meeting_id,
@@ -264,14 +363,16 @@ class LiveMeetingManager:
             ch_buf = session.channels[channel_id]
             if speaker_hint and ch_buf.display_name != speaker_hint:
                 old_name = ch_buf.display_name
-                ch_buf.display_name = speaker_hint
-                if (
-                    old_name in ("Remote Attendee", "Participant 2", "Unknown", "")
-                    and speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "")
-                ):
-                    asyncio.create_task(
-                        self._reconcile_placeholder_speaker(session, channel_id, old_name, speaker_hint)
-                    )
+                host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
+                if channel_id == 1 or is_valid_person_name(speaker_hint, host_disp):
+                    ch_buf.display_name = speaker_hint
+                    if (
+                        old_name in ("Remote Attendee", "Participant 2", "Unknown", "You (Host)", "Host", "Participant 1", "")
+                        or not is_valid_person_name(old_name, host_disp)
+                    ):
+                        asyncio.create_task(
+                            self._reconcile_placeholder_speaker(session, channel_id, old_name, speaker_hint)
+                        )
 
             # Append audio bytes
             if audio_bytes:
@@ -283,6 +384,17 @@ class LiveMeetingManager:
                 now_rel = (time.time() - session.start_wall_time)
                 start_sec = max(0.0, now_rel - 2.5)
                 end_sec = now_rel
+
+                # Conversational self-introduction detection
+                if channel_id > 1:
+                    intro_name = extract_conversational_speaker_name(text_hint.strip())
+                    host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
+                    if intro_name and is_valid_person_name(intro_name, host_disp):
+                        if ch_buf.display_name != intro_name:
+                            old_name = ch_buf.display_name
+                            ch_buf.display_name = intro_name
+                            await self._reconcile_placeholder_speaker(session, channel_id, old_name, intro_name)
+
                 await self._persist_and_broadcast_segment(
                     session=session,
                     channel_id=channel_id,
@@ -333,6 +445,17 @@ class LiveMeetingManager:
                 # Perform speech-to-text on this chunk
                 text = await self._transcribe_pcm_chunk(pcm_data, channel_id, ch_buf.display_name, session.language)
                 if text and text.strip():
+                    # Dynamic conversational speaker recognition:
+                    # e.g. "My name is Harshita", "I'm Harshita", "Mera naam Harshita hai"
+                    if channel_id > 1:
+                        intro_name = extract_conversational_speaker_name(text)
+                        host_disp = session.channels.get(1, ChannelBuffer(1, "", "")).display_name
+                        if intro_name and is_valid_person_name(intro_name, host_disp):
+                            if ch_buf.display_name != intro_name:
+                                old_name = ch_buf.display_name
+                                ch_buf.display_name = intro_name
+                                await self._reconcile_placeholder_speaker(session, channel_id, old_name, intro_name)
+
                     await self._persist_and_broadcast_segment(
                         session=session,
                         channel_id=channel_id,
@@ -481,7 +604,9 @@ class LiveMeetingManager:
         old_name: str,
         new_name: str,
     ) -> None:
-        """Retroactively updates previous segments from 'Remote Attendee' to the real discovered name."""
+        """Retroactively updates previous segments from placeholder/org to the real discovered name."""
+        if not new_name or old_name == new_name:
+            return
         try:
             db = SessionLocal()
             try:
@@ -490,15 +615,39 @@ class LiveMeetingManager:
                     Speaker.tenant_id == session.tenant_id,
                     Speaker.display_name == old_name,
                 ).first()
-                if placeholder_speaker:
+
+                existing_speaker = db.query(Speaker).filter(
+                    Speaker.meeting_id == session.meeting_id,
+                    Speaker.tenant_id == session.tenant_id,
+                    Speaker.display_name == new_name,
+                ).first()
+
+                if placeholder_speaker and existing_speaker:
+                    # Merge: point all segments from placeholder to existing speaker
+                    db.query(TranscriptSegment).filter(
+                        TranscriptSegment.speaker_id == placeholder_speaker.id
+                    ).update({"speaker_id": existing_speaker.id})
+                    db.delete(placeholder_speaker)
+                    db.commit()
+                elif placeholder_speaker:
                     placeholder_speaker.display_name = new_name
                     db.commit()
-                    logger.info(
-                        "Reconciled placeholder speaker in DB",
-                        meeting_id=str(session.meeting_id),
-                        old_name=old_name,
-                        new_name=new_name,
+                elif not existing_speaker:
+                    spk = Speaker(
+                        meeting_id=session.meeting_id,
+                        tenant_id=session.tenant_id,
+                        speaker_label=f"SPEAKER_{channel_id}",
+                        display_name=new_name,
                     )
+                    db.add(spk)
+                    db.commit()
+
+                logger.info(
+                    "Reconciled placeholder speaker in DB",
+                    meeting_id=str(session.meeting_id),
+                    old_name=old_name,
+                    new_name=new_name,
+                )
 
                 # Broadcast live rename event to all connected UI clients
                 rename_payload = {

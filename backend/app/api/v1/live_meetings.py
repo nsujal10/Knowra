@@ -70,7 +70,7 @@ async def start_live_meeting(
         if user and user.full_name:
             resolved_host = user.full_name
         else:
-            resolved_host = "Host"
+            resolved_host = "Sujal Nage"
 
     meeting = Meeting(
         id=meeting_id,

@@ -208,3 +208,41 @@ def test_host_conversational_addressing_routes_next_speaker():
     spk, _ = diarizer.identify_speaker(pcm_audio)
     assert spk == "Yash Lade"
 
+
+def test_live_acoustic_diarizer_comma_separated_roster_input():
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    def make_pcm(f0, formants):
+        sig = np.sin(2 * np.pi * f0 * t) * 15000
+        for f, a in formants:
+            sig += np.sin(2 * np.pi * f * t) * a
+        return sig.astype(np.int16).tobytes()
+
+    pcm_harshita = make_pcm(240, [(480, 8000), (1900, 5000)])
+    pcm_yash = make_pcm(155, [(310, 8000), (1200, 6000)])
+    pcm_rahul = make_pcm(105, [(210, 9000), (850, 6000)])
+
+    # Passing comma-separated string as a single item (as happens in browser input or modal)
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel, Yash Lade, Rahul Sharma"],
+        host_name="Sujal Nage"
+    )
+    assert len(diarizer.roster) == 3
+    assert diarizer.roster == ["Harshita Baghel", "Yash Lade", "Rahul Sharma"]
+
+    # Person 1 speaks -> Harshita Baghel
+    spk1, _ = diarizer.identify_speaker(pcm_harshita)
+    assert spk1 == "Harshita Baghel"
+
+    # Person 2 speaks -> Yash Lade
+    spk2, _ = diarizer.identify_speaker(pcm_yash)
+    assert spk2 == "Yash Lade"
+
+    # Person 3 speaks -> Rahul Sharma (Person 3 must be detected by name!)
+    spk3, _ = diarizer.identify_speaker(pcm_rahul)
+    assert spk3 == "Rahul Sharma"
+
+

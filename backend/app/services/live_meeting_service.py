@@ -591,10 +591,13 @@ class LiveAcousticDiarizer:
         # 3. Resolve target priority: Physical UI badge vs Verbal addressing hypothesis
         # Hierarchy: If Teams UI badge is active (e.g. "Ram"), physical microphone reality WINS over verbal addressing!
         resolved_hint: Optional[str] = None
+        hint_is_physical_ui: bool = False
+
         if valid_ui_hint:
             resolved_hint = valid_ui_hint
+            hint_is_physical_ui = True
             if addressed_target and valid_ui_hint.lower() == addressed_target.lower():
-                self.last_addressed_name = None  # Addressed person spoke!
+                self.last_addressed_name = None
         elif addressed_target:
             # Verbal address hypothesis: check if addressed person ALREADY has an established cluster
             addressed_cluster = next((c for c in self.clusters if c.display_name.lower() == addressed_target.lower()), None)
@@ -631,13 +634,11 @@ class LiveAcousticDiarizer:
 
         # Case 1: First speaker on Channel 2
         if not self.clusters:
-            if valid_ui_hint:
-                name = valid_ui_hint
-                confirmed = True
-            elif resolved_hint:
+            if resolved_hint:
                 name = resolved_hint
-                confirmed = bool(self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster))
+                confirmed = bool(hint_is_physical_ui or (self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster)))
             elif self.roster:
+                # Biometrically pick roster candidate whose gender matches the voice pitch!
                 matched_candidate = None
                 if voice_gender != "unknown":
                     for cand in self.roster:
@@ -696,7 +697,7 @@ class LiveAcousticDiarizer:
 
             if resolved_hint and resolved_hint.lower() not in assigned_names:
                 new_name = resolved_hint
-                confirmed = bool(valid_ui_hint or (self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster)))
+                confirmed = bool(hint_is_physical_ui or (self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster) and hint_is_physical_ui))
             else:
                 # Pick next unassigned attendee from roster, prioritizing biometric pitch gender match
                 available = [r for r in self.roster if r.lower() not in assigned_names]
@@ -782,9 +783,11 @@ class LiveAcousticDiarizer:
         # Only allow update in-place if:
         # 1. Current name is a placeholder (Participant, Remote Attendee, etc.)
         # 2. OR new name is an expansion of old name (e.g. "Harshita" -> "Harshita Baghel")
+        # 3. OR current cluster was an unconfirmed tentative hypothesis (e.g. proxy speaker replied)
         is_placeholder = (
             old_name.startswith(("Participant", "Remote Attendee", "Unknown", "Speaker"))
             or not is_valid_person_name(old_name, self.host_name)
+            or not active_cluster.is_name_confirmed
         )
         is_expansion = (
             old_name.lower() in matched_name.lower() and len(matched_name) > len(old_name)

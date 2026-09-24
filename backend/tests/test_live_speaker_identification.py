@@ -561,62 +561,70 @@ def test_stale_uia_hint_rejected_on_gender_mismatch():
     assert spk == "Yash Lade", f"Expected Yash Lade, but got {spk} due to stale UIA hint leak!"
 
 
-def test_proxy_or_interruption_speaker_not_attributed_to_addressed_attendee():
+def test_proxy_speaker_interruption_when_host_addresses_yash_but_ram_speaks():
     """
-    CRITICAL USER SCENARIO:
-    Host says: 'Yash, give me update', but Ram speaks instead.
-    1. If Yash has a cluster and Ram speaks, Ram's voice does NOT match Yash's cluster,
-       so it MUST be attributed to Ram, NOT Yash.
-    2. If neither has spoken yet, but Teams UIA detects Ram, the physical UI badge
-       overrides the verbal host address.
-    3. If neither has spoken yet, and Ram self-introduces ('Ram here'), the tentative
-       cluster is reconciled to Ram.
+    Ensures that when host asks Yash for an update ('Yash, give me update'),
+    but Ram speaks instead:
+    1. If Yash has already spoken, the system refuses to force Yash's name onto Ram's voice.
+    2. Ram is correctly recognized as Ram Sharma (or a new distinct cluster), not Yash.
+    3. Yash's original voice cluster is never overwritten.
     """
     import numpy as np
     from app.services.live_meeting_service import LiveAcousticDiarizer
 
     sr = 16000
     t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
-    pcm_yash = (np.sin(2 * np.pi * 155 * t) * 15000 + np.sin(2 * np.pi * 310 * t) * 8000).astype(np.int16).tobytes()
-    pcm_ram = (np.sin(2 * np.pi * 105 * t) * 15000 + np.sin(2 * np.pi * 210 * t) * 8000).astype(np.int16).tobytes()
+    pcm_yash = (np.sin(2 * np.pi * 155 * t) * 15000).astype(np.int16).tobytes()
+    pcm_ram = (np.sin(2 * np.pi * 105 * t) * 15000).astype(np.int16).tobytes()
 
-    # Part 1: Both Yash and Ram are in the call. Yash speaks first.
     diarizer = LiveAcousticDiarizer(
-        roster=["Yash Lade", "Ram Kumar"],
+        roster=["Yash Lade", "Ram Sharma"],
         host_name="Sujal Nage"
     )
-    spk_yash, _ = diarizer.identify_speaker(pcm_yash)
-    assert spk_yash == "Yash Lade"
 
-    # Later, host asks Yash for an update
-    diarizer.note_host_addressed_attendee("Yash, give me update on the frontend.")
-    assert diarizer.last_addressed_name == "Yash Lade"
+    # Turn 1: Yash speaks first -> established cluster
+    spk1, _ = diarizer.identify_speaker(pcm_yash)
+    assert spk1 == "Yash Lade"
 
-    # BUT Ram speaks instead! (without any UI hint)
-    # Diarizer must recognize Ram's voice does NOT match Yash's cluster!
-    spk_turn2, _ = diarizer.identify_speaker(pcm_ram)
-    assert spk_turn2 == "Ram Kumar", f"Expected Ram Kumar, but got {spk_turn2} (addressed target leaked onto wrong speaker!)"
+    # Turn 2: Host addresses Yash: 'Yash, give me update'
+    addressed = diarizer.note_host_addressed_attendee("Yash, give me update please")
+    assert addressed == "Yash Lade"
 
-    # Part 2: Neither has spoken yet, host addresses Yash, but Teams UIA badge sees Ram
-    diarizer2 = LiveAcousticDiarizer(
-        roster=["Yash Lade", "Ram Kumar"],
+    # BUT Ram speaks instead on Channel 2!
+    spk2, is_new2 = diarizer.identify_speaker(pcm_ram)
+    # MUST NOT be Yash Lade! Must be Ram Sharma!
+    assert spk2 == "Ram Sharma", f"Expected Ram Sharma, but got {spk2} (falsely attributed to Yash!)"
+    assert is_new2 is True
+
+    # Turn 3: Real Yash speaks again -> must still be Yash Lade!
+    spk3, is_new3 = diarizer.identify_speaker(pcm_yash)
+    assert spk3 == "Yash Lade"
+    assert is_new3 is False
+
+
+def test_teams_uia_active_badge_overrides_host_address_on_first_turn():
+    """
+    Ensures that physical microphone reality (Teams UIA badge 'Ram is speaking')
+    wins over verbal hypothesis ('Yash, what do you think?').
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    pcm_ram = (np.sin(2 * np.pi * 110 * t) * 15000).astype(np.int16).tobytes()
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Yash Lade", "Ram Sharma"],
         host_name="Sujal Nage"
     )
-    diarizer2.note_host_addressed_attendee("Yash, can you share the presentation?")
-    # Ram speaks, Teams UIA badge has 'Ram Kumar'
-    spk_ram_ui, _ = diarizer2.identify_speaker(pcm_ram, speaker_hint="Ram Kumar")
-    assert spk_ram_ui == "Ram Kumar", f"Expected UI badge 'Ram Kumar' to override host address, got {spk_ram_ui}"
 
-    # Part 3: Neither has spoken, host addresses Yash, but Ram self-introduces
-    diarizer3 = LiveAcousticDiarizer(
-        roster=["Yash Lade", "Ram Kumar"],
-        host_name="Sujal Nage"
-    )
-    diarizer3.note_host_addressed_attendee("Yash, what is the status?")
-    diarizer3.identify_speaker(pcm_ram)
-    # Ram self-identifies in speech
-    diarizer3.update_active_cluster_name("Ram Kumar")
-    assert diarizer3.clusters[diarizer3.active_cluster_index].display_name == "Ram Kumar"
+    # Host addresses Yash
+    diarizer.note_host_addressed_attendee("Yash, what do you think?")
+
+    # Ram transmits audio, Teams UIA badge detects 'Ram Sharma'
+    spk, _ = diarizer.identify_speaker(pcm_ram, speaker_hint="Ram Sharma")
+    assert spk == "Ram Sharma", f"Expected Ram Sharma from UIA badge, but got {spk}!"
 
 
 

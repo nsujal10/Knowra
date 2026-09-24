@@ -471,5 +471,96 @@ def test_phantom_cluster_suppression_when_roster_assigned():
     assert len(diarizer.clusters) <= 3
 
 
+def test_meeting_topics_never_accepted_as_person_names():
+    from app.services.live_meeting_service import is_valid_person_name
+
+    topics = [
+        "Daily Standup",
+        "Engineering Sprint Sync",
+        "Architecture Review",
+        "Product Alignment Huddle",
+        "Weekly Status Meeting",
+        "Scrum Retrospective",
+        "Design Workshop",
+    ]
+    for topic in topics:
+        assert not is_valid_person_name(topic), f"Topic '{topic}' should NOT be a valid person name!"
+
+    # Real person names should still pass
+    assert is_valid_person_name("Harshita Baghel")
+    assert is_valid_person_name("Yash Lade")
+    assert is_valid_person_name("Rahul Sharma")
+
+
+def test_first_speaker_biometric_matching_avoids_roster_inversion():
+    """
+    Ensures that when Attendee 2 (Yash Lade, male) speaks first on Channel 2,
+    the system matches his voice biometrically instead of blindly guessing Attendee 1 (Harshita Baghel).
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    pcm_yash = (np.sin(2 * np.pi * 115 * t) * 15000).astype(np.int16).tobytes()
+    pcm_harshita = (np.sin(2 * np.pi * 230 * t) * 15000).astype(np.int16).tobytes()
+
+    # Harshita is at index 0 of roster, Yash at index 1
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+
+    # Yash speaks FIRST on Channel 2 without explicit address
+    spk1, _ = diarizer.identify_speaker(pcm_yash)
+    assert spk1 == "Yash Lade", f"Expected Yash Lade, but got {spk1} (roster inversion bug!)"
+
+    # Harshita speaks SECOND
+    spk2, is_new2 = diarizer.identify_speaker(pcm_harshita)
+    assert spk2 == "Harshita Baghel"
+    assert is_new2 is True
+
+
+def test_passive_host_mentions_do_not_trigger_conversational_handoff():
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade", "Rahul Sharma"],
+        host_name="Sujal Nage"
+    )
+
+    # Passive 3rd-person mentions must NOT trigger handoff
+    assert diarizer.note_host_addressed_attendee("I had a sync with Yash yesterday.") is None
+    assert diarizer.note_host_addressed_attendee("We told Harshita about the timeline.") is None
+    assert diarizer.note_host_addressed_attendee("Rahul ne bola tha ki ho jayega.") is None
+
+    # Direct address MUST trigger handoff
+    assert diarizer.note_host_addressed_attendee("Yash, can you explain the architecture?") == "Yash Lade"
+    assert diarizer.last_addressed_name == "Yash Lade"
+
+
+def test_stale_uia_hint_rejected_on_gender_mismatch():
+    """
+    Ensures that when a male speaker talks while a stale female UIA hint is lingering,
+    the conflicting hint is rejected rather than misnaming the speaker.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    pcm_yash = (np.sin(2 * np.pi * 115 * t) * 15000).astype(np.int16).tobytes()
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+
+    # Yash speaks, but UIA badge has lingering 'Harshita Baghel'
+    spk, _ = diarizer.identify_speaker(pcm_yash, speaker_hint="Harshita Baghel")
+    assert spk == "Yash Lade", f"Expected Yash Lade, but got {spk} due to stale UIA hint leak!"
+
+
+
 
 

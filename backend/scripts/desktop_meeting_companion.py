@@ -119,7 +119,16 @@ UI_KEYWORDS = {
     "transcript", "transcription", "caption", "captions", "subtitles", "raise", "hand",
 }
 
-BLOCKED_WORDS = CORP_KEYWORDS | UI_KEYWORDS | TEAMS_STATIC_PAGES
+MEETING_KEYWORDS = {
+    "standup", "sprint", "sync", "syncup", "review", "planning", "retro", "retrospective",
+    "demo", "architecture", "daily", "weekly", "monthly", "catchup", "huddle", "status",
+    "engineering", "design", "product", "discussion", "alignment", "kickoff", "release",
+    "incident", "backlog", "grooming", "refinement", "scrum", "agile", "touchpoint",
+    "checkin", "check-in", "session", "workshop", "interview", "onboarding", "training",
+    "project", "ops", "operations", "strategy", "roadmap", "sync-up", "weekly sync",
+}
+
+BLOCKED_WORDS = CORP_KEYWORDS | UI_KEYWORDS | TEAMS_STATIC_PAGES | MEETING_KEYWORDS
 
 COMMON_NON_NAMES = {
     # Pronouns & determiners
@@ -407,19 +416,19 @@ class TeamsLiveAttendeeTracker:
 
     def get_active_speaker_hint(self) -> Optional[str]:
         """
-        Returns active speaker detected via Teams UI Automation within the last 7.0 seconds.
+        Returns active speaker detected via Teams UI Automation within the last 2.0 seconds.
         Returns None when no badge is active so acoustic voice clustering resolves the speaker.
         """
         with self._lock:
-            if self.last_detected_speaker and (time.time() - self.last_detection_time < 7.0):
+            if self.last_detected_speaker and (time.time() - self.last_detection_time < 2.0):
                 return self.last_detected_speaker
             return None
 
     def get_current_speaker(self) -> str:
         """Returns the most up-to-date speaker name for Channel 2 audio chunks."""
         with self._lock:
-            # If an active speaker was detected within the last 7 seconds, attribute to them
-            if self.last_detected_speaker and (time.time() - self.last_detection_time < 7.0):
+            # If an active speaker was detected within the last 2 seconds, attribute to them
+            if self.last_detected_speaker and (time.time() - self.last_detection_time < 2.0):
                 return self.last_detected_speaker
             if self.current_speaker and self.current_speaker not in ("Remote Attendee", "Unknown", ""):
                 return self.current_speaker
@@ -488,10 +497,13 @@ class TeamsLiveAttendeeTracker:
                                         if is_valid_person_name(sub_clean, host_name=self.host_name):
                                             self.add_attendee(sub_clean)
                         elif not any(static_tab in pl for static_tab in TEAMS_STATIC_PAGES):
-                            for sub in re.split(r",| and | & ", part):
-                                clean_sub = clean_person_name(sub)
-                                if is_valid_person_name(clean_sub, host_name=self.host_name):
-                                    self.add_attendee(clean_sub)
+                            # SAFETY: Ensure this segment is NOT a meeting topic like 'Engineering Sprint Sync'
+                            words = set(re.findall(r"[a-zA-Z]+", pl))
+                            if not (words & MEETING_KEYWORDS):
+                                for sub in re.split(r",| and | & ", part):
+                                    clean_sub = clean_person_name(sub)
+                                    if is_valid_person_name(clean_sub, host_name=self.host_name):
+                                        self.add_attendee(clean_sub)
         except Exception:
             pass
 
@@ -506,14 +518,16 @@ class TeamsLiveAttendeeTracker:
                 teams_win = auto.WindowControl(searchDepth=2, ClassName="TeamsWebView")
 
             if teams_win.Exists(0.05):
-                for ctrl in teams_win.GetChildren():
+                # Search controls recursively up to depth 5 to inspect inside WebView2 video tiles
+                def check_ctrl(ctrl, depth=0):
+                    if depth > 5:
+                        return False
                     name = ctrl.Name or ""
                     nl = name.lower()
                     if "is speaking" in nl or "is talking" in nl:
                         candidate = name.split(" is speaking")[0].split(" is talking")[0].strip()
                         clean_cand = clean_person_name(candidate)
                         if clean_cand and is_valid_person_name(clean_cand, self.host_name):
-                            # Resolve against roster if possible
                             matched = clean_cand
                             with self._lock:
                                 for r in self.known_roster:
@@ -521,7 +535,13 @@ class TeamsLiveAttendeeTracker:
                                         matched = r
                                         break
                             self.set_active_speaker(matched)
-                            return
+                            return True
+                    for child in ctrl.GetChildren():
+                        if check_ctrl(child, depth + 1):
+                            return True
+                    return False
+
+                check_ctrl(teams_win)
         except Exception:
             pass
 

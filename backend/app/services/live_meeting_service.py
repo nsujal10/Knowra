@@ -68,7 +68,16 @@ UI_KEYWORDS = {
     "transcript", "transcription", "caption", "captions", "subtitles", "raise", "hand",
 }
 
-BLOCKED_WORDS = CORP_KEYWORDS | UI_KEYWORDS | TEAMS_STATIC_PAGES
+MEETING_KEYWORDS = {
+    "standup", "sprint", "sync", "syncup", "review", "planning", "retro", "retrospective",
+    "demo", "architecture", "daily", "weekly", "monthly", "catchup", "huddle", "status",
+    "engineering", "design", "product", "discussion", "alignment", "kickoff", "release",
+    "incident", "backlog", "grooming", "refinement", "scrum", "agile", "touchpoint",
+    "checkin", "check-in", "session", "workshop", "interview", "onboarding", "training",
+    "project", "ops", "operations", "strategy", "roadmap", "sync-up", "weekly sync",
+}
+
+BLOCKED_WORDS = CORP_KEYWORDS | UI_KEYWORDS | TEAMS_STATIC_PAGES | MEETING_KEYWORDS
 
 COMMON_NON_NAMES = {
     # Pronouns & determiners
@@ -358,6 +367,55 @@ def extract_acoustic_embedding(pcm_data: bytes, sample_rate: int = 16000) -> Opt
         return None
 
 
+FEMALE_NAME_HINTS = {
+    "harshita", "priya", "neha", "pooja", "ananya", "shreya", "sneha", "ritu", "anjali",
+    "kavita", "sunita", "divya", "swati", "rashmi", "aditi", "megha", "tanvi", "sakshi",
+    "aishwarya", "shweta", "radhika", "simran", "kriti", "nisha", "deepika", "pallavi",
+    "mary", "sarah", "emily", "jessica", "ashley", "rachel", "emma", "olivia", "sophia",
+}
+MALE_NAME_HINTS = {
+    "yash", "rahul", "sujal", "rohit", "amit", "ankit", "abhishek", "vikas", "sachin",
+    "gaurav", "manish", "deepak", "suresh", "ramesh", "ajay", "vijay", "karan", "arjun",
+    "john", "david", "michael", "james", "robert", "william", "daniel", "chris", "alex",
+}
+
+
+def guess_name_gender(name: str) -> str:
+    """Returns 'female', 'male', or 'unknown' based on first name."""
+    if not name:
+        return "unknown"
+    first = name.strip().split()[0].lower()
+    if first in FEMALE_NAME_HINTS:
+        return "female"
+    if first in MALE_NAME_HINTS:
+        return "male"
+    if first.endswith(("ita", "shita", "ika", "iya", "eeta", "isha", "aali", "anya")):
+        return "female"
+    return "unknown"
+
+
+def get_voice_pitch_gender(emb: Optional[np.ndarray]) -> str:
+    """
+    Returns 'male', 'female', or 'unknown' based on the F0 RBF profile in the voice embedding.
+    Centers 0..2 span ~80Hz - 135Hz (clear male pitch range),
+    Centers 4..7 span ~185Hz - 360Hz (clear female pitch range).
+    Range 140Hz - 180Hz (Center 3) is an overlapping pitch range and returns 'unknown'.
+    """
+    if emb is None or len(emb) < 8:
+        return "unknown"
+    pitch_vec = emb[:8]
+    total_pitch = float(np.sum(pitch_vec))
+    if total_pitch < 0.05:
+        return "unknown"  # Unvoiced speech
+    low_sum = float(np.sum(pitch_vec[:3]))   # 80Hz - 135Hz (male)
+    high_sum = float(np.sum(pitch_vec[4:8])) # 185Hz - 360Hz (female)
+    if low_sum > high_sum * 1.5 and low_sum > total_pitch * 0.4:
+        return "male"
+    elif high_sum > low_sum * 1.5 and high_sum > total_pitch * 0.4:
+        return "female"
+    return "unknown"
+
+
 @dataclass
 class SpeakerCluster:
     cluster_id: str
@@ -413,11 +471,26 @@ class LiveAcousticDiarizer:
                 if c.lower() not in assigned_names:
                     for cluster in self.clusters:
                         if not cluster.is_name_confirmed and cluster.display_name.startswith(("Participant", "Remote Attendee")):
-                            old_name = cluster.display_name
-                            cluster.display_name = c
-                            cluster.is_name_confirmed = True
-                            assigned_names.add(c.lower())
-                            renamed_pairs.append((old_name, c))
+                            cand_gender = guess_name_gender(c)
+                            target_cluster = None
+                            for cl in self.clusters:
+                                if not cl.is_name_confirmed and cl.display_name.startswith(("Participant", "Remote Attendee")):
+                                    cl_gender = get_voice_pitch_gender(cl.centroid_embedding)
+                                    if cl_gender == "unknown" or cand_gender == "unknown" or cl_gender == cand_gender:
+                                        target_cluster = cl
+                                        break
+                            if not target_cluster:
+                                for cl in self.clusters:
+                                    if not cl.is_name_confirmed and cl.display_name.startswith(("Participant", "Remote Attendee")):
+                                        target_cluster = cl
+                                        break
+
+                            if target_cluster:
+                                old_name = target_cluster.display_name
+                                target_cluster.display_name = c
+                                target_cluster.is_name_confirmed = True
+                                assigned_names.add(c.lower())
+                                renamed_pairs.append((old_name, c))
                             break
         return renamed_pairs
 
@@ -425,10 +498,11 @@ class LiveAcousticDiarizer:
         """
         Scans host speech on Channel 1 to detect when host addresses a remote participant.
         e.g. 'Yash, what do you think?', 'Rahul, can you update us?', 'Ladhe bol toh kuch', 'Harshita...'
+        Requires direct vocative or conversational handoff patterns and ignores passive 3rd-person mentions.
         """
         if not host_text or not self.roster:
             return None
-        text_lower = host_text.lower()
+        text_lower = host_text.lower().strip()
         import difflib
 
         for attendee in self.roster:
@@ -437,30 +511,48 @@ class LiveAcousticDiarizer:
             last_name = parts[-1] if len(parts) > 1 else ""
             full_name = attendee.lower()
 
-            # Exact word boundary match on first, last, or full name
-            if (
-                (first_name and re.search(rf"\b{re.escape(first_name)}\b", text_lower))
-                or (last_name and re.search(rf"\b{re.escape(last_name)}\b", text_lower))
-                or re.search(rf"\b{re.escape(full_name)}\b", text_lower)
-            ):
-                self.last_addressed_name = attendee
-                self.last_addressed_time = time.time()
-                logger.info("Host addressed attendee", host=self.host_name, attendee=attendee)
-                return attendee
+            candidates = [c for c in [full_name, first_name, last_name] if c]
 
-            # Fuzzy transliteration matching for STT variations (e.g. 'Ladhe' for 'Lade', 'Arshit' for 'Harshita')
-            tokens = [t for t in re.findall(r"[a-zA-Z]+", text_lower) if len(t) >= 4]
-            for tok in tokens:
-                if first_name and difflib.SequenceMatcher(None, tok, first_name).ratio() >= 0.82:
+            for cand in candidates:
+                # 1. Passive mention exclusion: check if preceded or followed by passive/reportive markers
+                passive_pre = rf"\b(?:with|told|asked|about|from|spoke to|talked to|hearing from|thanks to|thank you|ke saath|ne bola|se poocha|ko bola)\s+{re.escape(cand)}\b"
+                passive_post = rf"\b{re.escape(cand)}\s+(?:ne|said|told|says|mentioned|was saying|is working|was working|already|ko)\b"
+                if re.search(passive_pre, text_lower) or re.search(passive_post, text_lower):
+                    direct_after = rf"\b{re.escape(cand)}[,?!]\s*(?:can|could|would|what|please|batao|bolo|bol|kya|aap)\b"
+                    if not re.search(direct_after, text_lower):
+                        continue
+
+                # 2. Direct address / handoff patterns
+                direct_patterns = [
+                    rf"(?:^|[.!?\n]|(?:hey|hi|hello|okay|ok|so))\s+{re.escape(cand)}[,?!]",
+                    rf"\b{re.escape(cand)}\s+(?:can you|could you|would you|what do you|what are your|your thoughts|batao|bolo|bol|please|kya)\b",
+                    rf"\b(?:what do you think|your thoughts|over to you|go ahead|tell us)\s*(?:about it)?(?:,\s*|\s+){re.escape(cand)}\b",
+                    rf"^{re.escape(cand)}[,?!]",
+                    rf"^{re.escape(cand)}\s+(?:can|could|would|what|please|batao|bolo|bol|kya|aap|tum)\b",
+                ]
+
+                matched = any(re.search(pat, text_lower) for pat in direct_patterns)
+                if not matched:
+                    if re.search(rf"\b{re.escape(cand)}[,?]", text_lower):
+                        matched = True
+
+                if matched:
                     self.last_addressed_name = attendee
                     self.last_addressed_time = time.time()
-                    logger.info("Host addressed attendee (fuzzy match)", host=self.host_name, attendee=attendee, token=tok)
+                    logger.info("Host addressed attendee", host=self.host_name, attendee=attendee)
                     return attendee
-                if last_name and difflib.SequenceMatcher(None, tok, last_name).ratio() >= 0.82:
-                    self.last_addressed_name = attendee
-                    self.last_addressed_time = time.time()
-                    logger.info("Host addressed attendee (fuzzy match)", host=self.host_name, attendee=attendee, token=tok)
-                    return attendee
+
+                # Transliteration / fuzzy matching for Hindi / accent STT variations (e.g. 'Ladhe' for 'Lade')
+                tokens = [t for t in re.findall(r"[a-zA-Z]+", text_lower) if len(t) >= 4]
+                for tok in tokens:
+                    if difflib.SequenceMatcher(None, tok, cand).ratio() >= 0.85:
+                        tok_idx = text_lower.find(tok)
+                        ctx = text_lower[max(0, tok_idx - 10) : min(len(text_lower), tok_idx + len(tok) + 15)]
+                        if any(k in ctx for k in ["bol", "batao", "kya", "can", "think", "what", ",", "?"]):
+                            self.last_addressed_name = attendee
+                            self.last_addressed_time = time.time()
+                            logger.info("Host addressed attendee (fuzzy match)", host=self.host_name, attendee=attendee, token=tok)
+                            return attendee
 
         return None
 
@@ -474,6 +566,7 @@ class LiveAcousticDiarizer:
         Returns: (resolved_display_name, is_new_speaker_cluster)
         """
         emb = extract_acoustic_embedding(pcm_data)
+        voice_gender = get_voice_pitch_gender(emb)
 
         # Check if host addressed someone within the last 12 seconds
         addressed_target: Optional[str] = None
@@ -484,7 +577,16 @@ class LiveAcousticDiarizer:
         # If explicit speaker hint from UIA is valid
         if not addressed_target and speaker_hint and is_valid_person_name(speaker_hint, self.host_name):
             if speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "Speaker"):
-                addressed_target = speaker_hint
+                hint_gender = guess_name_gender(speaker_hint)
+                if voice_gender != "unknown" and hint_gender != "unknown" and voice_gender != hint_gender:
+                    logger.info(
+                        "Speaker hint rejected due to gender mismatch with voice pitch",
+                        hint=speaker_hint,
+                        hint_gender=hint_gender,
+                        voice_gender=voice_gender,
+                    )
+                else:
+                    addressed_target = speaker_hint
 
         # Fallback if embedding is None
         if emb is None:
@@ -498,7 +600,20 @@ class LiveAcousticDiarizer:
 
         # Case 1: First speaker on Channel 2
         if not self.clusters:
-            name = addressed_target or (self.roster[0] if self.roster else "Remote Attendee")
+            if addressed_target:
+                name = addressed_target
+            elif self.roster:
+                # Biometrically pick roster candidate whose gender matches the voice pitch!
+                matched_candidate = None
+                if voice_gender != "unknown":
+                    for cand in self.roster:
+                        if guess_name_gender(cand) == voice_gender:
+                            matched_candidate = cand
+                            break
+                name = matched_candidate or self.roster[0]
+            else:
+                name = "Remote Attendee"
+
             c = SpeakerCluster(
                 cluster_id="REMOTE_SPK_1",
                 display_name=name,
@@ -546,10 +661,16 @@ class LiveAcousticDiarizer:
                 new_name = addressed_target
                 confirmed = True
             else:
-                # Pick next unassigned attendee from roster
+                # Pick next unassigned attendee from roster, prioritizing biometric pitch gender match
                 available = [r for r in self.roster if r.lower() not in assigned_names]
                 if available:
-                    new_name = available[0]
+                    matched_cand = None
+                    if voice_gender != "unknown":
+                        for cand in available:
+                            if guess_name_gender(cand) == voice_gender:
+                                matched_cand = cand
+                                break
+                    new_name = matched_cand or available[0]
                     confirmed = True
                 else:
                     # SAFETY GUARD: Prevent spawning phantom clusters!

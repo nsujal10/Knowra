@@ -568,14 +568,14 @@ class LiveAcousticDiarizer:
         emb = extract_acoustic_embedding(pcm_data)
         voice_gender = get_voice_pitch_gender(emb)
 
-        # Check if host addressed someone within the last 12 seconds
+        # 1. Process host conversational address (hypothesis)
         addressed_target: Optional[str] = None
         if self.last_addressed_name and (time.time() - self.last_addressed_time < 12.0):
             addressed_target = self.last_addressed_name
-            self.last_addressed_name = None  # Consume address
 
-        # If explicit speaker hint from UIA is valid
-        if not addressed_target and speaker_hint and is_valid_person_name(speaker_hint, self.host_name):
+        # 2. Process physical Teams UI Automation active speaker badge
+        valid_ui_hint: Optional[str] = None
+        if speaker_hint and is_valid_person_name(speaker_hint, self.host_name):
             if speaker_hint not in ("Remote Attendee", "Participant 2", "Unknown", "Speaker"):
                 hint_gender = guess_name_gender(speaker_hint)
                 if voice_gender != "unknown" and hint_gender != "unknown" and voice_gender != hint_gender:
@@ -586,12 +586,43 @@ class LiveAcousticDiarizer:
                         voice_gender=voice_gender,
                     )
                 else:
-                    addressed_target = speaker_hint
+                    valid_ui_hint = speaker_hint
+
+        # 3. Resolve target priority: Physical UI badge vs Verbal addressing hypothesis
+        # Hierarchy: If Teams UI badge is active (e.g. "Ram"), physical microphone reality WINS over verbal addressing!
+        resolved_hint: Optional[str] = None
+        if valid_ui_hint:
+            resolved_hint = valid_ui_hint
+            if addressed_target and valid_ui_hint.lower() == addressed_target.lower():
+                self.last_addressed_name = None  # Addressed person spoke!
+        elif addressed_target:
+            # Verbal address hypothesis: check if addressed person ALREADY has an established cluster
+            addressed_cluster = next((c for c in self.clusters if c.display_name.lower() == addressed_target.lower()), None)
+            if addressed_cluster and emb is not None:
+                sim_to_addressed = float(np.dot(emb, addressed_cluster.centroid_embedding))
+                if sim_to_addressed >= self.similarity_threshold:
+                    # Acoustically matches the addressed person's known voice!
+                    resolved_hint = addressed_target
+                    self.last_addressed_name = None
+                else:
+                    # PROXY / INTERRUPTION SCENARIO: Host addressed Yash, but incoming voice does NOT match Yash!
+                    # Refuse to force Yash's name onto this different voice!
+                    logger.info(
+                        "Interruption detected: incoming voice does not match addressed attendee cluster",
+                        addressed=addressed_target,
+                        similarity=round(sim_to_addressed, 3),
+                        threshold=self.similarity_threshold,
+                    )
+                    resolved_hint = None
+            else:
+                # Addressed person has not spoken yet: use as tentative hypothesis
+                resolved_hint = addressed_target
+                self.last_addressed_name = None
 
         # Fallback if embedding is None
         if emb is None:
-            if addressed_target:
-                return (addressed_target, False)
+            if resolved_hint:
+                return (resolved_hint, False)
             if self.clusters:
                 return (self.clusters[self.active_cluster_index].display_name, False)
             if self.roster:
@@ -600,10 +631,13 @@ class LiveAcousticDiarizer:
 
         # Case 1: First speaker on Channel 2
         if not self.clusters:
-            if addressed_target:
-                name = addressed_target
+            if valid_ui_hint:
+                name = valid_ui_hint
+                confirmed = True
+            elif resolved_hint:
+                name = resolved_hint
+                confirmed = bool(self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster))
             elif self.roster:
-                # Biometrically pick roster candidate whose gender matches the voice pitch!
                 matched_candidate = None
                 if voice_gender != "unknown":
                     for cand in self.roster:
@@ -611,15 +645,17 @@ class LiveAcousticDiarizer:
                             matched_candidate = cand
                             break
                 name = matched_candidate or self.roster[0]
+                confirmed = True
             else:
                 name = "Remote Attendee"
+                confirmed = False
 
             c = SpeakerCluster(
                 cluster_id="REMOTE_SPK_1",
                 display_name=name,
                 centroid_embedding=emb,
                 last_active_time=time.time(),
-                is_name_confirmed=bool(addressed_target or self.roster),
+                is_name_confirmed=confirmed,
             )
             self.clusters.append(c)
             self.active_cluster_index = 0
@@ -641,25 +677,26 @@ class LiveAcousticDiarizer:
             cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
             cluster.last_active_time = time.time()
 
-            # If host addressed someone specifically or explicit hint confirmed:
-            # SAFETY: Only apply addressed_target if it doesn't collide with another cluster
-            if addressed_target and not cluster.is_name_confirmed:
-                assigned_other = {
-                    c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
-                }
-                if addressed_target.lower() not in assigned_other:
-                    cluster.display_name = addressed_target
-                    cluster.is_name_confirmed = True
+            # If cluster is NOT confirmed, and physical UI badge or resolved_hint arrives:
+            if not cluster.is_name_confirmed:
+                target_to_apply = valid_ui_hint or resolved_hint
+                if target_to_apply:
+                    assigned_other = {
+                        c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
+                    }
+                    if target_to_apply.lower() not in assigned_other:
+                        cluster.display_name = target_to_apply
+                        if valid_ui_hint:
+                            cluster.is_name_confirmed = True
 
             return (cluster.display_name, False)
         else:
             # Different speaker! New turn from another remote participant.
             assigned_names = {c.display_name.lower() for c in self.clusters}
 
-            # CRITICAL: A hint/addressed_target can only name this NEW cluster if it is NOT already assigned to an existing cluster!
-            if addressed_target and addressed_target.lower() not in assigned_names:
-                new_name = addressed_target
-                confirmed = True
+            if resolved_hint and resolved_hint.lower() not in assigned_names:
+                new_name = resolved_hint
+                confirmed = bool(valid_ui_hint or (self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster)))
             else:
                 # Pick next unassigned attendee from roster, prioritizing biometric pitch gender match
                 available = [r for r in self.roster if r.lower() not in assigned_names]

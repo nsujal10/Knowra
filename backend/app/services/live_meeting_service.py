@@ -371,11 +371,16 @@ FEMALE_NAME_HINTS = {
     "harshita", "priya", "neha", "pooja", "ananya", "shreya", "sneha", "ritu", "anjali",
     "kavita", "sunita", "divya", "swati", "rashmi", "aditi", "megha", "tanvi", "sakshi",
     "aishwarya", "shweta", "radhika", "simran", "kriti", "nisha", "deepika", "pallavi",
+    "mansi", "manasvi", "simi", "tanya", "sonal", "vidhi", "parul", "sheetal",
     "mary", "sarah", "emily", "jessica", "ashley", "rachel", "emma", "olivia", "sophia",
 }
 MALE_NAME_HINTS = {
     "yash", "rahul", "sujal", "rohit", "amit", "ankit", "abhishek", "vikas", "sachin",
     "gaurav", "manish", "deepak", "suresh", "ramesh", "ajay", "vijay", "karan", "arjun",
+    "ujjwal", "harsh", "vivek", "prashant", "pankaj", "alok", "aditya", "ayush", "shubham",
+    "prateek", "sumit", "aman", "varun", "kunal", "tarun", "nikhil", "mayank", "sourabh",
+    "saurabh", "tanmay", "anand", "rishabh", "kartik", "rajat", "deep", "mohit", "piyush",
+    "shivam", "akash", "atul", "joel",
     "john", "david", "michael", "james", "robert", "william", "daniel", "chris", "alex",
 }
 
@@ -414,6 +419,22 @@ def get_voice_pitch_gender(emb: Optional[np.ndarray]) -> str:
     elif high_sum > low_sum * 1.5 and high_sum > total_pitch * 0.4:
         return "female"
     return "unknown"
+
+
+def compute_embedding_similarity(emb1: np.ndarray, emb2: np.ndarray) -> float:
+    """Computes acoustic similarity between two voice embeddings.
+
+    If either chunk is unvoiced (pitch vector is zero), compares normalized vocal tract
+    descriptors (MFCCs, formants, centroid) so unvoiced turns (whispers, exclamations,
+    short words) maintain true speaker identity without collapsing to 0.54 similarity.
+    """
+    p1_norm = float(np.linalg.norm(emb1[:8]))
+    p2_norm = float(np.linalg.norm(emb2[:8]))
+    if p1_norm < 1e-3 or p2_norm < 1e-3:
+        vt1 = emb1[8:] / (np.linalg.norm(emb1[8:]) + 1e-9)
+        vt2 = emb2[8:] / (np.linalg.norm(emb2[8:]) + 1e-9)
+        return float(np.dot(vt1, vt2))
+    return float(np.dot(emb1, emb2))
 
 
 @dataclass
@@ -602,7 +623,7 @@ class LiveAcousticDiarizer:
             # Verbal address hypothesis: check if addressed person ALREADY has an established cluster
             addressed_cluster = next((c for c in self.clusters if c.display_name.lower() == addressed_target.lower()), None)
             if addressed_cluster and emb is not None:
-                sim_to_addressed = float(np.dot(emb, addressed_cluster.centroid_embedding))
+                sim_to_addressed = compute_embedding_similarity(emb, addressed_cluster.centroid_embedding)
                 if sim_to_addressed >= self.similarity_threshold:
                     # Acoustically matches the addressed person's known voice!
                     resolved_hint = addressed_target
@@ -662,8 +683,74 @@ class LiveAcousticDiarizer:
             self.active_cluster_index = 0
             return (name, False)
 
+        # Priority 1: Physical UI badge from Teams UI Automation
+        if valid_ui_hint:
+            matching_cluster_idx = next(
+                (i for i, c in enumerate(self.clusters) if c.display_name.lower() == valid_ui_hint.lower()),
+                None,
+            )
+            if matching_cluster_idx is not None:
+                cluster = self.clusters[matching_cluster_idx]
+                sim_to_cluster = compute_embedding_similarity(emb, cluster.centroid_embedding)
+                if sim_to_cluster >= 0.70:
+                    self.active_cluster_index = matching_cluster_idx
+                    cluster.sample_count += 1
+                    if sim_to_cluster >= 0.92:
+                        alpha = max(0.95, 1.0 - (1.0 / (cluster.sample_count + 1)))
+                        new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
+                        cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
+                    cluster.last_active_time = time.time()
+                    return (cluster.display_name, False)
+                else:
+                    # STALE HINT / INTERRUPTION: Hint says e.g. 'Yash Lade', but voice acoustically does not match Yash (< 0.70)!
+                    # Do not blindly force Yash onto a different attendee. Fall through to acoustic clustering!
+                    logger.info(
+                        "Ignoring stale speaker hint: acoustic mismatch with cluster",
+                        hint=valid_ui_hint,
+                        similarity=round(sim_to_cluster, 3),
+                        threshold=0.70,
+                    )
+                    valid_ui_hint = None
+                    resolved_hint = None
+
+            if valid_ui_hint:
+                # Check if an unconfirmed placeholder cluster exists that can be claimed by this physical attendee
+                unconfirmed_idx = next(
+                    (i for i, c in enumerate(self.clusters) if not c.is_name_confirmed and c.display_name.startswith(("Participant", "Remote Attendee"))),
+                    None,
+                )
+                if unconfirmed_idx is not None:
+                    cluster = self.clusters[unconfirmed_idx]
+                    cluster.display_name = valid_ui_hint
+                    cluster.is_name_confirmed = True
+                    self.active_cluster_index = unconfirmed_idx
+                    cluster.sample_count += 1
+                    cluster.last_active_time = time.time()
+                    if self.roster and valid_ui_hint not in self.roster:
+                        self.roster.append(valid_ui_hint)
+                    return (valid_ui_hint, False)
+
+                # Spawn a new confirmed cluster for this physical UI attendee
+                new_cluster = SpeakerCluster(
+                    cluster_id=f"REMOTE_SPK_{len(self.clusters) + 1}",
+                    display_name=valid_ui_hint,
+                    centroid_embedding=emb,
+                    last_active_time=time.time(),
+                    is_name_confirmed=True,
+                )
+                self.clusters.append(new_cluster)
+                self.active_cluster_index = len(self.clusters) - 1
+                if self.roster and valid_ui_hint not in self.roster:
+                    self.roster.append(valid_ui_hint)
+                logger.info(
+                    "Diarized new remote speaker turn from physical UI badge",
+                    cluster_id=new_cluster.cluster_id,
+                    display_name=valid_ui_hint,
+                )
+                return (valid_ui_hint, True)
+
         # Case 2: Compare against existing voice clusters
-        similarities = [float(np.dot(emb, c.centroid_embedding)) for c in self.clusters]
+        similarities = [compute_embedding_similarity(emb, c.centroid_embedding) for c in self.clusters]
         best_idx = int(np.argmax(similarities))
         best_sim = similarities[best_idx]
 
@@ -672,23 +759,20 @@ class LiveAcousticDiarizer:
             cluster = self.clusters[best_idx]
             self.active_cluster_index = best_idx
             cluster.sample_count += 1
-            # Adaptive smoothing to prevent centroid drift across long conversations
-            alpha = max(0.90, 1.0 - (1.0 / (cluster.sample_count + 1)))
-            new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
-            cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
+            # Adaptive smoothing ONLY when confidence is very high (>= 0.92) to avoid centroid drift
+            if best_sim >= 0.92:
+                alpha = max(0.95, 1.0 - (1.0 / (cluster.sample_count + 1)))
+                new_centroid = alpha * cluster.centroid_embedding + (1.0 - alpha) * emb
+                cluster.centroid_embedding = new_centroid / (np.linalg.norm(new_centroid) + 1e-9)
             cluster.last_active_time = time.time()
 
-            # If cluster is NOT confirmed, and physical UI badge or resolved_hint arrives:
-            if not cluster.is_name_confirmed:
-                target_to_apply = valid_ui_hint or resolved_hint
-                if target_to_apply:
-                    assigned_other = {
-                        c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
-                    }
-                    if target_to_apply.lower() not in assigned_other:
-                        cluster.display_name = target_to_apply
-                        if valid_ui_hint:
-                            cluster.is_name_confirmed = True
+            # If cluster is NOT confirmed, and conversational addressing resolved_hint arrives:
+            if not cluster.is_name_confirmed and resolved_hint:
+                assigned_other = {
+                    c.display_name.lower() for i, c in enumerate(self.clusters) if i != best_idx
+                }
+                if resolved_hint.lower() not in assigned_other:
+                    cluster.display_name = resolved_hint
 
             return (cluster.display_name, False)
         else:
@@ -697,7 +781,7 @@ class LiveAcousticDiarizer:
 
             if resolved_hint and resolved_hint.lower() not in assigned_names:
                 new_name = resolved_hint
-                confirmed = bool(hint_is_physical_ui or (self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster) and hint_is_physical_ui))
+                confirmed = bool(self.roster and any(resolved_hint.lower() == r.lower() for r in self.roster))
             else:
                 # Pick next unassigned attendee from roster, prioritizing biometric pitch gender match
                 available = [r for r in self.roster if r.lower() not in assigned_names]
@@ -711,17 +795,30 @@ class LiveAcousticDiarizer:
                     new_name = matched_cand or available[0]
                     confirmed = True
                 else:
-                    # SAFETY GUARD: Prevent spawning phantom clusters!
-                    # When all roster attendees already have a cluster, or if an unconfirmed placeholder already exists,
-                    # any audio chunk MUST map to the closest existing cluster rather than creating Participant 4, 5, 6, 7!
-                    has_unconfirmed = any(not c.is_name_confirmed for c in self.clusters)
-                    max_allowed = max(len(self.roster), 2) + 1
-                    if has_unconfirmed or len(self.clusters) >= max_allowed:
+                    # When all roster attendees already have a cluster:
+                    # If this voice is close to an existing unconfirmed placeholder (>= 0.85), keep it with that placeholder
+                    unconfirmed_cands = [
+                        (i, similarities[i]) for i, c in enumerate(self.clusters)
+                        if not c.is_name_confirmed and similarities[i] >= 0.85
+                    ]
+                    if unconfirmed_cands:
+                        best_unconfirmed_idx = max(unconfirmed_cands, key=lambda x: x[1])[0]
+                        cluster = self.clusters[best_unconfirmed_idx]
+                        self.active_cluster_index = best_unconfirmed_idx
+                        cluster.last_active_time = time.time()
+                        return (cluster.display_name, False)
+
+                    # Limit total concurrent clusters to prevent runaway noise clusters
+                    max_allowed = max(len(self.roster) + 4, 8)
+                    if len(self.clusters) >= max_allowed:
                         cluster = self.clusters[best_idx]
                         self.active_cluster_index = best_idx
                         cluster.last_active_time = time.time()
                         return (cluster.display_name, False)
 
+                    # 4th / 5th person not yet in roster: spawn distinct unconfirmed cluster!
+                    # This allows subsequent Teams UIA detection, roster sync, or introduction
+                    # to retroactively reconcile all turns to the real name!
                     new_name = f"Participant {len(self.clusters) + 1}"
                     confirmed = False
 
@@ -867,7 +964,7 @@ class LiveMeetingManager:
         owner_id: uuid.UUID,
         host_name: str = "Sujal Nage",
         remote_name: str = "Remote Attendee",
-        language: str = "hi",
+        language: str = "hinglish",
     ) -> LiveSession:
         """Initialize or retrieve a live meeting session."""
         if meeting_id in self._sessions:
@@ -1098,12 +1195,29 @@ class LiveMeetingManager:
                             self._reconcile_placeholder_speaker(session, 2, old_n, new_n)
                         )
 
+            # Sync speaker_hint (e.g. from Teams active speaker badge) into diarizer roster
+            if speaker_hint and channel_id > 1 and is_valid_person_name(speaker_hint, host_name=session.channels.get(1, ChannelBuffer(1, "", "")).display_name):
+                if session.diarizer:
+                    renames = session.diarizer.add_to_roster(speaker_hint)
+                    if speaker_hint not in session.known_roster:
+                        session.known_roster.append(speaker_hint)
+                    for old_n, new_n in renames:
+                        if session.channels.get(2) and session.channels[2].display_name == old_n:
+                            session.channels[2].display_name = new_n
+                        asyncio.create_task(
+                            self._reconcile_placeholder_speaker(session, 2, old_n, new_n)
+                        )
+
             # Ensure channel buffer exists
             if channel_id not in session.channels:
+                default_ch_name = (
+                    session.host_name if channel_id == 1
+                    else (session.known_roster[0] if session.known_roster else "Remote Attendee")
+                )
                 session.channels[channel_id] = ChannelBuffer(
                     channel_id=channel_id,
                     speaker_label=f"SPEAKER_{channel_id}",
-                    display_name=speaker_hint or f"Participant {channel_id}",
+                    display_name=speaker_hint or default_ch_name,
                 )
 
             ch_buf = session.channels[channel_id]
@@ -1115,6 +1229,7 @@ class LiveMeetingManager:
                     ch_buf.display_name = speaker_hint
                     if (
                         old_name in ("Remote Attendee", "Participant 2", "Unknown", "You (Host)", "Host", "Participant 1", "")
+                        or old_name.startswith(("Participant", "Remote Attendee"))
                         or not is_valid_person_name(old_name, host_disp)
                     ):
                         asyncio.create_task(
@@ -1174,8 +1289,9 @@ class LiveMeetingManager:
                 ch_buf.pcm_chunks.clear()
                 return
 
-            # Check if buffer has reached speech threshold (~48000 bytes = 1.5 sec @ 16kHz 16-bit mono)
-            if len(ch_buf.pcm_chunks) >= 48000:
+            # Check if buffer has reached speech threshold (~80000 bytes = 2.5 sec @ 16kHz 16-bit mono)
+            # 2.5s provides full semantic clause context, cuts hallucination frequency, and prevents Groq 20 RPM limits
+            if len(ch_buf.pcm_chunks) >= 80000:
                 pcm_data = bytes(ch_buf.pcm_chunks)
                 ch_buf.pcm_chunks.clear()
 
@@ -1184,12 +1300,13 @@ class LiveMeetingManager:
                     samples = np.frombuffer(pcm_data, dtype=np.int16).copy()
                     if len(samples) > 0:
                         rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
-                        if rms < 180.0:
+                        if rms < 260.0:
                             return
 
-                        # Peak gain normalization: boost quiet audio to ~-3 dBFS
+                        # Peak gain normalization: ONLY boost if actual speech is present (peak >= 1200)
+                        # to avoid amplifying ambient room hiss/rustle into loud hallucinations
                         peak = float(np.max(np.abs(samples)))
-                        if peak > 0:
+                        if peak >= 1200.0:
                             target_peak = 23000.0
                             gain = min(target_peak / peak, 10.0)
                             if gain > 1.05:
@@ -1252,7 +1369,7 @@ class LiveMeetingManager:
         pcm_data: bytes,
         channel_id: int,
         speaker_name: str,
-        language: str = "hi",
+        language: str = "hinglish",
     ) -> Optional[str]:
         """Transcribe PCM bytes using Groq/Faster-Whisper with language support or simulated fallback."""
         try:
@@ -1300,8 +1417,23 @@ class LiveMeetingManager:
                     "watching",
                     "see you next time",
                     "you",
+                    "to be continued",
+                    "продолжение следует",
+                    "aaj ka kya plan hai",
+                    "theek hai, production release friday ko karenge",
                 }
-                if res_clean in WHISPER_SILENCE_HALLUCINATIONS or res_clean.startswith("thank you for watching"):
+                if hasattr(provider, "_is_foreign_hallucination") and provider._is_foreign_hallucination(result):
+                    logger.info("Discarded Whisper foreign silence hallucination turn", text=result)
+                    return ""
+                if hasattr(provider, "_is_prompt_leak") and provider._is_prompt_leak(result):
+                    logger.info("Discarded Whisper prompt leak turn", text=result)
+                    return ""
+                if (
+                    res_clean in WHISPER_SILENCE_HALLUCINATIONS
+                    or res_clean.startswith("thank you for watching")
+                    or res_clean.startswith("продолжение следует")
+                    or res_clean.startswith("aaj ka kya plan hai")
+                ):
                     logger.info("Discarded Whisper silence hallucination turn", text=result)
                     return ""
 
@@ -1321,6 +1453,36 @@ class LiveMeetingManager:
         speaker_name: str,
     ) -> None:
         """Saves segment to DB and immediately broadcasts to all active WebSocket clients."""
+        if not text or not text.strip():
+            return
+
+        # Ensure Roman script Hinglish & English if session language is not pure Devanagari Hindi
+        if session.language != "hi":
+            try:
+                from app.ai.transcription.factory import get_transcription_provider
+                prov = get_transcription_provider()
+                tl = text.lower().strip().rstrip(".,!?;:")
+                if (
+                    tl in ("gracias", "muchas gracias", "de nada", "merci", "danke", "thank you", "thanks for watching")
+                    or "gracias" in tl
+                ):
+                    logger.debug("Discarded courtesy hallucination segment", text=text)
+                    return
+                if hasattr(prov, "_is_foreign_hallucination") and prov._is_foreign_hallucination(text):
+                    logger.debug("Discarded foreign hallucination segment", text=text)
+                    return
+                if hasattr(prov, "_is_prompt_leak") and prov._is_prompt_leak(text):
+                    logger.debug("Discarded prompt leak segment", text=text)
+                    return
+                if hasattr(prov, "_sanitize_to_roman_hinglish"):
+                    clean = prov._sanitize_to_roman_hinglish(text)
+                    if clean:
+                        text = clean
+                    elif clean is None:
+                        return
+            except Exception:
+                pass
+
         session.segment_counter += 1
         seq = session.segment_counter
 

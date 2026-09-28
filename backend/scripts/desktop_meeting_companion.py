@@ -912,11 +912,12 @@ async def capture_channel_stream(
                         preroll_ring.pop(0)
 
             # Flush condition:
-            # - Accumulated >= 1.0s (32,000 bytes) and speaker paused (silence_counter >= 5)
-            # - OR accumulated max chunk >= ~4.5s (144,000 bytes)
-            has_enough_speech = len(speech_buffer) >= 32000
-            reached_max_chunk = len(speech_buffer) >= 144000
-            speaker_paused = (silence_counter >= 5 and has_enough_speech)
+            # - Accumulated >= 2.0s (64,000 bytes) and speaker paused (silence_counter >= 8, ~250ms)
+            # - OR accumulated max chunk >= ~4.0s (128,000 bytes)
+            # This batches speech into full coherent clauses and stays comfortably under Groq 20 RPM limits
+            has_enough_speech = len(speech_buffer) >= 64000
+            reached_max_chunk = len(speech_buffer) >= 128000
+            speaker_paused = (silence_counter >= 8 and has_enough_speech)
 
             if reached_max_chunk or speaker_paused:
                 chunk_to_send = bytes(speech_buffer)

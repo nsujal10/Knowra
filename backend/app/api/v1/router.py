@@ -20,6 +20,7 @@ from app.api.v1.evaluation import router as evaluation_router
 from app.api.v1.integrations import router as integrations_router
 from app.api.v1.webhooks import router as webhooks_router
 from app.api.v1.live_meetings import router as live_meetings_router
+from app.api.v1.endpoints.meeting_baas import router as meeting_baas_router
 
 
 api_router = APIRouter()
@@ -138,4 +139,10 @@ api_router.include_router(
     webhooks_router,
     prefix="/webhooks",
     tags=["Enterprise Webhooks"],
+)
+
+api_router.include_router(
+    meeting_baas_router,
+    prefix="/meeting-baas",
+    tags=["Meeting Baas Bot"],
 )

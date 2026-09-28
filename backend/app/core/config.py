@@ -32,7 +32,8 @@ class Settings(BaseSettings):
 
     # ASR / Transcription Settings
     ASR_PROVIDER: str = "groq"
-    GROQ_WHISPER_MODEL: str = "whisper-large-v3-turbo"
+    GROQ_WHISPER_MODEL: str = "whisper-large-v3"
+    DEFAULT_ASR_LANGUAGE: str = "hinglish"
 
     # SSO / OIDC Settings
     GOOGLE_CLIENT_ID: str = ""
@@ -44,6 +45,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     SSO_ENFORCE_BUSINESS_DOMAINS: bool = False
     RESTRICT_DOMAIN: str = "softude.com"  # Restrict registration, login, and SSO to this domain
+
+    # Meeting Baas Bot Settings
+    MEETING_BAAS_API_KEY: str = ""
+    MEETING_BAAS_WEBHOOK_URL: str = ""
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

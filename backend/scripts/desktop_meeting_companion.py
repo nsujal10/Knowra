@@ -338,8 +338,19 @@ class TeamsLiveAttendeeTracker:
     4. Provides dynamic speaker attribution on Channel 2 so speech is assigned to the real person.
     """
 
-    def __init__(self, initial_attendees: Optional[List[str]] = None, host_name: str = ""):
+    def __init__(
+        self,
+        initial_attendees: Optional[List[str]] = None,
+        host_name: str = "",
+        server_url: str = "http://127.0.0.1:8000",
+        auto_deploy_bot: bool = True,
+    ):
         self.host_name = host_name
+        self.server_url = server_url
+        self.auto_deploy_bot = auto_deploy_bot
+        self._last_deployed_url: Optional[str] = None
+        self._last_deploy_attempt_time: float = 0.0
+        self._last_active_meeting_seen: float = 0.0
         self.known_roster: List[str] = []
         if initial_attendees:
             for a in initial_attendees:
@@ -368,6 +379,101 @@ class TeamsLiveAttendeeTracker:
             self._has_uia = True
         except ImportError:
             pass
+
+    def extract_active_teams_meeting_url(self) -> Optional[str]:
+        """
+        Extracts the active Teams meeting join URL from Teams local storage or cache.
+        Supports modern Teams 2.1 (IndexedDB/LevelDB) and classic Teams.
+        """
+        import glob
+        import os
+        import re
+
+        # Strategy 1: Modern Teams 2.1 (MSTeams WebView2 LevelDB / logs)
+        pattern = os.path.expandvars(
+            r"%LOCALAPPDATA%\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\*\IndexedDB\https_teams.microsoft.com_0.indexeddb.leveldb\*.*"
+        )
+        files = glob.glob(pattern)
+        if files:
+            files.sort(key=os.path.getmtime, reverse=True)
+            for f in files[:8]:
+                try:
+                    with open(f, "rb") as fp:
+                        content = fp.read().decode("utf-8", errors="ignore")
+                        matches = re.findall(
+                            r"https://teams\.microsoft\.com/l/meetup-join/[^\s\"\'\\<>\)]+",
+                            content,
+                        )
+                        if matches:
+                            return matches[0]
+                except Exception:
+                    pass
+
+        # Strategy 2: Classic Teams logs
+        classic_path = os.path.expandvars(r"%APPDATA%\Microsoft\Teams\logs.txt")
+        if os.path.exists(classic_path):
+            try:
+                with open(classic_path, "rb") as fp:
+                    content = fp.read().decode("utf-8", errors="ignore")
+                    matches = re.findall(
+                        r"https://teams\.microsoft\.com/l/meetup-join/[^\s\"\'\\<>\)]+",
+                        content,
+                    )
+                    if matches:
+                        return matches[-1]
+            except Exception:
+                pass
+
+        return None
+
+    def _handle_active_meeting_auto_deploy(self, window_title: str = ""):
+        """Automatically extracts meeting link and triggers cloud bot deployment."""
+        if not self.auto_deploy_bot:
+            return
+        now = time.time()
+        self._last_active_meeting_seen = now
+        # Cooldown check: only attempt extraction once every 5 seconds
+        if now - self._last_deploy_attempt_time < 5.0:
+            return
+        self._last_deploy_attempt_time = now
+
+        url = self.extract_active_teams_meeting_url()
+        if url and url != self._last_deployed_url:
+            self._last_deployed_url = url
+            timestamp_str = time.strftime("%H:%M:%S")
+            print(f"\n[{timestamp_str}] 🚀 [Teams Auto-Detect] Active meeting detected: {window_title or 'Microsoft Teams Call'}")
+            print(f"[{timestamp_str}] 🔗 [Teams Auto-Detect] Extracted Meeting URL: {url[:70]}...")
+            print(f"[{timestamp_str}] 🤖 [Teams Auto-Detect] Auto-deploying Knowra Cloud Bot...")
+            threading.Thread(
+                target=self._trigger_backend_deploy,
+                args=(url,),
+                daemon=True,
+            ).start()
+
+    def _trigger_backend_deploy(self, meeting_url: str):
+        try:
+            import urllib.request
+            import json
+
+            backend_url = f"{self.server_url}/api/v1/meeting-baas/deploy"
+            data = json.dumps({
+                "meeting_url": meeting_url,
+                "bot_name": "Knowra AI Notetaker"
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                backend_url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                if resp.status == 200:
+                    timestamp_str = time.strftime("%H:%M:%S")
+                    print(f"[{timestamp_str}] ✅ [Teams Auto-Detect] Cloud Bot deployed to Teams call room! Click 'Admit' in Teams when prompted.\n")
+                else:
+                    print(f"[Teams Auto-Detect] Backend deploy responded with status {resp.status}")
+        except Exception as e:
+            print(f"[Teams Auto-Detect] Cloud Bot auto-deploy: {e}")
 
     def start(self):
         if self._running:
@@ -422,6 +528,24 @@ class TeamsLiveAttendeeTracker:
         with self._lock:
             if self.last_detected_speaker and (time.time() - self.last_detection_time < 2.0):
                 return self.last_detected_speaker
+            return None
+
+    def get_speaker_for_chunk(self) -> Optional[str]:
+        """
+        Returns the resolved speaker hint for Channel 2 audio streaming:
+        1. If an active speaker badge was detected recently (< 2.5s), return it.
+        2. If the call has exactly 1 known remote attendee, return their name (never 'Remote Attendee').
+        3. If no roster was detected yet, but a speaker was identified, return that speaker.
+        4. If the call has multiple attendees and no active badge is present, return None
+           so the backend acoustic diarizer dynamically attributes the turn.
+        """
+        with self._lock:
+            if self.last_detected_speaker and (time.time() - self.last_detection_time < 2.5):
+                return self.last_detected_speaker
+            if len(self.known_roster) == 1:
+                return self.known_roster[0]
+            if len(self.known_roster) == 0 and self.current_speaker and self.current_speaker not in ("Remote Attendee", "Unknown", ""):
+                return self.current_speaker
             return None
 
     def get_current_speaker(self) -> str:
@@ -481,29 +605,50 @@ class TeamsLiveAttendeeTracker:
                 t_clean = t.strip()
                 t_lower = t_clean.lower()
                 if "microsoft teams" in t_lower or "teams" in t_lower:
-                    # In Teams, title is pipe or dash separated:
-                    # e.g. "Chat with Harshita, Yash Lade | Systematix Infotech Pvt Ltd | ... | Microsoft Teams"
-                    # or "Harshita, Yash Lade, Rahul | Systematix Infotech Pvt Ltd | ... | Microsoft Teams"
-                    # or "Meeting with Harshita, Rahul | Microsoft Teams"
+                    is_active_meeting_win = any(kw in t_lower for kw in [
+                        "meeting", "call with", "meeting with", "huddle", "(meeting)", "(call)", "| call"
+                    ])
+                    has_multi_names = any(sep in t_clean for sep in [",", " & ", " and "])
+
                     pipe_parts = [p.strip() for p in t_clean.split("|")]
+                    first_part = pipe_parts[0] if pipe_parts else ""
+                    clean_first = clean_person_name(first_part)
+                    is_single_person_win = (
+                        len(pipe_parts) >= 2
+                        and is_valid_person_name(clean_first, host_name=self.host_name)
+                        and " " in clean_first
+                        and not any(st in clean_first.lower() for st in TEAMS_STATIC_PAGES)
+                    )
+
+                    if not is_active_meeting_win and not has_multi_names and not is_single_person_win:
+                        continue
+
+                    if is_active_meeting_win or is_single_person_win:
+                        self._handle_active_meeting_auto_deploy(t_clean)
+
                     for part in pipe_parts:
                         pl = part.lower()
-                        if any(k in pl for k in ["meeting with", "call with", "chat with"]):
-                            for kw in ["meeting with", "call with", "chat with"]:
+                        if any(k in pl for k in ["meeting with", "call with"]):
+                            for kw in ["meeting with", "call with"]:
                                 if kw in pl:
                                     after = part[pl.find(kw) + len(kw):].strip()
                                     for n in re.split(r",| and | & ", after):
                                         sub_clean = clean_person_name(n)
                                         if is_valid_person_name(sub_clean, host_name=self.host_name):
                                             self.add_attendee(sub_clean)
-                        elif not any(static_tab in pl for static_tab in TEAMS_STATIC_PAGES):
-                            # SAFETY: Ensure this segment is NOT a meeting topic like 'Engineering Sprint Sync'
+                        elif is_active_meeting_win and has_multi_names:
+                            # Only parse multi-attendee list from verified meeting windows
                             words = set(re.findall(r"[a-zA-Z]+", pl))
-                            if not (words & MEETING_KEYWORDS):
+                            if not (words & MEETING_KEYWORDS) and not any(static_tab in pl for static_tab in TEAMS_STATIC_PAGES):
                                 for sub in re.split(r",| and | & ", part):
                                     clean_sub = clean_person_name(sub)
                                     if is_valid_person_name(clean_sub, host_name=self.host_name):
                                         self.add_attendee(clean_sub)
+                        elif is_single_person_win and not self.known_roster:
+                            self.add_attendee(clean_first)
+
+            if self._last_active_meeting_seen and (time.time() - self._last_active_meeting_seen > 60.0):
+                self._last_deployed_url = None
         except Exception:
             pass
 
@@ -518,10 +663,8 @@ class TeamsLiveAttendeeTracker:
                 teams_win = auto.WindowControl(searchDepth=2, ClassName="TeamsWebView")
 
             if teams_win.Exists(0.05):
-                # Search controls recursively up to depth 5 to inspect inside WebView2 video tiles
-                def check_ctrl(ctrl, depth=0):
-                    if depth > 5:
-                        return False
+                # Search controls quickly (depth <= 2) to maintain ~20ms response time
+                for ctrl in teams_win.GetChildren():
                     name = ctrl.Name or ""
                     nl = name.lower()
                     if "is speaking" in nl or "is talking" in nl:
@@ -535,13 +678,30 @@ class TeamsLiveAttendeeTracker:
                                         matched = r
                                         break
                             self.set_active_speaker(matched)
-                            return True
-                    for child in ctrl.GetChildren():
-                        if check_ctrl(child, depth + 1):
-                            return True
-                    return False
+                            return
 
-                check_ctrl(teams_win)
+                    # Check immediate child level for video tiles or speaker badges
+                    for sub in ctrl.GetChildren():
+                        sub_name = sub.Name or ""
+                        snl = sub_name.lower()
+                        if "is speaking" in snl or "is talking" in snl:
+                            candidate = sub_name.split(" is speaking")[0].split(" is talking")[0].strip()
+                            clean_cand = clean_person_name(candidate)
+                            if clean_cand and is_valid_person_name(clean_cand, self.host_name):
+                                matched = clean_cand
+                                with self._lock:
+                                    for r in self.known_roster:
+                                        if clean_cand.lower() == r.lower() or clean_cand.lower() in [p.lower() for p in r.split()]:
+                                            matched = r
+                                            break
+                                self.set_active_speaker(matched)
+                                return
+                        elif " " in sub_name.strip():
+                            clean_sub = clean_person_name(sub_name)
+                            if clean_sub and is_valid_person_name(clean_sub, self.host_name):
+                                words = set(clean_sub.lower().split())
+                                if not (words & BLOCKED_WORDS):
+                                    self.add_attendee(clean_sub)
         except Exception:
             pass
 
@@ -789,7 +949,7 @@ async def capture_channel_stream(
 async def run_hardware_capture(
     ws_url: str,
     meeting_id: str,
-    language: str = "hi",
+    language: str = "hinglish",
     host_name: str = "Sujal Nage",
     remote_name: str = "Remote Attendee",
     attendees: str = "",
@@ -918,7 +1078,7 @@ async def run_hardware_capture(
                                 speaker_name=remote_name,
                                 input_rate=lb_rate,
                                 input_channels=lb_channels,
-                                speaker_resolver=tracker.get_active_speaker_hint,
+                                speaker_resolver=tracker.get_speaker_for_chunk,
                                 roster_resolver=tracker.get_known_roster,
                             )
                         )
@@ -967,7 +1127,7 @@ class DesktopAgentController:
         meeting_id: str,
         host_name: Optional[str] = None,
         attendees: str = "",
-        language: str = "hi",
+        language: str = "hinglish",
         server: Optional[str] = None,
     ) -> bool:
         with self._lock:
@@ -1104,27 +1264,34 @@ def make_agent_handler(controller: DesktopAgentController):
 
 
 def run_agent_server(port: int = 9876, host_name: str = "Sujal Nage", server_url: str = "http://127.0.0.1:8000"):
-    """Starts the persistent background agent listening for 1-click browser triggers."""
+    """Starts the persistent background agent listening for 1-click browser triggers and Teams auto-joins."""
     controller = DesktopAgentController(host_name=host_name, server_base=server_url)
     handler = make_agent_handler(controller)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
 
+    # Start background Teams auto-detector for zero-click cloud bot deployment!
+    auto_tracker = TeamsLiveAttendeeTracker(host_name=host_name, server_url=server_url, auto_deploy_bot=True)
+    auto_tracker.start()
+
     print("\n========================================================")
-    print(" Knowra Desktop Agent (1-Click Browser Auto-Launch)")
+    print(" Knowra Desktop Agent (1-Click & Teams Auto-Join Active)")
     print(f" Listening on : http://127.0.0.1:{port}")
     print(f" Host Name    : {host_name} (Channel 1 - Local Mic)")
     print(f" Teams Audio  : Windows WASAPI Loopback (Channel 2)")
-    print(f" Status       : READY (Waiting for browser 1-click trigger)")
+    print(f" Auto-Bot     : ACTIVE (Auto-deploys bot when you join a Teams call)")
+    print(f" Status       : READY")
     print("========================================================\n")
-    print("💡 You don't need to touch this terminal anymore!")
-    print("Just click 'Start Live Session' in the Knowra web app,")
-    print("and audio capture will start and stop automatically.\n")
+    print("💡 Zero-paste automation is active!")
+    print("Whenever you join a Microsoft Teams meeting, the bot will automatically enter.")
+    print("Or click 'Start Live Session' in the Knowra web app for local capture.\n")
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n[Agent] Stopping desktop agent server...")
+        auto_tracker.stop()
         controller.stop_capture()
         server.server_close()
+
 
 
 def main():
@@ -1136,8 +1303,9 @@ def main():
     parser.add_argument("--agent", action="store_true", help="Alias for --daemon")
     parser.add_argument("--port", type=int, default=9876, help="Local agent server port (default: 9876)")
     parser.add_argument("--simulate", action="store_true", help="Run English simulated conversation")
-    parser.add_argument("--hindi", action="store_true", help="Run Hindi / Hinglish simulated conversation")
-    parser.add_argument("--language", type=str, default="en", help="Language: 'hi' or 'en'")
+    parser.add_argument("--hindi", action="store_true", help="Run pure Hindi (Devanagari) simulated conversation")
+    parser.add_argument("--hinglish", action="store_true", help="Run Hinglish / code-mixed conversation (default)")
+    parser.add_argument("--language", type=str, default="hinglish", help="Language: 'hinglish', 'hi', or 'en'")
     parser.add_argument("--host-name", type=str, default=detected_host, help=f"Host display name (defaults to auto-detected: '{detected_host}')")
     parser.add_argument("--attendees", type=str, default="", help="Comma-separated attendee names (e.g. 'Sarah Jenkins, Alex Rivera')")
     parser.add_argument("--speaker-name", type=str, default="", help="Channel 2 attendee display name")
@@ -1157,7 +1325,7 @@ def main():
     # Direct meeting capture mode
     ws_base = args.server.replace("http://", "ws://").replace("https://", "wss://")
     ws_url = f"{ws_base}/api/v1/meetings/{args.meeting_id}/live-stream"
-    lang = "hi" if args.hindi else args.language
+    lang = "hi" if args.hindi else ("hinglish" if args.hinglish else args.language)
     remote_label = args.speaker_name or (args.attendees if args.attendees else "Remote Attendee")
 
     if args.simulate or args.hindi:

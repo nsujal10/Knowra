@@ -1300,15 +1300,17 @@ class LiveMeetingManager:
                     samples = np.frombuffer(pcm_data, dtype=np.int16).copy()
                     if len(samples) > 0:
                         rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
-                        if rms < 260.0:
+                        # Channel-aware energy threshold: Channel 2 (Teams loopback) has lower RMS than direct mic
+                        min_rms = 90.0 if channel_id > 1 else 180.0
+                        if rms < min_rms:
                             return
 
-                        # Peak gain normalization: ONLY boost if actual speech is present (peak >= 1200)
-                        # to avoid amplifying ambient room hiss/rustle into loud hallucinations
+                        # Peak gain normalization: boost speech to optimal Whisper volume
                         peak = float(np.max(np.abs(samples)))
-                        if peak >= 1200.0:
+                        min_peak = 400.0 if channel_id > 1 else 1000.0
+                        if peak >= min_peak:
                             target_peak = 23000.0
-                            gain = min(target_peak / peak, 10.0)
+                            gain = min(target_peak / peak, 12.0)
                             if gain > 1.05:
                                 samples = np.clip(
                                     samples.astype(np.float32) * gain, -32768, 32767

@@ -343,7 +343,7 @@ class TeamsLiveAttendeeTracker:
         initial_attendees: Optional[List[str]] = None,
         host_name: str = "",
         server_url: str = "http://127.0.0.1:8000",
-        auto_deploy_bot: bool = True,
+        auto_deploy_bot: bool = False,  # Commented out cloud bot deployment
     ):
         self.host_name = host_name
         self.server_url = server_url
@@ -427,9 +427,8 @@ class TeamsLiveAttendeeTracker:
         return None
 
     def _handle_active_meeting_auto_deploy(self, window_title: str = ""):
-        """Automatically extracts meeting link and triggers cloud bot deployment."""
-        if not self.auto_deploy_bot:
-            return
+        """Disabled for now: Cloud bot deployment commented out."""
+        return
         with self._lock:
             now = time.time()
             self._last_active_meeting_seen = now
@@ -640,8 +639,8 @@ class TeamsLiveAttendeeTracker:
                     if not is_active_meeting_win and not has_multi_names and not is_single_person_win:
                         continue
 
-                    if is_active_meeting_win or is_single_person_win:
-                        self._handle_active_meeting_auto_deploy(t_clean)
+                    # if is_active_meeting_win or is_single_person_win:
+                    #     self._handle_active_meeting_auto_deploy(t_clean)
 
                     for part in pipe_parts:
                         pl = part.lower()
@@ -837,8 +836,11 @@ async def capture_channel_stream(
     loop = asyncio.get_event_loop()
     speech_buffer = bytearray()
     silence_counter = 0
-    # RMS threshold for speech: values below 220 are ambient silence / background noise
-    ENERGY_THRESHOLD = 220.0
+    # Channel-aware RMS thresholds:
+    # Channel 1 (Mic): 160.0 RMS threshold
+    # Channel 2 (Teams Loopback): 80.0 RMS threshold because remote audio volume varies with Windows master volume
+    ENERGY_THRESHOLD = 80.0 if channel_id > 1 else 160.0
+    MIN_BUF_RMS = 95.0 if channel_id > 1 else 200.0
     # Target peak amplitude for normalization (~-3 dBFS in int16 range)
     TARGET_PEAK = 23000.0
     # Pre-roll ring buffer: keep last 2 silence frames as leading context
@@ -854,7 +856,11 @@ async def capture_channel_stream(
 
     try:
         while True:
-            data = await loop.run_in_executor(None, stream.read, chunk_size, False)
+            try:
+                data = await loop.run_in_executor(None, stream.read, chunk_size, False)
+            except Exception:
+                await asyncio.sleep(0.01)
+                continue
             if not data:
                 await asyncio.sleep(0.005)
                 continue
@@ -928,7 +934,7 @@ async def capture_channel_stream(
                 buf_samples = np.frombuffer(chunk_to_send, dtype=np.int16)
                 if len(buf_samples) > 0:
                     buf_rms = float(np.sqrt(np.mean(buf_samples.astype(np.float32) ** 2)))
-                    if buf_rms < 260.0:
+                    if buf_rms < MIN_BUF_RMS:
                         # Chunk was mostly trailing noise or quiet clicks; discard instead of sending phantom turn
                         continue
 
@@ -1047,11 +1053,20 @@ async def run_hardware_capture(
             try:
                 wasapi_info = p.get_host_api_info_by_type(pyaudio.paWASAPI)
                 default_speakers = p.get_device_info_by_index(wasapi_info["defaultOutputDevice"])
-                if not default_speakers["isLoopbackDevice"]:
+                if not default_speakers.get("isLoopbackDevice", False):
+                    matched_lb = None
                     for loopback in p.get_loopback_device_info_generator():
-                        if default_speakers["name"] in loopback["name"]:
-                            default_speakers = loopback
+                        if default_speakers["name"].lower() in loopback["name"].lower() or any(
+                            part.lower() in loopback["name"].lower() for part in default_speakers["name"].split() if len(part) > 2
+                        ):
+                            matched_lb = loopback
                             break
+                    if not matched_lb:
+                        for loopback in p.get_loopback_device_info_generator():
+                            matched_lb = loopback
+                            break
+                    if matched_lb:
+                        default_speakers = matched_lb
 
                 lb_channels = int(default_speakers.get("maxInputChannels", 2))
                 lb_rate = int(default_speakers.get("defaultSampleRate", 48000))
@@ -1287,16 +1302,15 @@ def run_agent_server(port: int = 9876, host_name: str = "Sujal Nage", server_url
     handler = make_agent_handler(controller)
     server = http.server.ThreadingHTTPServer(("127.0.0.1", port), handler)
 
-    # Start background Teams auto-detector for zero-click cloud bot deployment!
-    auto_tracker = TeamsLiveAttendeeTracker(host_name=host_name, server_url=server_url, auto_deploy_bot=True)
+    # Attendee tracker for active speaker and roster discovery
+    auto_tracker = TeamsLiveAttendeeTracker(host_name=host_name, server_url=server_url, auto_deploy_bot=False)
     auto_tracker.start()
 
     print("\n========================================================")
-    print(" Knowra Desktop Agent (1-Click & Teams Auto-Join Active)")
+    print(" Knowra Desktop Agent (Local Teams Loopback Active)")
     print(f" Listening on : http://127.0.0.1:{port}")
     print(f" Host Name    : {host_name} (Channel 1 - Local Mic)")
     print(f" Teams Audio  : Windows WASAPI Loopback (Channel 2)")
-    print(f" Auto-Bot     : ACTIVE (Auto-deploys bot when you join a Teams call)")
     print(f" Status       : READY")
     print("========================================================\n")
     print("💡 Zero-paste automation is active!")

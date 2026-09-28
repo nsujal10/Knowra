@@ -627,6 +627,210 @@ def test_teams_uia_active_badge_overrides_host_address_on_first_turn():
     assert spk == "Ram Sharma", f"Expected Ram Sharma from UIA badge, but got {spk}!"
 
 
+def test_four_speaker_separation_ujjwal_and_yash():
+    """
+    Validates accurate separation in a 4-person meeting:
+    - Channel 1 (Host): Sujal Nage
+    - Channel 2 Remote 1: Harshita Baghel (female ~220Hz)
+    - Channel 2 Remote 2: Yash Lade (male ~110Hz)
+    - Channel 2 Remote 3: Ujjwal Yadav (male ~135Hz)
+    Verifies Ujjwal's speech is NEVER swallowed into Yash Lade.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    pcm_harshita = (0.5 * np.sin(2 * np.pi * 220 * t) + 0.3 * np.sin(2 * np.pi * 440 * t)) * 30000
+    pcm_harshita = pcm_harshita.astype(np.int16).tobytes()
+
+    pcm_yash = (0.5 * np.sin(2 * np.pi * 110 * t) + 0.3 * np.sin(2 * np.pi * 220 * t)) * 30000
+    pcm_yash = pcm_yash.astype(np.int16).tobytes()
+
+    pcm_ujjwal = (0.5 * np.sin(2 * np.pi * 135 * t) + 0.3 * np.sin(2 * np.pi * 270 * t)) * 30000
+    pcm_ujjwal = pcm_ujjwal.astype(np.int16).tobytes()
+
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade", "Ujjwal Yadav"],
+        host_name="Sujal Nage"
+    )
+
+    # 1. Harshita speaks
+    s1, is_new1 = diarizer.identify_speaker(pcm_harshita)
+    assert s1 == "Harshita Baghel"
+
+    # 2. Yash speaks
+    s2, is_new2 = diarizer.identify_speaker(pcm_yash)
+    assert s2 == "Yash Lade"
+    assert is_new2 is True
+
+    # 3. Ujjwal speaks in between -> MUST NOT be Yash Lade!
+    s3, is_new3 = diarizer.identify_speaker(pcm_ujjwal)
+    assert s3 == "Ujjwal Yadav", f"Ujjwal was incorrectly attributed as: {s3}!"
+    assert is_new3 is True
+
+    # 4. Yash speaks again -> MUST still be Yash Lade
+    s4, is_new4 = diarizer.identify_speaker(pcm_yash)
+    assert s4 == "Yash Lade"
+    assert is_new4 is False
+
+    # 5. Ujjwal speaks again -> MUST still be Ujjwal Yadav
+    s5, is_new5 = diarizer.identify_speaker(pcm_ujjwal)
+    assert s5 == "Ujjwal Yadav"
+    assert is_new5 is False
+
+
+def test_four_speaker_ujjwal_speaks_before_roster_sync_and_reconciles():
+    """
+    Validates the real-life bug scenario:
+    1. Roster initially only has Harshita Baghel & Yash Lade.
+    2. Harshita and Yash speak and form clusters.
+    3. 4th person (Ujjwal Yadav) speaks in between WITHOUT being in the initial roster.
+       -> MUST NOT collapse into Yash Lade! Must spawn a distinct Participant 3 placeholder!
+    4. Ujjwal Yadav is later detected via Teams UIA / window title scanner.
+       -> add_to_roster('Ujjwal Yadav') renames Participant 3 -> Ujjwal Yadav.
+    5. Subsequent speech by Ujjwal is attributed to Ujjwal Yadav.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+    pcm_harshita = (0.5 * np.sin(2 * np.pi * 220 * t) + 0.3 * np.sin(2 * np.pi * 440 * t)) * 30000
+    pcm_harshita = pcm_harshita.astype(np.int16).tobytes()
+
+    pcm_yash = (0.5 * np.sin(2 * np.pi * 110 * t) + 0.3 * np.sin(2 * np.pi * 220 * t)) * 30000
+    pcm_yash = pcm_yash.astype(np.int16).tobytes()
+
+    pcm_ujjwal = (0.5 * np.sin(2 * np.pi * 135 * t) + 0.3 * np.sin(2 * np.pi * 270 * t)) * 30000
+    pcm_ujjwal = pcm_ujjwal.astype(np.int16).tobytes()
+
+    # Initial roster: only Harshita and Yash known
+    diarizer = LiveAcousticDiarizer(
+        roster=["Harshita Baghel", "Yash Lade"],
+        host_name="Sujal Nage"
+    )
+
+    s1, _ = diarizer.identify_speaker(pcm_harshita)
+    assert s1 == "Harshita Baghel"
+
+    s2, _ = diarizer.identify_speaker(pcm_yash)
+    assert s2 == "Yash Lade"
+
+    # Ujjwal speaks in between
+    s3, is_new3 = diarizer.identify_speaker(pcm_ujjwal)
+    assert s3 != "Yash Lade", f"BUG: Ujjwal was falsely collapsed into Yash Lade!"
+    assert s3.startswith("Participant"), f"Expected Participant placeholder, got {s3}"
+    assert is_new3 is True
+
+    # Ujjwal speaks again before detection
+    s3_b, is_new3_b = diarizer.identify_speaker(pcm_ujjwal)
+    assert s3_b == s3
+    assert is_new3_b is False
+
+    # Now Teams UIA / window title discovers Ujjwal Yadav
+    renames = diarizer.add_to_roster("Ujjwal Yadav")
+    assert any(new_n == "Ujjwal Yadav" for _, new_n in renames), f"Expected rename to Ujjwal Yadav, got {renames}"
+
+    # Verify cluster was renamed
+    ujjwal_cluster = next((c for c in diarizer.clusters if c.display_name == "Ujjwal Yadav"), None)
+    assert ujjwal_cluster is not None, "Ujjwal Yadav cluster should exist after roster update"
+    assert ujjwal_cluster.is_name_confirmed is True
+
+    # Subsequent turn by Ujjwal
+    s4, is_new4 = diarizer.identify_speaker(pcm_ujjwal)
+    assert s4 == "Ujjwal Yadav"
+    assert is_new4 is False
+
+    # Yash speaks again -> still Yash Lade!
+    s5, is_new5 = diarizer.identify_speaker(pcm_yash)
+    assert s5 == "Yash Lade"
+    assert is_new5 is False
+
+
+def test_live_acoustic_diarizer_four_or_more_attendees():
+    """
+    Verifies that meetings with 4, 5, or more remote participants
+    accurately distinguish each distinct voice, create unique clusters,
+    and reliably re-identify every speaker across alternating turns.
+    """
+    import numpy as np
+    from app.services.live_meeting_service import LiveAcousticDiarizer
+
+    sr = 16000
+    t = np.linspace(0, 1.5, int(1.5 * sr), endpoint=False)
+
+    def make_voice(f0: float, formants: list[tuple[float, float]]):
+        sig = np.sin(2 * np.pi * f0 * t) * 15000
+        for f, a in formants:
+            sig += np.sin(2 * np.pi * f * t) * a
+        return sig.astype(np.int16).tobytes()
+
+    # 5 Distinct attendees on Channel 2
+    pcm_harshita = make_voice(240, [(480, 8000), (1900, 5000)])  # Female 1
+    pcm_yash     = make_voice(155, [(310, 8000), (1200, 6000)])  # Male 1
+    pcm_rahul    = make_voice(105, [(210, 9000), (850, 6000)])   # Male 2 (Bass)
+    pcm_priya    = make_voice(285, [(570, 7500), (2200, 5000)])  # Female 2 (Soprano)
+    pcm_amit     = make_voice(130, [(260, 8500), (1400, 5500)])  # Male 3 (Baritone)
+
+    roster = ["Harshita Baghel", "Yash Lade", "Rahul Sharma", "Priya Singh", "Amit Kumar"]
+    diarizer = LiveAcousticDiarizer(roster=roster, host_name="Sujal Nage")
+
+    # Turn 1: Harshita
+    spk1, is_new1 = diarizer.identify_speaker(pcm_harshita)
+    assert spk1 == "Harshita Baghel"
+    assert is_new1 is False  # Initial first turn initializes cluster 0
+
+    # Turn 2: Yash
+    spk2, is_new2 = diarizer.identify_speaker(pcm_yash)
+    assert spk2 == "Yash Lade"
+    assert is_new2 is True
+
+    # Turn 3: Rahul
+    spk3, is_new3 = diarizer.identify_speaker(pcm_rahul)
+    assert spk3 == "Rahul Sharma"
+    assert is_new3 is True
+
+    # Turn 4: Priya (4th attendee)
+    spk4, is_new4 = diarizer.identify_speaker(pcm_priya)
+    assert spk4 == "Priya Singh"
+    assert is_new4 is True
+
+    # Turn 5: Amit (5th attendee)
+    spk5, is_new5 = diarizer.identify_speaker(pcm_amit)
+    assert spk5 == "Amit Kumar"
+    assert is_new5 is True
+
+    assert len(diarizer.clusters) == 5
+
+    # Verification of re-identification across multiple alternating turns:
+    # Priya speaks again -> must match Priya Singh
+    spk_priya_2, is_new_p2 = diarizer.identify_speaker(pcm_priya)
+    assert spk_priya_2 == "Priya Singh"
+    assert is_new_p2 is False
+
+    # Rahul speaks again -> must match Rahul Sharma
+    spk_rahul_2, is_new_r2 = diarizer.identify_speaker(pcm_rahul)
+    assert spk_rahul_2 == "Rahul Sharma"
+    assert is_new_r2 is False
+
+    # Harshita speaks again -> must match Harshita Baghel
+    spk_harsh_2, is_new_h2 = diarizer.identify_speaker(pcm_harshita)
+    assert spk_harsh_2 == "Harshita Baghel"
+    assert is_new_h2 is False
+
+    # Amit speaks again -> must match Amit Kumar
+    spk_amit_2, is_new_a2 = diarizer.identify_speaker(pcm_amit)
+    assert spk_amit_2 == "Amit Kumar"
+    assert is_new_a2 is False
+
+    # Yash speaks again -> must match Yash Lade
+    spk_yash_2, is_new_y2 = diarizer.identify_speaker(pcm_yash)
+    assert spk_yash_2 == "Yash Lade"
+    assert is_new_y2 is False
+
+
+
 
 
 

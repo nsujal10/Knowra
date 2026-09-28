@@ -27,27 +27,14 @@ class GroqWhisperProvider(TranscriptionProvider):
     """
 
     # Context priming prompts improve verbatim accuracy by conditioning Whisper
-    # Context priming prompts improve verbatim accuracy by conditioning Whisper vocabulary.
-    # Note: These are keyword/domain-biased glossaries, NEVER full conversational dialogue,
-    # to strictly prevent Whisper from autoregressively echoing sentences during silence.
-    PROMPT_EN = (
-        "Transcribe verbatim without omissions. Technical meeting discussions: "
-        "Knowra, WASAPI, FastAPI, PostgreSQL, Redis, React, TypeScript, Next.js, "
-        "WebSocket, sprint planning, deployment, architecture, database migration, API latency."
-    )
-    PROMPT_HI = (
-        "शब्दशः ट्रांसक्राइब करें। Knowra, आर्किटेक्चर, स्प्रिंट टारगेट्स, डिप्लॉयमेंट, "
-        "डेटाबेस माइग्रेशन, ऑप्टिमाइज़ेशन, लैटेंसी, प्रोडक्शन, टेस्टिंग, बैकअप और चेकलिस्ट।"
-    )
-    PROMPT_HINGLISH = (
-        "Knowra technical meeting, sprint planning, deployment, architecture, "
-        "database migration, latency, PR review, API status, release, production, "
-        "testing, backend, frontend, code review."
-    )
+    # Brand anchor prompt ensures correct capitalization of 'Knowra' without providing
+    # vocabulary or conversational sentences that Whisper could autoregressively hallucinate during silence.
+    PROMPT_EN = "Knowra."
+    PROMPT_HINGLISH = "Knowra."
 
     def __init__(self, api_key: str = "", model: str = ""):
         self.api_key = api_key or os.getenv("GROQ_API_KEY") or getattr(settings, "LLM_API_KEY", "")
-        self.model = model or os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3-turbo")
+        self.model = model or os.getenv("GROQ_WHISPER_MODEL", "whisper-large-v3")
         self.base_url = "https://api.groq.com/openai/v1/audio/transcriptions"
         self._rate_limit_until: float = 0.0
 
@@ -239,32 +226,25 @@ class GroqWhisperProvider(TranscriptionProvider):
     def _normalize_language(language: Optional[str]) -> Optional[str]:
         """Normalizes language strings to ISO-639-1.
         
-        For Hinglish (code-mixed Hindi/English in Roman script), returns None so Whisper
-        is NOT restricted to the Devanagari token set, allowing natural Latin-script output.
+        - English: returns 'en' to strictly decode in English.
+        - Hinglish: returns 'hi' so Whisper is strictly locked to Hindi phonetics
+          and NEVER misidentifies Hindi speech as Japanese, Romaji, or foreign languages.
         """
         if not language:
-            return None
-        l = language.strip().lower()
-        if l in ("hinglish", "hi-en", "en-hi"):
-            return None
-        if l in ("hi", "hindi", "hi-in"):
             return "hi"
+        l = language.strip().lower()
         if l in ("en", "english", "en-in", "en-us"):
             return "en"
-        return l[:2] if len(l) >= 2 else None
+        return "hi"
 
     def _get_priming_prompt(self, language: Optional[str] = None) -> str:
         """Returns language-aware priming prompt to condition Whisper for verbatim accuracy."""
         if not language:
-            return self.PROMPT_EN
-        l = language.strip().lower()
-        if l in ("hi", "hindi", "hi-in"):
-            return self.PROMPT_HI
-        if l in ("hinglish", "hi-en", "en-hi"):
             return self.PROMPT_HINGLISH
+        l = language.strip().lower()
         if l in ("en", "english", "en-us", "en-in"):
             return self.PROMPT_EN
-        return self.PROMPT_EN
+        return self.PROMPT_HINGLISH
 
     def transcribe_bytes(self, wav_bytes: bytes, language: Optional[str] = None) -> Optional[str]:
         """Directly transcribes in-memory WAV bytes without disk I/O or ffmpeg.
@@ -350,28 +330,17 @@ class GroqWhisperProvider(TranscriptionProvider):
             max_no_speech = max(no_speech_probs) if no_speech_probs else 0.0
             avg_logprob = (sum(avg_logprobs) / len(avg_logprobs)) if avg_logprobs else 0.0
 
-            if max_no_speech > 0.40 or avg_logprob < -0.85:
-                logger.debug("Filtered low-confidence/no-speech hallucination",
+            if max_no_speech > 0.50 or avg_logprob < -1.1:
+                logger.debug("Filtered complete silence artifact",
                              no_speech=max_no_speech, avg_logprob=avg_logprob, text=text)
                 return None
 
-        # Filter hallucinated silence artifacts common in Whisper
+        # Filter hallucinated silence artifacts common in Whisper (e.g. YouTube subtitles or silence noise)
         cleaned_lower = text.lower().strip()
         hallucinations = {
-            "thank you.", "thank you", "thanks.", "thanks",
             "thanks for watching!", "thanks for watching.",
             "subtitles by...", "subtitles by the amara.org community",
             ".", "..", "...", "", " ",
-            "you", "you.", "you...", "you you you",
-            "all right.", "all right", "alright.", "alright",
-            "okay.", "okay", "ok.", "ok",
-            "bye.", "bye", "bye bye.",
-            "yeah.", "yeah", "yep.", "yep",
-            "so.", "so", "right.", "right",
-            "hmm.", "hmm", "hm.", "hm",
-            "uh.", "uh", "um.", "um",
-            "yes.", "yes", "no.", "no",
-            "oh.", "oh", "ah.", "ah",
             "the end.", "the end",
             "subscribe", "subscribe.",
             "please subscribe.", "like and subscribe.",
@@ -385,18 +354,25 @@ class GroqWhisperProvider(TranscriptionProvider):
             "adiós.", "adios.", "adiós", "adios",
             "merci.", "merci", "merci beaucoup.", "merci beaucoup",
             "danke.", "danke", "bitte.", "bitte",
-            "धन्यवाद।", "धन्यवाद", "शुक्रिया।", "शुक्रिया",
-            "ठीक है।", "ठीक है", "हाँ।", "हाँ", "जी।", "जी",
-            "नमस्ते।", "नमस्ते",
-            "shukriya.", "shukriya", "dhanyawad.", "dhanyawad",
-            "theek hai.", "theek hai", "haan.", "haan", "ji.", "ji",
-            "namaste.", "namaste",
+            "karen.", "karen", "tx", "tx.", "txv", "txv.", "badhein.", "badhein", "ek aawa", "ek aawa.",
+            "tarek.", "tarek", "kuch bhasha", "kunchi bhasha",
+            "prastut", "prastut.", "prastut prastut", "prastut prastut.",
+            "प्रस्तुत", "प्रस्तुत प्रस्तुत",
+            "knowra", "knowra.", "knowra sprint", "knowra, sprint",
+            "data collection", "data collection.",
+            "sprint planning", "database migration",
+            "architecture", "architecture.",
         }
         if (
             cleaned_lower in hallucinations
             or any(h in cleaned_lower for h in ["gracias", "muchas gracias", "subtitles by", "thank you for watching"])
         ):
             logger.debug("Filtered hallucination", text=text)
+            return None
+
+        # Filter looping/stuttering hallucinations (e.g. 'ji-ji-ji-ji', 'prastut prastut', or 'data collection, data collection')
+        if self._has_repetition_loop(cleaned_lower):
+            logger.debug("Filtered stutter/looping hallucination", text=text)
             return None
         # Filter foreign script silence hallucinations (Russian, Japanese, Korean, CJK)
         if self._is_foreign_hallucination(text):
@@ -417,6 +393,24 @@ class GroqWhisperProvider(TranscriptionProvider):
         return text if text and text.strip() else None
 
     @staticmethod
+    def _has_repetition_loop(text: str) -> bool:
+        """Detects autoregressive repetition loops in Whisper output (words or phrases repeated)."""
+        import re
+        tl = text.lower().strip().rstrip(".,!?;:")
+        if not tl:
+            return False
+        # Stuttering with hyphens: "ji-ji-ji" or "ha-ha-ha-ha"
+        if re.search(r'\b(\w{2,})(?:-\1){2,}\b', tl):
+            return True
+        # Single word repeated 2+ times where word length >= 4 (e.g. "prastut prastut", "aziz aziz aziz")
+        if re.search(r'\b([a-zA-Z\u0900-\u097F]{4,})(?:[\s,]+)\1\b', tl):
+            return True
+        # Multi-word phrase or clause repeated (e.g. "data collection, data collection" or "database migration, architecture, database migration, architecture")
+        if re.search(r'(.{4,40}?)(?:,\s*|\s+)\1\b', tl):
+            return True
+        return False
+
+    @staticmethod
     def _is_foreign_hallucination(text: str) -> bool:
         """Detects foreign language silence hallucinations common in Whisper (Russian, Japanese, Korean, Chinese)."""
         import re
@@ -435,6 +429,11 @@ class GroqWhisperProvider(TranscriptionProvider):
         if not text:
             return False
         tl = text.lower().strip().rstrip(".,!?;:")
+
+        # Solitary brand names or fragments without real speech
+        if tl in ("knowra", "knowra.", "knowra sprint", "knowra, sprint", "knowra meeting"):
+            return True
+
         leak_triggers = [
             "transcribe verbatim", "transcribe the following", "word-for-word",
             "in roman", "code-switch", "technical discussions", "do not translate",
@@ -445,8 +444,21 @@ class GroqWhisperProvider(TranscriptionProvider):
             "database migration me latency", "architecture check karo",
             "sprint planning aur deployment discuss", "pr review kar lena",
             "knowra technical meeting",
+            "knowra, sprint", "knowra sprint",
+            "sprint planning, deployment", "deployment, architecture",
+            "database migration, architecture", "architecture, database migration",
+            "api latency",
         ]
-        return any(trig in tl for trig in leak_triggers)
+        if any(trig in tl for trig in leak_triggers):
+            return True
+
+        # Check for list of prompt vocabulary hallucinated on silence
+        domain_tokens = ["knowra", "sprint", "deployment", "architecture", "database migration", "api latency"]
+        matches = sum(1 for tok in domain_tokens if tok in tl)
+        if matches >= 2 and ("," in tl or len(tl.split()) <= 8):
+            return True
+
+        return False
 
     def _sanitize_to_roman_hinglish(self, text: Optional[str]) -> Optional[str]:
         """Converts any Devanagari or Arabic/Urdu script text into clean Roman script Hinglish & English."""

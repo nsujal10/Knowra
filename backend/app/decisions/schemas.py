@@ -120,3 +120,47 @@ class DecisionGraphEdge(BaseModel):
 class DecisionGraphResponse(BaseModel):
     nodes: List[DecisionGraphNode]
     edges: List[DecisionGraphEdge]
+
+
+class DecisionItemDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    meeting_id: uuid.UUID
+    meeting_title: Optional[str] = None
+    title: str
+    description: str
+    rationale: Optional[str] = None
+    status: str
+    impact_level: str
+    category: str = "ARCHITECTURE"
+    decided_by: Optional[str] = None
+    decided_by_raw: Optional[str] = None
+    timestamp: Optional[str] = None
+    start_seconds: Optional[float] = None
+    evidence_snippet: Optional[str] = None
+    evidence_segment_ids: List[uuid.UUID] = Field(default_factory=list)
+    tenant_id: Optional[uuid.UUID] = None
+    created_at: datetime
+
+
+class DecisionsMetrics(BaseModel):
+    total_decisions: int
+    consensus_level: str = "100% Unanimous"
+    ai_verified: str = "Strict RBAC • Confidential Guard"
+    confirmed_count: int
+    superseded_count: int
+
+
+class MeetingSummaryItem(BaseModel):
+    id: str
+    title: str
+    decision_count: int = 0
+
+
+class EnterpriseDecisionsResponse(BaseModel):
+    items: List[DecisionItemDetail]
+    total: int
+    metrics: DecisionsMetrics
+    meetings: List[MeetingSummaryItem]
+

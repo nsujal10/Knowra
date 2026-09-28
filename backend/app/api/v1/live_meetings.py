@@ -37,7 +37,7 @@ class StartLiveMeetingRequest(BaseModel):
     title: Optional[str] = "Live Meeting"
     hostName: Optional[str] = None
     attendees: Optional[str] = None
-    language: Optional[str] = "hi"
+    language: Optional[str] = "hinglish"
 
 
 class StartLiveMeetingResponse(BaseModel):
@@ -52,6 +52,7 @@ class EndLiveMeetingResponse(BaseModel):
     meetingId: str
     status: str
     message: str
+    title: Optional[str] = None
 
 
 @router.post(
@@ -95,7 +96,7 @@ async def start_live_meeting(
         owner_id=tenant_ctx.user_id,
         host_name=resolved_host,
         remote_name=payload.attendees or "Remote Attendee",
-        language=payload.language or "hi",
+        language=payload.language or "hinglish",
     )
 
     return StartLiveMeetingResponse(
@@ -133,10 +134,12 @@ async def end_live_meeting(
         except Exception:
             pass
 
+    db.refresh(meeting)
     return EndLiveMeetingResponse(
         meetingId=str(meeting.id),
         status="COMPLETED",
         message="Live meeting ended and canonical transcript finalized.",
+        title=meeting.title,
     )
 
 
@@ -230,8 +233,13 @@ async def launch_local_companion(
     backend_root = Path(__file__).resolve().parent.parent.parent.parent
     companion_script = backend_root / "scripts" / "desktop_meeting_companion.py"
 
+    python_bin = sys.executable
+    if not Path(python_bin).exists():
+        import shutil
+        python_bin = shutil.which("python") or sys.executable
+
     cmd = [
-        sys.executable,
+        str(python_bin),
         str(companion_script),
         "--meeting-id", meeting_id,
     ]
@@ -246,11 +254,13 @@ async def launch_local_companion(
             cmd.append("--simulate")
 
     try:
+        log_file = backend_root / "companion.log"
+        log_fp = open(log_file, "a", encoding="utf-8")
         proc = subprocess.Popen(
             cmd,
             cwd=str(backend_root),
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=log_fp,
+            stderr=log_fp,
         )
         ACTIVE_COMPANION_PROCESSES[meeting_id] = proc
         logger.info("Launched local desktop companion", meeting_id=meeting_id, pid=proc.pid)

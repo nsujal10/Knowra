@@ -1289,33 +1289,20 @@ class LiveMeetingManager:
                 ch_buf.pcm_chunks.clear()
                 return
 
-            # Check if buffer has reached speech threshold (~80000 bytes = 2.5 sec @ 16kHz 16-bit mono)
-            # 2.5s provides full semantic clause context, cuts hallucination frequency, and prevents Groq 20 RPM limits
-            if len(ch_buf.pcm_chunks) >= 80000:
+            # Flush threshold: process incoming speech chunks (>= 40,000 bytes = ~1.25s @ 16kHz mono)
+            # Full semantic clauses provide Whisper with adequate acoustic context and eliminate short breath hallucinations
+            if len(ch_buf.pcm_chunks) >= 40000:
                 pcm_data = bytes(ch_buf.pcm_chunks)
                 ch_buf.pcm_chunks.clear()
 
                 # Safety: Check RMS energy on backend to ignore ambient silence
                 try:
-                    samples = np.frombuffer(pcm_data, dtype=np.int16).copy()
+                    samples = np.frombuffer(pcm_data, dtype=np.int16)
                     if len(samples) > 0:
                         rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
-                        # Channel-aware energy threshold: Channel 2 (Teams loopback) has lower RMS than direct mic
-                        min_rms = 90.0 if channel_id > 1 else 180.0
+                        min_rms = 55.0 if channel_id > 1 else 125.0
                         if rms < min_rms:
                             return
-
-                        # Peak gain normalization: boost speech to optimal Whisper volume
-                        peak = float(np.max(np.abs(samples)))
-                        min_peak = 400.0 if channel_id > 1 else 1000.0
-                        if peak >= min_peak:
-                            target_peak = 23000.0
-                            gain = min(target_peak / peak, 12.0)
-                            if gain > 1.05:
-                                samples = np.clip(
-                                    samples.astype(np.float32) * gain, -32768, 32767
-                                ).astype(np.int16)
-                                pcm_data = samples.tobytes()
                 except Exception:
                     pass
 
@@ -1410,19 +1397,23 @@ class LiveMeetingManager:
                 WHISPER_SILENCE_HALLUCINATIONS = {
                     "thank you for watching",
                     "thanks for watching",
-                    "thank you",
-                    "thanks",
                     "please subscribe",
+                    "like and subscribe",
                     "subtitles by",
                     "subtitles by the amara.org community",
-                    "bye",
-                    "watching",
                     "see you next time",
-                    "you",
                     "to be continued",
                     "продолжение следует",
                     "aaj ka kya plan hai",
                     "theek hai, production release friday ko karenge",
+                    "prastut",
+                    "prastut prastut",
+                    "knowra",
+                    "knowra sprint",
+                    "knowra, sprint",
+                    "data collection",
+                    "sprint planning",
+                    "database migration",
                 }
                 if hasattr(provider, "_is_foreign_hallucination") and provider._is_foreign_hallucination(result):
                     logger.info("Discarded Whisper foreign silence hallucination turn", text=result)
@@ -1430,11 +1421,17 @@ class LiveMeetingManager:
                 if hasattr(provider, "_is_prompt_leak") and provider._is_prompt_leak(result):
                     logger.info("Discarded Whisper prompt leak turn", text=result)
                     return ""
+                if hasattr(provider, "_has_repetition_loop") and provider._has_repetition_loop(result):
+                    logger.info("Discarded Whisper repetition loop hallucination", text=result)
+                    return ""
                 if (
                     res_clean in WHISPER_SILENCE_HALLUCINATIONS
                     or res_clean.startswith("thank you for watching")
                     or res_clean.startswith("продолжение следует")
                     or res_clean.startswith("aaj ka kya plan hai")
+                    or res_clean.startswith("knowra, sprint")
+                    or res_clean.startswith("knowra sprint")
+                    or res_clean.startswith("prastut")
                 ):
                     logger.info("Discarded Whisper silence hallucination turn", text=result)
                     return ""
@@ -1709,8 +1706,23 @@ class LiveMeetingManager:
                     TranscriptSegment.text.ilike(hall_text),
                 ).delete(synchronize_session=False)
 
+            # Auto-generate crisp, context-aware meeting title if not custom-entered by user
+            from app.services.meeting_title_service import MeetingTitleService
+            new_title = MeetingTitleService.auto_title_meeting(db, meeting_id)
+            if new_title:
+                title_payload = {
+                    "type": "MEETING_TITLE_UPDATED",
+                    "meeting_id": str(meeting_id),
+                    "title": new_title,
+                }
+                for ws in list(session.subscribers):
+                    try:
+                        await ws.send_json(title_payload)
+                    except Exception:
+                        pass
+
             db.commit()
-            logger.info("Finalized live meeting and consolidated speakers", meeting_id=str(meeting_id), duration=duration)
+            logger.info("Finalized live meeting, auto-titled, and consolidated speakers", meeting_id=str(meeting_id), duration=duration, title=new_title or (meeting.title if meeting else None))
         except Exception as e:
             logger.error("Error finalizing live meeting", error=str(e))
         finally:

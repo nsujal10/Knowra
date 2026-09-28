@@ -120,10 +120,8 @@ export function UploadMeetingModal({
 
   // Handle file selection
   const processSelectedFile = (selectedFile: File) => {
-    // Derive meeting title by removing extension
-    const cleanTitle = selectedFile.name.replace(/\.[^/.]+$/, "");
     setFile(selectedFile);
-    setTitle(cleanTitle);
+    setTitle("");
     setStep("DETAILS");
     setErrorMessage("");
   };
@@ -313,16 +311,21 @@ export function UploadMeetingModal({
 
               {/* Title Field */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Meeting Title
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    Meeting Title
+                  </label>
+                  <span className="text-[10px] text-indigo-600 font-medium bg-indigo-50 px-1.5 py-0.5 rounded">
+                    Auto-generated if left empty
+                  </span>
+                </div>
                 <div className="relative">
                   <FileText className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Enter meeting title..."
+                    placeholder="e.g. Sprint Planning (Auto-generated from video if empty)..."
                     className="w-full text-sm pl-9 pr-3 py-2 border border-slate-200 rounded-lg bg-white shadow-xs focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>

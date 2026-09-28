@@ -34,13 +34,13 @@ export interface NavItem {
 
 // ─── Primary Domain Routes ───────────────────────────────────────────────────
 const PRIMARY_NAV_ITEMS: NavItem[] = [
-  { label: "Ask Knowra",    href: "/chat",                    icon: Sparkles },
-  { label: "Meetings",      href: "/meetings",                icon: Video },
-  { label: "Decisions",     href: "/meetings/m-001/decisions", icon: CheckSquare },
-  { label: "Actions",       href: "/meetings/m-001/actions",   icon: ListTodo },
-  { label: "Risks",         href: "/evaluation",              icon: AlertTriangle },
-  { label: "Folders",       href: "/folders",                 icon: Folder, hasPlus: true },
-  { label: "Integrations",  href: "/integrations",            icon: Layers },
+  { label: "Ask Knowra",    href: "/chat",         icon: Sparkles },
+  { label: "Meetings",      href: "/meetings",     icon: Video },
+  { label: "Decisions",     href: "/decisions",    icon: CheckSquare },
+  { label: "Actions",       href: "/actions",      icon: ListTodo },
+  { label: "Risks",         href: "/evaluation",   icon: AlertTriangle },
+  { label: "Folders",       href: "/folders",      icon: Folder, hasPlus: true },
+  { label: "Integrations",  href: "/integrations", icon: Layers },
 ];
 
 // ─── Secondary Workspace Routes ──────────────────────────────────────────────

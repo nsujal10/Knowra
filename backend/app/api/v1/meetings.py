@@ -90,7 +90,8 @@ def list_meetings(
 
 @router.post("", response_model=MeetingResponse, status_code=status.HTTP_201_CREATED)
 def create_meeting(data: MeetingCreate, db: Session = Depends(get_db), tenant_ctx: TenantContext = Depends(get_tenant_context)):
-    meeting = Meeting(tenant_id=tenant_ctx.tenant_id, owner_id=tenant_ctx.user_id, title=data.title)
+    effective_title = data.title.strip() if data.title and data.title.strip() else "Untitled Meeting"
+    meeting = Meeting(tenant_id=tenant_ctx.tenant_id, owner_id=tenant_ctx.user_id, title=effective_title)
     db.add(meeting)
     db.commit()
     db.refresh(meeting)
@@ -203,4 +204,34 @@ def update_meeting_speaker(
         "speakerLabel": speaker.speaker_label,
         "displayName": speaker.display_name,
     }
+
+
+@router.post("/{meeting_id}/auto-title", summary="Auto-generate meeting title from transcript")
+def auto_title_meeting_endpoint(
+    meeting_id: str,
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    from app.api.v1.intelligence import resolve_meeting
+    from app.services.meeting_title_service import MeetingTitleService
+    meeting = resolve_meeting(meeting_id, tenant_ctx.tenant_id, db)
+    if not meeting:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Meeting not found")
+
+    new_title = MeetingTitleService.auto_title_meeting(db, meeting.id, force=True)
+    return {
+        "meetingId": str(meeting.id),
+        "title": new_title or meeting.title,
+        "updated": bool(new_title and new_title != meeting.title),
+    }
+
+
+@router.post("/auto-title/backfill", summary="Backfill intelligent titles for all generic meetings")
+def backfill_generic_meeting_titles(
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    from app.services.meeting_title_service import MeetingTitleService
+    results = MeetingTitleService.backfill_all_generic_titles(db, tenant_id=tenant_ctx.tenant_id)
+    return results
 

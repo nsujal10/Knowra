@@ -88,6 +88,18 @@ export const ACTIONS = {
 
 // ─── Decisions ───────────────────────────────────────────────────────────────
 export const DECISIONS = {
-  list: (meetingId?: string) =>
-    meetingId ? `/meetings/${meetingId}/decisions` : "/decisions",
+  list: (params?: { meetingId?: string; status?: string; category?: string; search?: string } | string) => {
+    if (typeof params === "string") {
+      return `/meetings/${params}/decisions`;
+    }
+    const q = new URLSearchParams();
+    if (params?.meetingId) q.append("meeting_id", params.meetingId);
+    if (params?.status) q.append("status", params.status);
+    if (params?.category) q.append("category", params.category);
+    if (params?.search) q.append("search", params.search);
+    const qs = q.toString();
+    const base = params?.meetingId ? `/meetings/${params.meetingId}/decisions` : "/decisions";
+    return qs ? `${base}?${qs}` : base;
+  },
 };
+

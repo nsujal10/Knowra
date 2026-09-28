@@ -40,7 +40,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
   const [hostName, setHostName] = useState(session?.user?.full_name || "Sujal Nage");
   const [attendees, setAttendees] = useState("");
   const [mode, setMode] = useState<"browser" | "desktop">("browser");
-  const [language, setLanguage] = useState<"hi-IN" | "en-IN" | "en-US">("hi-IN");
+  const [language, setLanguage] = useState<"en-US" | "hinglish">("en-US");
   const [isStarting, setIsStarting] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [liveMeetingId, setLiveMeetingId] = useState<string | null>(null);
@@ -105,8 +105,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
 
   useEffect(() => {
     if (isOpen) {
-      const now = new Date();
-      setMeetingTitle(`Live Sync • ${now.toLocaleDateString([], { month: "short", day: "numeric" })}`);
+      setMeetingTitle("");
       if (session?.user?.full_name) {
         setHostName(session.user.full_name);
       }
@@ -196,10 +195,10 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
       const res = await api.post<{ meetingId: string; liveStreamWsUrl: string }>(
         "/meetings/live/start",
         {
-          title: meetingTitle || "Live Meeting",
+          title: meetingTitle.trim() || undefined,
           hostName: hostName || "You (Host)",
           attendees: attendees.trim() || undefined,
-          language: language.startsWith("hi") ? "hi" : "en",
+          language: language === "hinglish" ? "hinglish" : language.startsWith("hi") ? "hi" : "en",
         }
       );
       const mId = res.meetingId;
@@ -253,8 +252,8 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
             const recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
-            // Native Hindi (hi-IN), Hinglish (en-IN), or English (en-US)
-            recognition.lang = language;
+            // For Hinglish, use en-IN for Web Speech so Indian phonetics aren't forced into Devanagari Unicode
+            recognition.lang = language === "hinglish" ? "en-IN" : language;
 
             recognition.onresult = (event: any) => {
               for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -269,7 +268,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                           channel: 1,
                           speaker_hint: hostName || "You (Host)",
                           text_hint: finalTxt,
-                          language: language.startsWith("hi") ? "hi" : "en",
+                          language: language === "hinglish" ? "hinglish" : language.startsWith("hi") ? "hi" : "en",
                         })
                       );
                     }
@@ -394,10 +393,10 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
     setInterimSpeech("");
     try {
       const res = await api.post<{ meetingId: string }>("/meetings/live/start", {
-        title: meetingTitle || "Live Meeting",
+        title: meetingTitle.trim() || undefined,
         hostName: hostName || "You (Host)",
         attendees: attendees.trim() || undefined,
-        language: language.startsWith("hi") ? "hi" : "en",
+        language: language === "hinglish" ? "hinglish" : language.startsWith("hi") ? "hi" : "en",
       });
       const mId = res.meetingId;
       setLiveMeetingId(mId);
@@ -417,7 +416,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
             meetingId: mId,
             hostName: hostName || "Sujal Nage",
             attendees: attendees.trim(),
-            language: language.startsWith("hi") ? "hi" : "en",
+            language: language === "hinglish" ? "hinglish" : language.startsWith("hi") ? "hi" : "en",
           }),
         });
         if (agentRes.ok) {
@@ -434,7 +433,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
           await api.post(`/meetings/${mId}/companion/launch`, {
             hostName: hostName || "Sujal Nage",
             attendees: attendees.trim(),
-            language: language.startsWith("hi") ? "hi" : "en",
+            language: language === "hinglish" ? "hinglish" : language.startsWith("hi") ? "hi" : "en",
           });
           setAgentAutoLaunched(true);
           launched = true;
@@ -468,6 +467,8 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                 item.speaker === data.oldName ? { ...item, speaker: data.newName } : item
               )
             );
+          } else if (data.type === "MEETING_TITLE_UPDATED" && data.title) {
+            setMeetingTitle(data.title);
           }
         } catch (e) {
           console.error("Error parsing live transcript message:", e);
@@ -497,7 +498,10 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
     } catch {}
 
     try {
-      await api.post(`/meetings/${liveMeetingId}/live/end`, {});
+      const endRes = await api.post<{ title?: string }>(`/meetings/${liveMeetingId}/live/end`, {});
+      if (endRes?.title) {
+        setMeetingTitle(endRes.title);
+      }
     } catch (e) {
       console.warn("Error finalizing live meeting:", e);
     }
@@ -510,7 +514,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
     const attendeesFlag = attendees.trim() ? ` --attendees "${attendees.trim()}"` : "";
     const effectiveHost = hostName.trim() || session?.user?.full_name || "Sujal Nage";
     const hostFlag = ` --host-name "${effectiveHost}"`;
-    const langFlag = language.startsWith("hi") ? (simulate ? " --hindi" : " --language hi") : "";
+    const langFlag = language === "hinglish" ? " --language hinglish" : " --language en";
 
     const cmd = simulate
       ? `python scripts/desktop_meeting_companion.py --meeting-id ${liveMeetingId}${langFlag || " --simulate"}${attendeesFlag}${hostFlag}`
@@ -594,12 +598,15 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
               {/* Meeting Meta Inputs */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1 col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Meeting Title</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-700">Meeting Title</label>
+                    <span className="text-[10px] text-indigo-600 font-medium bg-indigo-50 px-1.5 py-0.5 rounded">Auto-generated if left empty</span>
+                  </div>
                   <input
                     type="text"
                     value={meetingTitle}
                     onChange={(e) => setMeetingTitle(e.target.value)}
-                    placeholder="e.g. Weekly Product Architecture Review"
+                    placeholder="e.g. Sprint Planning (Auto-generated from transcript if left empty)"
                     className="w-full text-xs h-9 px-3 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
@@ -630,48 +637,42 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                   </p>
                 </div>
 
-                {/* Language Selector */}
+                {/* Language Selector (English and Hinglish) */}
                 <div className="space-y-1.5 col-span-2">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-slate-700">Speech & Analysis Language</label>
-                    <span className="text-[10px] text-indigo-600 font-medium">Deep Hindi Extraction</span>
+                    <span className="text-[10px] text-indigo-600 font-medium">Bilingual Speech AI</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setLanguage("hi-IN")}
-                      className={`px-2 py-1.5 rounded-lg border text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                        language === "hi-IN"
-                          ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span>🇮🇳</span>
-                      <span>Hindi (हिंदी)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setLanguage("en-IN")}
-                      className={`px-2 py-1.5 rounded-lg border text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                        language === "en-IN"
-                          ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                      }`}
-                    >
-                      <span>🇮🇳</span>
-                      <span>Hinglish</span>
-                    </button>
+                  <div className="grid grid-cols-2 gap-2.5">
                     <button
                       type="button"
                       onClick={() => setLanguage("en-US")}
-                      className={`px-2 py-1.5 rounded-lg border text-xs font-medium flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
                         language === "en-US"
                           ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold shadow-2xs"
                           : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
                       }`}
                     >
-                      <span>🌐</span>
-                      <span>English</span>
+                      <span className="text-base">🌐</span>
+                      <div className="text-left">
+                        <div className="font-semibold text-xs">English</div>
+                        <div className="text-[10px] text-slate-500 font-normal">Pure English conversations</div>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLanguage("hinglish")}
+                      className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                        language === "hinglish"
+                          ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold shadow-2xs"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="text-base">🇮🇳</span>
+                      <div className="text-left">
+                        <div className="font-semibold text-xs">Hinglish</div>
+                        <div className="text-[10px] text-slate-500 font-normal">Hindi + English code-mixed</div>
+                      </div>
                     </button>
                   </div>
                 </div>
@@ -863,7 +864,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                     <div className="p-2.5 bg-slate-900 rounded-xl text-left text-slate-200 font-mono text-[10.5px] flex items-center justify-between gap-2 border border-slate-800 mt-1.5">
                       <span className="truncate">
                         python scripts/desktop_meeting_companion.py --meeting-id {liveMeetingId}
-                        {language.startsWith("hi") ? " --language hi" : ""}
+                        {language === "hinglish" ? " --language hinglish" : " --language en"}
                         {attendees.trim() ? ` --attendees "${attendees.trim()}"` : ""}
                         {` --host-name "${hostName.trim() || session?.user?.full_name || "Sujal Nage"}"`}
                       </span>

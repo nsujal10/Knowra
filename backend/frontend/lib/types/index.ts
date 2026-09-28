@@ -257,11 +257,65 @@ export type ActionItem = z.infer<typeof ActionItemSchema>;
 export const DecisionSchema = z.object({
   id: z.string(),
   title: z.string(),
-  summary: z.string(),
+  summary: z.string().optional(),
+  description: z.string().optional(),
+  rationale: z.string().nullable().optional(),
   made_by: z.string().nullable().optional(),
+  decided_by: z.string().nullable().optional(),
   confidence: z.number().nullable().optional(),
   meeting_id: z.string(),
+  meeting_title: z.string().nullable().optional(),
   segment_id: z.string().nullable().optional(),
+  category: z.string().optional(),
+  status: z.string().optional(),
+  impact_level: z.string().optional(),
+  timestamp: z.string().nullable().optional(),
+  start_seconds: z.number().nullable().optional(),
+  evidence_snippet: z.string().nullable().optional(),
   created_at: z.string(),
 });
 export type Decision = z.infer<typeof DecisionSchema>;
+
+export const EnterpriseDecisionItemSchema = z.object({
+  id: z.string(),
+  meeting_id: z.string(),
+  meeting_title: z.string().nullable().optional(),
+  title: z.string(),
+  description: z.string(),
+  rationale: z.string().nullable().optional(),
+  status: z.string(),
+  impact_level: z.string(),
+  category: z.string(),
+  decided_by: z.string().nullable().optional(),
+  timestamp: z.string().nullable().optional(),
+  start_seconds: z.number().nullable().optional(),
+  evidence_snippet: z.string().nullable().optional(),
+  evidence_segment_ids: z.array(z.string()).optional(),
+  created_at: z.string(),
+});
+export type EnterpriseDecisionItem = z.infer<typeof EnterpriseDecisionItemSchema>;
+
+export const DecisionsMetricsSchema = z.object({
+  total_decisions: z.number(),
+  consensus_level: z.string(),
+  ai_verified: z.string(),
+  confirmed_count: z.number(),
+  superseded_count: z.number(),
+});
+export type DecisionsMetrics = z.infer<typeof DecisionsMetricsSchema>;
+
+export const MeetingSummaryItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  decision_count: z.number(),
+});
+export type MeetingSummaryItem = z.infer<typeof MeetingSummaryItemSchema>;
+
+export const EnterpriseDecisionsResponseSchema = z.object({
+  items: z.array(EnterpriseDecisionItemSchema),
+  total: z.number(),
+  metrics: DecisionsMetricsSchema,
+  meetings: z.array(MeetingSummaryItemSchema),
+});
+export type EnterpriseDecisionsResponse = z.infer<typeof EnterpriseDecisionsResponseSchema>;
+

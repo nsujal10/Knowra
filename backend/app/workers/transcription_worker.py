@@ -105,12 +105,20 @@ def execute_transcription_task(self, job_id: str, tenant_id: str, media_id: str)
         
         # Execute Transcription via Provider Abstraction
         provider = get_transcription_provider()
-        options = TranscriptionOptions(word_timestamps=True, beam_size=5)
+        default_lang = getattr(settings, "DEFAULT_ASR_LANGUAGE", "hinglish")
+        options = TranscriptionOptions(word_timestamps=True, beam_size=5, language=default_lang)
         result = provider.transcribe(local_audio_path, options)
         
         # Save to DB & MinIO
         svc = TranscriptionService(db, UUID(tenant_id))
         svc.save_transcription(media.meeting_id, UUID(media_id), result)
+
+        # Auto-generate video meeting title if not custom-entered by user
+        try:
+            from app.services.meeting_title_service import MeetingTitleService
+            MeetingTitleService.auto_title_meeting(db, media.meeting_id)
+        except Exception as title_err:
+            log.warning("Could not auto-generate title after transcription", error=str(title_err))
 
         # Trigger Diarization so speaker attribution happens
         try:

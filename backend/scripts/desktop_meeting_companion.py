@@ -837,13 +837,13 @@ async def capture_channel_stream(
     speech_buffer = bytearray()
     silence_counter = 0
     # Channel-aware RMS thresholds:
-    # Channel 1 (Mic): 160.0 RMS threshold
-    # Channel 2 (Teams Loopback): 80.0 RMS threshold because remote audio volume varies with Windows master volume
-    ENERGY_THRESHOLD = 80.0 if channel_id > 1 else 160.0
-    MIN_BUF_RMS = 95.0 if channel_id > 1 else 200.0
+    # Channel 1 (Mic): 135.0 RMS (filters breathing, typing, room acoustics, and laptop fan noise while capturing clear human speech)
+    # Channel 2 (Teams Loopback): 70.0 RMS (captures remote attendees cleanly without amplifying quiet line noise)
+    ENERGY_THRESHOLD = 70.0 if channel_id > 1 else 135.0
+    MIN_BUF_RMS = 75.0 if channel_id > 1 else 130.0
     # Target peak amplitude for normalization (~-3 dBFS in int16 range)
-    TARGET_PEAK = 23000.0
-    # Pre-roll ring buffer: keep last 2 silence frames as leading context
+    TARGET_PEAK = 22000.0
+    # Pre-roll ring buffer: keep last 2 silence frames (approx 65ms) as leading context
     preroll_ring: list[bytes] = []
     PREROLL_FRAMES = 2
 
@@ -888,10 +888,10 @@ async def capture_channel_stream(
             raw_rms = float(np.sqrt(np.mean(resampled_np.astype(np.float32) ** 2)))
 
             if raw_rms >= ENERGY_THRESHOLD:
-                # Active speech: apply peak normalization for optimal Whisper recognition
+                # Active speech: apply gentle peak normalization (max 4.0x gain to prevent distorting quiet noise)
                 peak = float(np.max(np.abs(resampled_np)))
                 if peak > 0:
-                    gain = min(TARGET_PEAK / peak, 8.0)
+                    gain = min(TARGET_PEAK / peak, 4.0)
                     if gain > 1.05:
                         resampled_np = np.clip(resampled_np.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
                 pcm_16k_bytes = resampled_np.tobytes()
@@ -908,7 +908,7 @@ async def capture_channel_stream(
                 pcm_16k_bytes = resampled_np.tobytes()
                 if len(speech_buffer) > 0:
                     silence_counter += 1
-                    # Keep a brief trailing post-roll (up to 3 frames) for natural word ends
+                    # Keep trailing post-roll (up to 3 frames) for natural word ends
                     if silence_counter <= 3:
                         speech_buffer.extend(pcm_16k_bytes)
                 else:
@@ -918,24 +918,23 @@ async def capture_channel_stream(
                         preroll_ring.pop(0)
 
             # Flush condition:
-            # - Accumulated >= 2.0s (64,000 bytes) and speaker paused (silence_counter >= 8, ~250ms)
-            # - OR accumulated max chunk >= ~4.0s (128,000 bytes)
-            # This batches speech into full coherent clauses and stays comfortably under Groq 20 RPM limits
-            has_enough_speech = len(speech_buffer) >= 64000
-            reached_max_chunk = len(speech_buffer) >= 128000
-            speaker_paused = (silence_counter >= 8 and has_enough_speech)
+            # - Accumulated speech >= 1.25s (40,000 bytes) and speaker paused (silence_counter >= 6, ~200ms)
+            # - OR accumulated speech buffer reaches max 2.5s (80,000 bytes)
+            # Full semantic clauses provide Whisper with adequate context and eliminate short breath hallucinations
+            has_enough_speech = len(speech_buffer) >= 40000
+            reached_max_chunk = len(speech_buffer) >= 80000
+            speaker_paused = (silence_counter >= 6 and has_enough_speech)
 
             if reached_max_chunk or speaker_paused:
                 chunk_to_send = bytes(speech_buffer)
                 speech_buffer.clear()
                 silence_counter = 0
 
-                # Strict buffer validation: ensure the entire chunk contains genuine voice energy
+                # Ensure buffer has voice energy
                 buf_samples = np.frombuffer(chunk_to_send, dtype=np.int16)
                 if len(buf_samples) > 0:
                     buf_rms = float(np.sqrt(np.mean(buf_samples.astype(np.float32) ** 2)))
                     if buf_rms < MIN_BUF_RMS:
-                        # Chunk was mostly trailing noise or quiet clicks; discard instead of sending phantom turn
                         continue
 
                 # Resolve dynamic speaker name and roster
@@ -1272,7 +1271,7 @@ def make_agent_handler(controller: DesktopAgentController):
                     meeting_id=str(meeting_id),
                     host_name=data.get("hostName") or data.get("host_name"),
                     attendees=data.get("attendees", ""),
-                    language=data.get("language", "hi"),
+                    language=data.get("language", "hinglish"),
                     server=data.get("server") or data.get("serverUrl"),
                 )
 
@@ -1334,10 +1333,8 @@ def main():
     parser.add_argument("--daemon", action="store_true", help="Run as background agent server on port 9876 for 1-click browser auto-launch")
     parser.add_argument("--agent", action="store_true", help="Alias for --daemon")
     parser.add_argument("--port", type=int, default=9876, help="Local agent server port (default: 9876)")
-    parser.add_argument("--simulate", action="store_true", help="Run English simulated conversation")
-    parser.add_argument("--hindi", action="store_true", help="Run pure Hindi (Devanagari) simulated conversation")
-    parser.add_argument("--hinglish", action="store_true", help="Run Hinglish / code-mixed conversation (default)")
-    parser.add_argument("--language", type=str, default="hinglish", help="Language: 'hinglish', 'hi', or 'en'")
+    parser.add_argument("--simulate", action="store_true", help="Run simulated conversation")
+    parser.add_argument("--language", type=str, default="hinglish", help="Language: 'english' ('en') or 'hinglish' (default: 'hinglish')")
     parser.add_argument("--host-name", type=str, default=detected_host, help=f"Host display name (defaults to auto-detected: '{detected_host}')")
     parser.add_argument("--attendees", type=str, default="", help="Comma-separated attendee names (e.g. 'Sarah Jenkins, Alex Rivera')")
     parser.add_argument("--speaker-name", type=str, default="", help="Channel 2 attendee display name")
@@ -1350,17 +1347,17 @@ def main():
         return
 
     # If --daemon, --agent, or no meeting-id provided: start 1-click background agent server!
-    if args.daemon or args.agent or (not args.meeting_id and not args.simulate and not args.hindi):
+    if args.daemon or args.agent or (not args.meeting_id and not args.simulate):
         run_agent_server(port=args.port, host_name=args.host_name, server_url=args.server)
         return
 
     # Direct meeting capture mode
     ws_base = args.server.replace("http://", "ws://").replace("https://", "wss://")
     ws_url = f"{ws_base}/api/v1/meetings/{args.meeting_id}/live-stream"
-    lang = "hi" if args.hindi else ("hinglish" if args.hinglish else args.language)
+    lang = "en" if args.language in ("en", "english") else "hinglish"
     remote_label = args.speaker_name or (args.attendees if args.attendees else "Remote Attendee")
 
-    if args.simulate or args.hindi:
+    if args.simulate:
         asyncio.run(run_simulation(ws_url, args.meeting_id, language=lang, host_name=args.host_name))
     else:
         asyncio.run(

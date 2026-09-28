@@ -5,7 +5,7 @@ from datetime import datetime
 from app.schemas.common import BaseSchema
 
 class MeetingCreate(BaseModel):
-    title: str
+    title: Optional[str] = None
 
 class MeetingUpdate(BaseModel):
     title: Optional[str] = None

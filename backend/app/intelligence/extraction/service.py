@@ -246,6 +246,13 @@ class MeetingIntelligenceService:
                     items=action_items_to_persist,
                 )
 
+            # 12.2. Sync Enterprise Decisions
+            try:
+                from app.decisions.sync import sync_meeting_decisions_to_enterprise
+                sync_meeting_decisions_to_enterprise(self.db, self.tenant_id)
+            except Exception as sync_err:
+                logger.warning("enterprise_decisions_sync_failed", error=str(sync_err))
+
             # 12.5. Persist Immutable Intelligence JSON Artifact to MinIO
             try:
                 from app.storage.intelligence_storage import IntelligenceStorageService
@@ -263,6 +270,13 @@ class MeetingIntelligenceService:
             run.prompt_tokens = validated_bundle.prompt_tokens
             run.completion_tokens = validated_bundle.completion_tokens
             run.processing_time_seconds = round(time.time() - start_time, 3)
+            # Auto-title meeting if currently generic
+            try:
+                from app.services.meeting_title_service import MeetingTitleService
+                MeetingTitleService.auto_title_meeting(self.db, meeting_id)
+            except Exception as title_err:
+                logger.debug("Could not auto-title meeting during intelligence run", error=str(title_err))
+
             self.db.commit()
             self.db.refresh(run)
 

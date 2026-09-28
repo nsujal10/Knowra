@@ -10,14 +10,21 @@ from app.core.config import settings
 
 logger = structlog.get_logger(__name__)
 
-MEETING_BAAS_BASE_URL = "https://api.meetingbaas.com/bots"
+MEETING_BAAS_BASE_URL = "https://api.meetingbaas.com/v2/bots"
 
 
 class MeetingBaasService:
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or settings.MEETING_BAAS_API_KEY
-        self.headers = {
-            "x-meeting-baas-api-key": self.api_key,
+        self.api_key = api_key
+
+    @property
+    def effective_api_key(self) -> str:
+        return self.api_key or settings.MEETING_BAAS_API_KEY or ""
+
+    @property
+    def headers(self) -> Dict[str, str]:
+        return {
+            "x-meeting-baas-api-key": self.effective_api_key,
             "Content-Type": "application/json",
         }
 
@@ -34,7 +41,7 @@ class MeetingBaasService:
         Returns the bot metadata including `bot_id`.
         """
         target_webhook = webhook_url or settings.MEETING_BAAS_WEBHOOK_URL
-        if not self.api_key:
+        if not self.effective_api_key:
             raise ValueError("MEETING_BAAS_API_KEY is not set in environment or settings.")
         if not target_webhook:
             raise ValueError("MEETING_BAAS_WEBHOOK_URL is not set. A public webhook URL is required.")
@@ -64,7 +71,12 @@ class MeetingBaasService:
             )
             if response.status_code >= 400:
                 logger.error("Meeting Baas deploy failed", status=response.status_code, body=response.text)
-                response.raise_for_status()
+                try:
+                    err_json = response.json()
+                    err_msg = err_json.get("message") or err_json.get("error") or response.text
+                except Exception:
+                    err_msg = response.text
+                raise RuntimeError(f"Meeting Baas ({response.status_code}): {err_msg}")
             
             data = response.json()
             logger.info("Meeting Baas bot deployed successfully", data=data)

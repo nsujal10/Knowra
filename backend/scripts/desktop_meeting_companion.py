@@ -430,29 +430,37 @@ class TeamsLiveAttendeeTracker:
         """Automatically extracts meeting link and triggers cloud bot deployment."""
         if not self.auto_deploy_bot:
             return
-        now = time.time()
-        self._last_active_meeting_seen = now
-        # Cooldown check: only attempt extraction once every 5 seconds
-        if now - self._last_deploy_attempt_time < 5.0:
-            return
-        self._last_deploy_attempt_time = now
+        with self._lock:
+            now = time.time()
+            self._last_active_meeting_seen = now
+            # Cooldown check: only attempt extraction once every 5 seconds
+            if now - self._last_deploy_attempt_time < 5.0:
+                return
+            self._last_deploy_attempt_time = now
 
         url = self.extract_active_teams_meeting_url()
-        if url and url != self._last_deployed_url:
+        if not url:
+            return
+
+        with self._lock:
+            if url == self._last_deployed_url:
+                return
             self._last_deployed_url = url
-            timestamp_str = time.strftime("%H:%M:%S")
-            print(f"\n[{timestamp_str}] 🚀 [Teams Auto-Detect] Active meeting detected: {window_title or 'Microsoft Teams Call'}")
-            print(f"[{timestamp_str}] 🔗 [Teams Auto-Detect] Extracted Meeting URL: {url[:70]}...")
-            print(f"[{timestamp_str}] 🤖 [Teams Auto-Detect] Auto-deploying Knowra Cloud Bot...")
-            threading.Thread(
-                target=self._trigger_backend_deploy,
-                args=(url,),
-                daemon=True,
-            ).start()
+
+        timestamp_str = time.strftime("%H:%M:%S")
+        print(f"\n[{timestamp_str}] 🚀 [Teams Auto-Detect] Active meeting detected: {window_title or 'Microsoft Teams Call'}")
+        print(f"[{timestamp_str}] 🔗 [Teams Auto-Detect] Extracted Meeting URL: {url[:70]}...")
+        print(f"[{timestamp_str}] 🤖 [Teams Auto-Detect] Auto-deploying Knowra Cloud Bot...")
+        threading.Thread(
+            target=self._trigger_backend_deploy,
+            args=(url,),
+            daemon=True,
+        ).start()
 
     def _trigger_backend_deploy(self, meeting_url: str):
         try:
             import urllib.request
+            import urllib.error
             import json
 
             backend_url = f"{self.server_url}/api/v1/meeting-baas/deploy"
@@ -472,6 +480,15 @@ class TeamsLiveAttendeeTracker:
                     print(f"[{timestamp_str}] ✅ [Teams Auto-Detect] Cloud Bot deployed to Teams call room! Click 'Admit' in Teams when prompted.\n")
                 else:
                     print(f"[Teams Auto-Detect] Backend deploy responded with status {resp.status}")
+        except urllib.error.HTTPError as e:
+            try:
+                err_body = e.read().decode("utf-8")
+                import json
+                err_dict = json.loads(err_body)
+                err_msg = err_dict.get("detail") or err_body
+            except Exception:
+                err_msg = str(e)
+            print(f"[Teams Auto-Detect] Cloud Bot auto-deploy error: {err_msg}")
         except Exception as e:
             print(f"[Teams Auto-Detect] Cloud Bot auto-deploy: {e}")
 

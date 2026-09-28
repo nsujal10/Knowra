@@ -100,3 +100,49 @@ class ActionItemResponse(BaseModel):
 class ActionItemListResponse(BaseModel):
     items: List[ActionItemResponse]
     total: int
+
+
+class ActionItemDetail(BaseModel):
+    id: UUID
+    meeting_id: UUID
+    meeting_title: Optional[str] = None
+    title: str
+    description: Optional[str] = None
+    status: str
+    priority: str = "MEDIUM"
+    due_date: Optional[datetime] = None
+    due_date_raw: Optional[str] = None
+    owner_raw: Optional[str] = None
+    assignee: Optional[str] = None
+    owner_id: Optional[UUID] = None
+    timestamp: Optional[str] = None
+    start_seconds: Optional[float] = None
+    evidence_snippet: Optional[str] = None
+    evidence_segment_ids: List[UUID] = Field(default_factory=list)
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ActionsMetrics(BaseModel):
+    total_items: int
+    pending_count: int
+    completed_count: int
+    urgent_count: int
+    completion_rate: str = "0%"
+
+
+class ActionMeetingSummary(BaseModel):
+    id: str
+    title: str
+    action_count: int = 0
+
+
+class EnterpriseActionsResponse(BaseModel):
+    items: List[ActionItemDetail]
+    total: int
+    metrics: ActionsMetrics
+    meetings: List[ActionMeetingSummary]
+    owners: List[str]
+

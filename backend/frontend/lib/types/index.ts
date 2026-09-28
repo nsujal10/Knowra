@@ -245,14 +245,52 @@ export type Integration = z.infer<typeof IntegrationSchema>;
 export const ActionItemSchema = z.object({
   id: z.string(),
   title: z.string(),
+  description: z.string().nullable().optional(),
   assignee: z.string().nullable().optional(),
+  owner_raw: z.string().nullable().optional(),
+  owner_id: z.string().nullable().optional(),
   due_date: z.string().nullable().optional(),
-  status: z.enum(["OPEN", "IN_PROGRESS", "COMPLETED", "CANCELLED"]),
+  due_date_raw: z.string().nullable().optional(),
+  status: z.string(),
+  priority: z.string().nullable().optional(),
   meeting_id: z.string(),
+  meeting_title: z.string().nullable().optional(),
   segment_id: z.string().nullable().optional(),
+  timestamp: z.string().nullable().optional(),
+  start_seconds: z.number().nullable().optional(),
+  evidence_snippet: z.string().nullable().optional(),
+  evidence_segment_ids: z.array(z.string()).optional(),
   created_at: z.string(),
+  completed_at: z.string().nullable().optional(),
 });
 export type ActionItem = z.infer<typeof ActionItemSchema>;
+export type ActionItemDetail = ActionItem;
+
+export const ActionsMetricsSchema = z.object({
+  total_items: z.number(),
+  pending_count: z.number(),
+  completed_count: z.number(),
+  urgent_count: z.number(),
+  completion_rate: z.string(),
+});
+export type ActionsMetrics = z.infer<typeof ActionsMetricsSchema>;
+
+export const ActionMeetingSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  action_count: z.number(),
+});
+export type ActionMeetingSummary = z.infer<typeof ActionMeetingSummarySchema>;
+
+export const EnterpriseActionsResponseSchema = z.object({
+  items: z.array(ActionItemSchema),
+  total: z.number(),
+  metrics: ActionsMetricsSchema,
+  meetings: z.array(ActionMeetingSummarySchema),
+  owners: z.array(z.string()),
+});
+export type EnterpriseActionsResponse = z.infer<typeof EnterpriseActionsResponseSchema>;
+
 
 export const DecisionSchema = z.object({
   id: z.string(),

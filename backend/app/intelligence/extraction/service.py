@@ -246,12 +246,18 @@ class MeetingIntelligenceService:
                     items=action_items_to_persist,
                 )
 
-            # 12.2. Sync Enterprise Decisions
+            # 12.2. Sync Enterprise Decisions & Commitments
             try:
                 from app.decisions.sync import sync_meeting_decisions_to_enterprise
                 sync_meeting_decisions_to_enterprise(self.db, self.tenant_id)
             except Exception as sync_err:
                 logger.warning("enterprise_decisions_sync_failed", error=str(sync_err))
+
+            try:
+                from app.actions.sync import sync_commitments_to_action_items
+                sync_commitments_to_action_items(self.db, self.tenant_id)
+            except Exception as sync_err:
+                logger.warning("commitments_sync_failed", error=str(sync_err))
 
             # 12.5. Persist Immutable Intelligence JSON Artifact to MinIO
             try:

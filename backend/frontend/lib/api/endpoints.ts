@@ -82,8 +82,21 @@ export const INTEGRATIONS = {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 export const ACTIONS = {
-  list: (meetingId?: string) =>
-    meetingId ? `/meetings/${meetingId}/actions` : "/actions",
+  list: (params?: { meetingId?: string; status?: string; priority?: string; owner?: string; search?: string } | string) => {
+    if (typeof params === "string") {
+      return `/meetings/${params}/actions`;
+    }
+    const q = new URLSearchParams();
+    if (params?.meetingId) q.append("meeting_id", params.meetingId);
+    if (params?.status) q.append("status", params.status);
+    if (params?.priority) q.append("priority", params.priority);
+    if (params?.owner) q.append("owner", params.owner);
+    if (params?.search) q.append("search", params.search);
+    const qs = q.toString();
+    const base = params?.meetingId ? `/meetings/${params.meetingId}/actions` : "/actions";
+    return qs ? `${base}?${qs}` : base;
+  },
+  toggle: (id: string) => `/actions/${id}/toggle`,
 };
 
 // ─── Decisions ───────────────────────────────────────────────────────────────

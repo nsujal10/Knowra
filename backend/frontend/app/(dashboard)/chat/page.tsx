@@ -693,10 +693,10 @@ function MessageBubble({
             {/* Formatted Text Content without background box */}
             <FormattedMessageContent content={message.content} isUser={false} />
 
-            {/* Citations Badges */}
+            {/* Citations Badges - Clean & Simple */}
             {message.citations && message.citations.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-2">
-                <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-1">
+              <div className="flex flex-wrap items-center gap-1.5 pt-2.5">
+                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal mr-0.5">
                   Sources:
                 </span>
                 {message.citations.map((c, i) => {
@@ -707,14 +707,14 @@ function MessageBubble({
                     <button
                       key={c.chunk_id ? `${c.chunk_id}-${i}` : i}
                       onClick={() => onCitationClick(c)}
-                      className="inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-md bg-slate-100/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 text-slate-600 dark:text-slate-300 hover:border-[#5345dc] hover:text-[#5345dc] hover:bg-[#5345dc]/5 transition-all group"
+                      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200/70 dark:border-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
                       title="View transcript proof"
                     >
-                      <FileText size={11} className="text-[#5345dc] shrink-0" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#5345dc] shrink-0" />
                       <span className="font-medium text-slate-700 dark:text-slate-200">{speaker}</span>
                       <span className="text-slate-300 dark:text-slate-600">•</span>
-                      <span className="truncate max-w-[130px] text-slate-500 dark:text-slate-400">{truncate(title, 20)}</span>
-                      <span className="font-mono text-[10px] px-1 rounded bg-slate-200/60 dark:bg-slate-700/60 text-slate-500 group-hover:text-[#5345dc]">
+                      <span className="truncate max-w-[140px] text-slate-400 dark:text-slate-500">{truncate(title, 20)}</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
                         {formatDuration(timeSec)}
                       </span>
                     </button>
@@ -724,10 +724,10 @@ function MessageBubble({
             )}
 
             {/* Clean bottom action row */}
-            <div className="flex items-center gap-3 pt-1">
+            <div className="flex items-center gap-2.5 pt-1 text-[11px] text-slate-400 dark:text-slate-500">
               <button
                 onClick={() => onCopy(message.id, message.content)}
-                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
                 title="Copy answer"
               >
                 {copiedId === message.id ? (
@@ -742,8 +742,8 @@ function MessageBubble({
                   </>
                 )}
               </button>
-              <span className="text-slate-200 dark:text-slate-700">•</span>
-              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+              <span className="text-slate-300 dark:text-slate-700">•</span>
+              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 size={10} />
                 Verified
               </span>

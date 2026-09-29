@@ -406,8 +406,8 @@ export default function ChatPage() {
                 rows={2}
                 disabled={isStreaming}
                 className={cn(
-                  "w-full resize-none bg-transparent px-4 pt-3 pb-10 text-sm text-slate-800",
-                  "placeholder:text-slate-400 focus:outline-none",
+                  "w-full resize-none bg-transparent px-4 pt-3 pb-10 text-sm text-[var(--foreground)]",
+                  "placeholder:text-[var(--muted)] focus:outline-none",
                   "max-h-36 overflow-y-auto leading-relaxed",
                   isStreaming && "opacity-60 cursor-not-allowed"
                 )}
@@ -685,8 +685,13 @@ function MessageBubble({
 
       <div className={cn("space-y-2 max-w-[85%] sm:max-w-[78%]", isUser && "flex flex-col items-end")}>
         {isUser ? (
-          <div className="bg-[var(--primary)] text-white rounded-2xl rounded-tr-xs px-5 py-3 text-sm shadow-xs leading-relaxed font-normal break-words">
-            <p className="whitespace-pre-wrap">{message.content}</p>
+          <div
+            className="bg-[#5345dc] !text-white rounded-2xl rounded-tr-xs px-5 py-3 text-sm shadow-xs leading-relaxed font-normal break-words"
+            style={{ color: "#ffffff", backgroundColor: "#5345dc" }}
+          >
+            <p className="whitespace-pre-wrap !text-white font-medium" style={{ color: "#ffffff" }}>
+              {message.content}
+            </p>
           </div>
         ) : (
           <div className="rounded-2xl px-5 py-4 bg-[var(--surface-2)] text-[var(--foreground)] border border-[var(--border)] shadow-2xs relative group leading-relaxed text-sm">

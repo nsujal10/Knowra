@@ -31,6 +31,7 @@ import {
   CheckCircle2,
   ArrowRight,
   Layers,
+  ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -267,45 +268,51 @@ export default function ChatPage() {
         {/* Messages Card (Single clean card) */}
         <div className="flex-1 flex flex-col min-w-0 bg-white border border-slate-200/80 rounded-2xl shadow-2xs overflow-hidden">
           {/* Top Control Bar */}
-          <div className="h-14 border-b border-slate-100 px-4 flex items-center justify-between bg-slate-50/50 backdrop-blur-sm shrink-0">
+          <div className="h-14 border-b border-slate-100 px-4 sm:px-5 flex items-center justify-between bg-white shrink-0">
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-sm shrink-0">
-                <Bot size={17} className="text-white" />
+              <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0 ring-1 ring-black/5">
+                <Sparkles size={16} className="text-white" />
               </div>
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold truncate text-slate-900">
-                    {activeSession?.title ?? "Knowra AI Assistant"}
-                  </h2>
-                  <span className="hidden sm:inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    RAG Active
+                <h1 className="text-sm font-semibold text-slate-900 truncate">
+                  {activeSession?.title ? activeSession.title : "Enterprise Copilot"}
+                </h1>
+                <div className="flex items-center gap-2 text-[11px] text-slate-500 leading-none mt-0.5">
+                  <span className="inline-flex items-center gap-1 font-medium text-emerald-600 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    Verified Grounding
+                  </span>
+                  <span className="text-slate-300">•</span>
+                  <span className="truncate">
+                    {meetings.length > 0
+                      ? `${meetings.length} meeting transcripts indexed`
+                      : "Organizational meeting intelligence"}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-500 truncate">
-                  Grounded in 42+ verified meeting transcripts with pgvector hybrid search
-                </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
               {/* Meeting Scope Filter */}
-              <div className="hidden md:flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs text-slate-600">
-                <Filter size={12} className="text-[#5345dc]" />
-                <select
-                  aria-label="Filter context by meeting scope"
-                  value={selectedMeetingId}
-                  onChange={(e) => setSelectedMeetingId(e.target.value)}
-                  className="bg-transparent text-xs text-slate-800 focus:outline-none cursor-pointer max-w-[180px] truncate"
-                >
-                  <option value="all">Scope: All Meetings</option>
-                  {Array.isArray(meetings) &&
-                    meetings.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.title}
-                      </option>
-                    ))}
-                </select>
+              <div className="hidden md:flex items-center relative">
+                <div className="flex items-center gap-1.5 h-8 pl-2.5 pr-2 bg-slate-50 hover:bg-slate-100/80 border border-slate-200/80 rounded-lg text-xs transition-colors cursor-pointer group">
+                  <Filter size={12} className="text-slate-400 group-hover:text-slate-600 shrink-0" />
+                  <select
+                    aria-label="Filter context by meeting scope"
+                    value={selectedMeetingId}
+                    onChange={(e) => setSelectedMeetingId(e.target.value)}
+                    className="bg-transparent text-xs text-slate-700 font-medium focus:outline-none cursor-pointer pr-4 appearance-none max-w-[170px] truncate"
+                  >
+                    <option value="all">Scope: All Meetings</option>
+                    {Array.isArray(meetings) &&
+                      meetings.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.title}
+                        </option>
+                      ))}
+                  </select>
+                  <ChevronDown size={11} className="text-slate-400 pointer-events-none absolute right-2" />
+                </div>
               </div>
 
               {/* New Chat Button */}
@@ -317,24 +324,34 @@ export default function ChatPage() {
                   createSession.mutate();
                 }}
                 isLoading={createSession.isPending}
-                className="gap-1.5 text-xs font-medium border-slate-200"
+                className="h-8 gap-1.5 text-xs font-medium border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:text-slate-900 shadow-2xs"
                 id="new-chat-top-btn"
               >
-                <Plus size={13} />
+                <Plus size={13} className="text-slate-500" />
                 <span className="hidden sm:inline">New Chat</span>
               </Button>
 
               {/* Toggle Right Chat Stores Sidebar */}
               <Button
-                variant={showRightHistory ? "secondary" : "ghost"}
+                variant={showRightHistory ? "secondary" : "outline"}
                 size="sm"
                 onClick={() => setShowRightHistory(!showRightHistory)}
-                className="gap-1.5 text-xs"
+                className={cn(
+                  "h-8 gap-1.5 text-xs font-medium border-slate-200",
+                  showRightHistory
+                    ? "bg-slate-100 text-slate-900 border-slate-300"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                )}
                 title={showRightHistory ? "Hide Chat History" : "Show Chat History"}
                 aria-label="Toggle chat history"
               >
-                <History size={14} />
-                <span className="hidden lg:inline">{sessions.length}</span>
+                <History size={13} className="text-slate-500" />
+                <span className="hidden sm:inline">History</span>
+                {sessions.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-slate-200/80 text-[10px] font-semibold text-slate-700">
+                    {sessions.length}
+                  </span>
+                )}
               </Button>
             </div>
           </div>
@@ -453,9 +470,9 @@ export default function ChatPage() {
       {showRightHistory && (
         <div className="w-72 lg:w-80 shrink-0 flex flex-col bg-white border border-slate-200/80 rounded-2xl shadow-2xs overflow-hidden animate-slide-in-right">
           {/* Header */}
-          <div className="h-14 border-b border-slate-100 px-4 flex items-center justify-between bg-slate-50/50 shrink-0">
+          <div className="h-14 border-b border-slate-100 px-4 flex items-center justify-between bg-white shrink-0">
             <div className="flex items-center gap-2">
-              <History size={16} className="text-[#5345dc]" />
+              <History size={15} className="text-slate-500" />
               <h3 className="text-sm font-semibold text-slate-800">Chat History</h3>
               <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 {sessions.length}
@@ -464,13 +481,16 @@ export default function ChatPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => createSession.mutate()}
+              onClick={() => {
+                setActiveSessionId(null);
+                createSession.mutate();
+              }}
               isLoading={createSession.isPending}
-              className="h-7 px-2 text-xs gap-1 border-slate-200"
+              className="h-8 px-2.5 text-xs gap-1 border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               id="right-new-chat-btn"
               title="Start a new chat session"
             >
-              <Plus size={12} />
+              <Plus size={12} className="text-slate-500" />
               New
             </Button>
           </div>

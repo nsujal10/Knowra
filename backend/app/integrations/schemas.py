@@ -98,3 +98,43 @@ class TestDispatchResponse(BaseModel):
     dispatched: bool
     status: str
     detail: str
+
+
+class CalendarConnectionStatus(BaseModel):
+    provider: str
+    name: str
+    is_connected: bool
+    account_email: Optional[str] = None
+    last_synced_at: Optional[datetime] = None
+    auto_join: bool = True
+    email_summaries: bool = True
+    internal_only: bool = False
+    events_count: int = 0
+
+
+class CalendarMeetingItem(BaseModel):
+    id: str
+    title: str
+    provider: str
+    start_time: str
+    end_time: str
+    duration_minutes: int
+    meeting_link: Optional[str] = None
+    organizer: str
+    attendees: List[str] = Field(default_factory=list)
+    auto_join: bool = True
+    status: str = "SCHEDULED"
+    is_external: bool = False
+
+
+class CalendarConnectRequest(BaseModel):
+    provider: str
+    account_email: Optional[str] = None
+    auto_join: Optional[bool] = True
+    email_summaries: Optional[bool] = True
+
+
+class CalendarToggleBotRequest(BaseModel):
+    meeting_id: str
+    auto_join: bool
+

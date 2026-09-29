@@ -83,6 +83,13 @@ export const INTEGRATIONS = {
   test: (id: string) => `/integrations/${id}/test`,
   events: () => "/integrations/events/history",
   testResend: () => "/integrations/resend/test",
+  calendarStatus: () => "/integrations/calendar/status",
+  calendarEvents: (provider?: string) =>
+    provider ? `/integrations/calendar/events?provider=${provider}` : "/integrations/calendar/events",
+  calendarConnect: () => "/integrations/calendar/connect",
+  calendarDisconnect: () => "/integrations/calendar/disconnect",
+  calendarSync: () => "/integrations/calendar/sync",
+  calendarToggleBot: () => "/integrations/calendar/toggle-bot",
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────

@@ -232,6 +232,8 @@ export const IntegrationProviderSchema = z.enum([
   "RESEND",
   "ZOOM",
   "GOOGLE_MEET",
+  "GOOGLE_CALENDAR",
+  "OUTLOOK",
   "LINEAR",
   "NOTION",
   "HUBSPOT",
@@ -270,6 +272,33 @@ export const IntegrationEventSchema = z.object({
   created_at: z.string(),
 });
 export type IntegrationEvent = z.infer<typeof IntegrationEventSchema>;
+
+export interface CalendarConnectionStatus {
+  provider: string;
+  name: string;
+  is_connected: boolean;
+  account_email?: string | null;
+  last_synced_at?: string | null;
+  auto_join: boolean;
+  email_summaries: boolean;
+  internal_only: boolean;
+  events_count: number;
+}
+
+export interface CalendarMeetingItem {
+  id: string;
+  title: string;
+  provider: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  meeting_link?: string | null;
+  organizer: string;
+  attendees: string[];
+  auto_join: boolean;
+  status: string;
+  is_external?: boolean;
+}
 
 // ─── Actions & Decisions ──────────────────────────────────────────────────────
 

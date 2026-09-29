@@ -40,6 +40,8 @@ export const queryKeys = {
   integrations: {
     list: () => ["integrations"] as const,
     events: () => ["integrations", "events"] as const,
+    calendarStatus: () => ["integrations", "calendar", "status"] as const,
+    calendarEvents: (provider?: string) => ["integrations", "calendar", "events", provider ?? "all"] as const,
   },
   actions: {
     byMeeting: (meetingId?: string) =>

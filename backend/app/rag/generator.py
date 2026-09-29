@@ -225,12 +225,19 @@ CRITICAL INSTRUCTIONS:
                 # Split speaker from utterance if present
                 if ":" in cleaned:
                     speaker, text = cleaned.split(":", 1)
+                    speaker = speaker.strip()
                     text = text.strip()
                 else:
-                    speaker, text = "Participant", cleaned
+                    speaker, text = "", cleaned.strip()
+
+                if text.startswith(":"):
+                    text = text.lstrip(":").strip()
 
                 if len(text) > 8 and not noise_patterns.match(text):
-                    substantive_points.append(f"**{speaker}**: {text}")
+                    if speaker and speaker.lower() not in ("unknown", "speaker", "participant", ""):
+                        substantive_points.append(f"**{speaker}**: {text}")
+                    else:
+                        substantive_points.append(text)
 
         # Limit to top 5 points for conciseness
         selected_points = substantive_points[:5]

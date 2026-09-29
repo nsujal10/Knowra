@@ -676,85 +676,76 @@ function MessageBubble({
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("flex gap-3.5 max-w-4xl mx-auto py-2", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex gap-3 max-w-4xl mx-auto py-1.5", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#5345dc] to-purple-500 flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-          <Bot size={15} className="text-white" />
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+          <Bot size={16} className="text-white" />
         </div>
       )}
 
-      <div className={cn("space-y-2 max-w-[88%] sm:max-w-[82%]", isUser && "flex flex-col items-end")}>
+      <div className={cn("space-y-2 max-w-[85%] sm:max-w-[78%]", isUser && "flex flex-col items-end")}>
         {isUser ? (
-          <div className="bg-[#5345dc] text-white rounded-2xl rounded-tr-xs px-4 py-2.5 text-sm shadow-xs leading-relaxed font-normal break-words">
-            <FormattedMessageContent content={message.content} isUser={true} />
+          <div className="bg-[var(--primary)] text-white rounded-2xl rounded-tr-xs px-5 py-3 text-sm shadow-xs leading-relaxed font-normal break-words">
+            <p className="whitespace-pre-wrap">{message.content}</p>
           </div>
         ) : (
-          <div className="text-slate-800 dark:text-slate-100 text-sm sm:text-[14.5px] leading-relaxed font-normal break-words space-y-2.5">
-            {/* Formatted Text Content without background box */}
-            <FormattedMessageContent content={message.content} isUser={false} />
+          <div className="rounded-2xl px-5 py-4 bg-[var(--surface-2)] text-[var(--foreground)] border border-[var(--border)] shadow-2xs relative group leading-relaxed text-sm">
+            {/* Copy Button Top-Right */}
+            <button
+              onClick={() => onCopy(message.id, message.content)}
+              className="absolute top-3.5 right-3.5 p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-3)] transition-all opacity-0 group-hover:opacity-100"
+              title="Copy answer"
+              aria-label="Copy answer"
+            >
+              {copiedId === message.id ? (
+                <Check size={14} className="text-emerald-500" />
+              ) : (
+                <Copy size={14} />
+              )}
+            </button>
 
-            {/* Citations Badges - Clean & Simple */}
-            {message.citations && message.citations.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-2.5">
-                <span className="text-[11px] text-slate-400 dark:text-slate-500 font-normal mr-0.5">
-                  Sources:
-                </span>
-                {message.citations.map((c, i) => {
-                  const speaker = c.speaker ?? c.speaker_name ?? "Speaker";
-                  const title = c.meeting_title ?? "Meeting Transcript";
-                  const timeSec = c.timestamp ?? c.start_seconds ?? 0;
-                  return (
-                    <button
-                      key={c.chunk_id ? `${c.chunk_id}-${i}` : i}
-                      onClick={() => onCitationClick(c)}
-                      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-slate-50 hover:bg-slate-100/80 dark:bg-slate-800/30 dark:hover:bg-slate-800/70 border border-slate-200/70 dark:border-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
-                      title="View transcript proof"
-                    >
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#5345dc] shrink-0" />
-                      <span className="font-medium text-slate-700 dark:text-slate-200">{speaker}</span>
-                      <span className="text-slate-300 dark:text-slate-600">•</span>
-                      <span className="truncate max-w-[140px] text-slate-400 dark:text-slate-500">{truncate(title, 20)}</span>
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-                        {formatDuration(timeSec)}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Clean bottom action row */}
-            <div className="flex items-center gap-2.5 pt-1 text-[11px] text-slate-400 dark:text-slate-500">
-              <button
-                onClick={() => onCopy(message.id, message.content)}
-                className="inline-flex items-center gap-1 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                title="Copy answer"
-              >
-                {copiedId === message.id ? (
-                  <>
-                    <Check size={11} className="text-emerald-500" />
-                    <span className="text-emerald-500">Copied</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy size={11} />
-                    <span>Copy</span>
-                  </>
-                )}
-              </button>
-              <span className="text-slate-300 dark:text-slate-700">•</span>
-              <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                <CheckCircle2 size={10} />
-                Verified
-              </span>
+            {/* Formatted Text Content */}
+            <div className="pr-6 font-normal break-words">
+              <FormattedMessageContent content={message.content} isUser={false} />
             </div>
+          </div>
+        )}
+
+        {/* Citations Badges Below Bubble */}
+        {!isUser && message.citations && message.citations.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="text-xs text-[var(--muted)] font-medium mr-1">
+              Sources:
+            </span>
+            {message.citations.map((c, i) => {
+              const speaker = c.speaker ?? c.speaker_name ?? "Speaker";
+              const title = c.meeting_title ?? "Live Sync";
+              const timeSec = c.timestamp ?? c.start_seconds ?? 0;
+              return (
+                <button
+                  key={c.chunk_id ? `${c.chunk_id}-${i}` : i}
+                  onClick={() => onCitationClick(c)}
+                  className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-[var(--surface-2)] border border-[var(--border)] text-[var(--muted-strong)] hover:border-[var(--primary)] hover:text-[var(--primary)] transition-all shadow-2xs group"
+                  title="View transcript proof"
+                >
+                  <FileText size={11} className="text-[var(--primary)] shrink-0" />
+                  <span className="font-medium text-[var(--foreground)]">{speaker}</span>
+                  <span className="text-[var(--muted)]">•</span>
+                  <span className="truncate max-w-[130px]">{truncate(title, 20)}</span>
+                  <span className="font-mono text-[10px] text-[var(--muted)]">
+                    {formatDuration(timeSec)}
+                  </span>
+                  <ChevronRight size={10} className="text-[var(--muted)] group-hover:translate-x-0.5 transition-transform" />
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
 
       {isUser && (
-        <div className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-          <User size={14} className="text-slate-600 dark:text-slate-300" />
+        <div className="w-8 h-8 rounded-xl bg-[var(--surface-3)] border border-[var(--border)] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+          <User size={15} className="text-[var(--muted-strong)]" />
         </div>
       )}
     </div>
@@ -763,13 +754,15 @@ function MessageBubble({
 
 function StreamingMessageBubble({ content }: { content: string }) {
   return (
-    <div className="flex gap-3.5 max-w-4xl mx-auto py-2 justify-start animate-fade-in">
-      <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#5345dc] to-purple-500 flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-        <Bot size={15} className="text-white" />
+    <div className="flex gap-3 max-w-4xl mx-auto py-1.5 justify-start animate-fade-in">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
+        <Bot size={16} className="text-white" />
       </div>
-      <div className="w-full max-w-[88%] sm:max-w-[82%] text-slate-800 dark:text-slate-100 text-sm sm:text-[14.5px] leading-relaxed font-normal">
-        <FormattedMessageContent content={content} isUser={false} />
-        <span className="inline-block w-1.5 h-4 bg-[#5345dc] ml-1 animate-pulse align-middle" />
+      <div className="max-w-[85%] sm:max-w-[78%]">
+        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-2xl rounded-tl-xs px-5 py-4 text-sm leading-relaxed text-[var(--foreground)] shadow-2xs">
+          <FormattedMessageContent content={content} isUser={false} />
+          <span className="inline-block w-1.5 h-4 bg-[var(--primary)] ml-1 animate-pulse align-middle" />
+        </div>
       </div>
     </div>
   );
@@ -788,24 +781,28 @@ function FormattedMessageContent({ content, isUser }: { content: string; isUser:
     if (!currentList) return;
     if (currentList.type === "ul") {
       elements.push(
-        <ul key={`ul-${elements.length}`} className="my-2 space-y-1.5 pl-1">
-          {currentList.items.map((item, idx) => (
-            <li key={idx} className="flex items-start gap-2 text-xs sm:text-sm">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#5345dc] mt-1.5 shrink-0" />
-              <span className="leading-relaxed">{formatInlineMarkdown(item)}</span>
-            </li>
-          ))}
+        <ul key={`ul-${elements.length}`} className="my-2 space-y-1 pl-5 list-disc text-sm text-[var(--foreground)]">
+          {currentList.items.map((item, idx) => {
+            const clean = item.replace(/^:\s*/, "").trim();
+            return (
+              <li key={idx} className="leading-relaxed pl-0.5">
+                {formatInlineMarkdown(clean)}
+              </li>
+            );
+          })}
         </ul>
       );
     } else {
       elements.push(
-        <ol key={`ol-${elements.length}`} className="my-2 space-y-1.5 pl-1">
-          {currentList.items.map((item, idx) => (
-            <li key={idx} className="flex items-start gap-2 text-xs sm:text-sm">
-              <span className="font-semibold text-xs text-[#5345dc] shrink-0 mt-0.5">{idx + 1}.</span>
-              <span className="leading-relaxed">{formatInlineMarkdown(item)}</span>
-            </li>
-          ))}
+        <ol key={`ol-${elements.length}`} className="my-2 space-y-1 pl-5 list-decimal text-sm text-[var(--foreground)]">
+          {currentList.items.map((item, idx) => {
+            const clean = item.replace(/^:\s*/, "").trim();
+            return (
+              <li key={idx} className="leading-relaxed pl-0.5">
+                {formatInlineMarkdown(clean)}
+              </li>
+            );
+          })}
         </ol>
       );
     }
@@ -820,11 +817,11 @@ function FormattedMessageContent({ content, isUser }: { content: string; isUser:
       return;
     }
 
-    // Headings
+    // Headings (clean, no artificial colored pipes)
     if (line.startsWith("#### ")) {
       flushList();
       elements.push(
-        <h5 key={i} className="text-xs font-bold text-slate-800 dark:text-slate-100 mt-2 mb-1">
+        <h5 key={i} className="text-xs font-bold text-[var(--foreground)] mt-2.5 mb-1">
           {formatInlineMarkdown(line.slice(5))}
         </h5>
       );
@@ -833,8 +830,7 @@ function FormattedMessageContent({ content, isUser }: { content: string; isUser:
     if (line.startsWith("### ")) {
       flushList();
       elements.push(
-        <h4 key={i} className="text-sm font-bold text-slate-900 dark:text-white mt-3 mb-1.5 flex items-center gap-1.5">
-          <span className="w-1 h-3.5 rounded-full bg-[#5345dc] inline-block" />
+        <h4 key={i} className="text-sm font-bold text-[var(--foreground)] mt-3 mb-1.5">
           {formatInlineMarkdown(line.slice(4))}
         </h4>
       );
@@ -843,7 +839,7 @@ function FormattedMessageContent({ content, isUser }: { content: string; isUser:
     if (line.startsWith("## ")) {
       flushList();
       elements.push(
-        <h3 key={i} className="text-base font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5">
+        <h3 key={i} className="text-base font-bold text-[var(--foreground)] mt-3.5 mb-1.5">
           {formatInlineMarkdown(line.slice(3))}
         </h3>
       );
@@ -852,7 +848,7 @@ function FormattedMessageContent({ content, isUser }: { content: string; isUser:
     if (line.startsWith("# ")) {
       flushList();
       elements.push(
-        <h2 key={i} className="text-lg font-extrabold text-slate-900 dark:text-white mt-4 mb-2">
+        <h2 key={i} className="text-lg font-extrabold text-[var(--foreground)] mt-4 mb-2">
           {formatInlineMarkdown(line.slice(2))}
         </h2>
       );
@@ -884,7 +880,7 @@ function FormattedMessageContent({ content, isUser }: { content: string; isUser:
     // Paragraph
     flushList();
     elements.push(
-      <p key={i} className="text-xs sm:text-sm text-slate-800 dark:text-slate-200 leading-relaxed my-1">
+      <p key={i} className="text-sm text-[var(--foreground)] leading-relaxed my-1">
         {formatInlineMarkdown(line)}
       </p>
     );
@@ -907,14 +903,17 @@ function formatInlineMarkdown(text: string): React.ReactNode[] {
     }
     const token = match[0];
     if (token.startsWith("**") && token.endsWith("**")) {
-      parts.push(
-        <strong key={match.index} className="font-semibold text-slate-950 dark:text-white">
-          {token.slice(2, -2)}
-        </strong>
-      );
+      const inner = token.slice(2, -2).trim();
+      if (inner) {
+        parts.push(
+          <strong key={match.index} className="font-semibold text-[var(--foreground)]">
+            {inner}
+          </strong>
+        );
+      }
     } else if (token.startsWith("`") && token.endsWith("`")) {
       parts.push(
-        <code key={match.index} className="px-1.5 py-0.5 rounded text-[11px] font-mono bg-slate-100 dark:bg-slate-800 text-[#5345dc]">
+        <code key={match.index} className="px-1.5 py-0.5 rounded text-xs font-mono bg-[var(--surface-3)] text-[var(--primary)]">
           {token.slice(1, -1)}
         </code>
       );

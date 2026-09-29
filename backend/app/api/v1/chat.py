@@ -66,6 +66,13 @@ def _format_citation_dict(c: Any, db: Optional[Session] = None) -> Dict[str, Any
     segment_id = str(data.get("segment_id", ""))
     meeting_id = str(data.get("meeting_id", "")) if data.get("meeting_id") else None
     meeting_title = data.get("meeting_title")
+    if not meeting_title and meeting_id and db:
+        try:
+            m = db.query(Meeting.title).filter(Meeting.id == UUID(str(meeting_id))).first()
+            if m and m.title:
+                meeting_title = m.title
+        except Exception:
+            pass
     quote = data.get("quote", data.get("text", ""))
     speaker = data.get("speaker_name", data.get("speaker", "Speaker"))
     start_sec = float(data.get("start_seconds", data.get("timestamp", 0.0)))

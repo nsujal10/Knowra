@@ -41,6 +41,7 @@ class KnowledgeChunkResponse(BaseModel):
 class SearchResultItem(BaseModel):
     chunk_id: uuid.UUID
     meeting_id: uuid.UUID
+    meeting_title: Optional[str] = None
     content: str
     primary_topic: Optional[str] = None
     start_seconds: float

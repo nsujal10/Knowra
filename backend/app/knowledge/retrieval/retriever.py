@@ -102,9 +102,19 @@ class HybridRetriever:
         # 4. Reranking
         reranked = self.reranker.rerank(query=query, candidates=candidate_chunks)[:limit]
 
-        # 5. Citation Resolution
+        # 5. Citation Resolution & Meeting Title Lookup
         results: List[SearchResultItem] = []
         rank_lookup = {eid: ranks for eid, _, ranks in top_fused}
+
+        meeting_ids = list({chunk.meeting_id for chunk, _ in reranked if chunk.meeting_id})
+        meeting_title_map = {}
+        if meeting_ids:
+            try:
+                from app.models.meeting import Meeting
+                meetings = self.db.query(Meeting.id, Meeting.title).filter(Meeting.id.in_(meeting_ids)).all()
+                meeting_title_map = {m.id: m.title for m in meetings}
+            except Exception:
+                pass
 
         for chunk, final_score in reranked:
             citations = self.resolve_citations(chunk.id)
@@ -113,6 +123,7 @@ class HybridRetriever:
                 SearchResultItem(
                     chunk_id=chunk.id,
                     meeting_id=chunk.meeting_id,
+                    meeting_title=meeting_title_map.get(chunk.meeting_id),
                     content=chunk.content,
                     primary_topic=chunk.primary_topic,
                     start_seconds=chunk.start_seconds,

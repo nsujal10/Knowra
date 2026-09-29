@@ -47,8 +47,11 @@ class ContextCompressor:
                 )
             citations_str = "\n".join(seg_citations) if seg_citations else "  (No canonical segments)"
 
+            title_attr = f' meeting_title="{item.meeting_title}"' if getattr(item, "meeting_title", None) else ""
+            title_line = f"Meeting: {item.meeting_title}\n" if getattr(item, "meeting_title", None) else ""
             passage_str = (
-                f"<passage chunk_id=\"{item.chunk_id}\" meeting_id=\"{item.meeting_id}\">\n"
+                f'<passage chunk_id="{item.chunk_id}" meeting_id="{item.meeting_id}"{title_attr}>\n'
+                f"{title_line}"
                 f"Topic: {item.primary_topic or 'General'}\n"
                 f"Timeline: {item.start_seconds:.2f}s - {item.end_seconds:.2f}s\n"
                 f"Content:\n{item.content}\n"

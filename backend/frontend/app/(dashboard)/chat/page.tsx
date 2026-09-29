@@ -676,69 +676,85 @@ function MessageBubble({
   const isUser = message.role === "user";
 
   return (
-    <div className={cn("flex gap-3 max-w-4xl mx-auto", isUser ? "justify-end" : "justify-start")}>
+    <div className={cn("flex gap-3.5 max-w-4xl mx-auto py-1", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
-          <Bot size={15} className="text-white" />
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#5345dc] to-purple-500 flex items-center justify-center shrink-0 shadow-sm mt-1">
+          <Bot size={16} className="text-white" />
         </div>
       )}
 
-      <div className={cn("space-y-2 max-w-[85%] sm:max-w-[78%]", isUser && "flex flex-col items-end")}>
+      <div className={cn("space-y-2.5 max-w-[88%] sm:max-w-[82%]", isUser && "flex flex-col items-end")}>
         <div
           className={cn(
-            "rounded-2xl px-4 py-3 text-xs sm:text-sm leading-relaxed shadow-xs relative group",
+            "relative group transition-all text-sm leading-relaxed",
             isUser
-              ? "bg-[var(--primary)] text-white rounded-tr-xs"
-              : "bg-[var(--surface-2)] text-[var(--foreground)] border border-[var(--border)] rounded-tl-xs"
+              ? "bg-[#5345dc] text-white rounded-2xl rounded-tr-xs px-4 py-2.5 shadow-xs"
+              : "bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-xs hover:border-slate-300 dark:hover:border-slate-700 text-slate-800 dark:text-slate-100"
           )}
         >
+          {/* Header indicator for Assistant */}
+          {!isUser && (
+            <div className="flex items-center justify-between gap-2 pb-2.5 mb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+                  Knowra Intelligence
+                </span>
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50">
+                  <CheckCircle2 size={10} />
+                  Verified
+                </span>
+              </div>
+              <button
+                onClick={() => onCopy(message.id, message.content)}
+                className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2 py-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Copy answer"
+              >
+                {copiedId === message.id ? (
+                  <>
+                    <Check size={12} className="text-emerald-500" />
+                    <span className="text-emerald-500">Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} />
+                    <span>Copy</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Formatted Text Content */}
           <div className="font-normal break-words">
             <FormattedMessageContent content={message.content} isUser={isUser} />
           </div>
-
-          {/* Copy Button for Assistant */}
-          {!isUser && (
-            <button
-              onClick={() => onCopy(message.id, message.content)}
-              className="absolute top-2 right-2 p-1 rounded-md text-[var(--muted)] hover:text-[var(--foreground)] hover:bg-[var(--surface-3)] transition-all opacity-0 group-hover:opacity-100"
-              title="Copy answer"
-              aria-label="Copy answer to clipboard"
-            >
-              {copiedId === message.id ? (
-                <Check size={12} className="text-emerald-500" />
-              ) : (
-                <Copy size={12} />
-              )}
-            </button>
-          )}
         </div>
 
         {/* Citations Badges */}
         {message.citations && message.citations.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 pt-0.5">
-            <span className="text-[10px] text-[var(--muted)] font-medium self-center mr-1">
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5 pl-1">
+            <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-wider mr-1">
               Sources:
             </span>
             {message.citations.map((c, i) => {
               const speaker = c.speaker ?? c.speaker_name ?? "Speaker";
-              const title = c.meeting_title ?? "Meeting";
+              const title = c.meeting_title ?? "Meeting Transcript";
               const timeSec = c.timestamp ?? c.start_seconds ?? 0;
               return (
                 <button
                   key={c.chunk_id ? `${c.chunk_id}-${i}` : i}
                   onClick={() => onCitationClick(c)}
-                  className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full bg-[var(--surface-2)] border border-[var(--border)] text-[var(--muted-strong)] hover:border-[var(--primary)] hover:text-[var(--primary)] hover:bg-[var(--primary-muted)]/20 transition-all shadow-2xs"
+                  className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-[#5345dc] hover:text-[#5345dc] hover:bg-[#5345dc]/5 transition-all shadow-2xs group"
                   title="View transcript proof"
                 >
-                  <FileText size={10} className="text-[var(--primary)] shrink-0" />
-                  <span className="font-medium text-[var(--foreground)]">{speaker}</span>
-                  <span className="text-[var(--muted)]">•</span>
-                  <span className="truncate max-w-[130px]">{truncate(title, 20)}</span>
-                  <span className="font-mono text-[10px] text-[var(--muted)]">
+                  <FileText size={11} className="text-[#5345dc] shrink-0" />
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">{speaker}</span>
+                  <span className="text-slate-300 dark:text-slate-600">•</span>
+                  <span className="truncate max-w-[140px] text-slate-600 dark:text-slate-400">{truncate(title, 22)}</span>
+                  <span className="font-mono text-[10px] px-1 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 group-hover:text-[#5345dc]">
                     {formatDuration(timeSec)}
                   </span>
-                  <ChevronRight size={10} className="text-[var(--muted)]" />
+                  <ChevronRight size={10} className="text-slate-400 group-hover:translate-x-0.5 transition-transform" />
                 </button>
               );
             })}
@@ -747,8 +763,8 @@ function MessageBubble({
       </div>
 
       {isUser && (
-        <div className="w-8 h-8 rounded-xl bg-[var(--surface-3)] border border-[var(--border)] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-          <User size={15} className="text-[var(--muted-strong)]" />
+        <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-center shrink-0 shadow-xs mt-1">
+          <User size={15} className="text-slate-600 dark:text-slate-300" />
         </div>
       )}
     </div>
@@ -757,14 +773,22 @@ function MessageBubble({
 
 function StreamingMessageBubble({ content }: { content: string }) {
   return (
-    <div className="flex gap-3 max-w-4xl mx-auto justify-start animate-fade-in">
-      <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 shadow-sm mt-0.5">
-        <Bot size={15} className="text-white" />
+    <div className="flex gap-3.5 max-w-4xl mx-auto py-1 justify-start animate-fade-in">
+      <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#5345dc] to-purple-500 flex items-center justify-center shrink-0 shadow-sm mt-1">
+        <Bot size={16} className="text-white" />
       </div>
-      <div className="max-w-[85%] sm:max-w-[78%]">
-        <div className="bg-[var(--surface-2)] border border-[var(--border)] rounded-2xl rounded-tl-xs px-4 py-3 text-xs sm:text-sm leading-relaxed text-[var(--foreground)] shadow-xs">
+      <div className="w-full max-w-[88%] sm:max-w-[82%]">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl p-5 shadow-xs text-sm leading-relaxed text-slate-800 dark:text-slate-100">
+          <div className="flex items-center gap-2 pb-2.5 mb-2.5 border-b border-slate-100 dark:border-slate-800/80">
+            <span className="text-xs font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+              Knowra Intelligence
+            </span>
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-[#5345dc]/10 text-[#5345dc]">
+              Synthesizing...
+            </span>
+          </div>
           <FormattedMessageContent content={content} isUser={false} />
-          <span className="inline-block w-1.5 h-3.5 bg-[var(--primary)] ml-1 animate-pulse align-middle" />
+          <span className="inline-block w-1.5 h-4 bg-[#5345dc] ml-1 animate-pulse align-middle" />
         </div>
       </div>
     </div>

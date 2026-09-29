@@ -87,7 +87,7 @@ CRITICAL INSTRUCTIONS:
                 "citations": [],
             }
 
-        # Check if an external LLM is configured (e.g. Groq)
+        # Check if an external LLM is configured (e.g. Groq / OpenAI)
         api_key = (
             getattr(settings, "LLM_API_KEY", "")
             or getattr(settings, "GROQ_API_KEY", "")
@@ -95,6 +95,8 @@ CRITICAL INSTRUCTIONS:
             or os.getenv("GROQ_API_KEY", "")
         )
         provider = (settings.LLM_PROVIDER or os.getenv("LLM_PROVIDER", "")).lower()
+        if api_key and (not provider or provider not in ("groq", "openai", "custom")):
+            provider = "groq" if api_key.startswith("gsk_") else "openai"
 
         if api_key and provider in ("groq", "openai", "custom"):
             try:
@@ -253,11 +255,38 @@ CRITICAL INSTRUCTIONS:
                 f"{points_markdown}"
             )
         else:
-            answer = (
-                "### Meeting Insights & Findings\n\n"
-                "Regarding your inquiry, the verified meeting records highlight what the transcript indicates:\n\n"
-                f"{points_markdown}"
-            )
+            lower_q = query.lower()
+            if any(term in lower_q for term in ["present", "attend", "attendance", "who was in", "which meet"]):
+                speakers_found = []
+                meetings_found = []
+                for item in search_results:
+                    m_title = getattr(item, "meeting_title", None)
+                    if m_title and m_title not in meetings_found:
+                        meetings_found.append(m_title)
+                    for seg in item.citations:
+                        if seg.speaker_name and seg.speaker_name.lower() not in ("unknown", "speaker") and seg.speaker_name not in speakers_found:
+                            speakers_found.append(seg.speaker_name)
+                    for line in item.content.split("\n"):
+                        if ":" in line:
+                            spk = line.split(":", 1)[0].strip()
+                            if spk and len(spk) < 30 and spk not in speakers_found:
+                                speakers_found.append(spk)
+
+                meet_str = ", ".join(f"**{m}**" for m in meetings_found) if meetings_found else "the recorded session"
+                spk_str = ", ".join(f"**{s}**" for s in speakers_found) if speakers_found else "meeting participants"
+                answer = (
+                    "### Participant Presence & Attendance\n\n"
+                    f"Based on the verified records, {spk_str} participated in {meet_str}.\n\n"
+                    "### Discussion Insights\n\n"
+                    "Regarding your inquiry, the verified meeting records highlight what the transcript indicates:\n\n"
+                    f"{points_markdown}"
+                )
+            else:
+                answer = (
+                    "### Meeting Insights & Findings\n\n"
+                    "Regarding your inquiry, the verified meeting records highlight what the transcript indicates:\n\n"
+                    f"{points_markdown}"
+                )
 
         return {
             "answer": answer,

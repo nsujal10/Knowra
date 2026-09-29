@@ -60,10 +60,6 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "noreply@knowra.ai"
     SMTP_TLS: bool = True
 
-    # Resend API Settings
-    RESEND_API_KEY: str = ""
-    RESEND_FROM_EMAIL: str = "Knowra Intelligence <onboarding@resend.dev>"
-
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=ENV_FILE,

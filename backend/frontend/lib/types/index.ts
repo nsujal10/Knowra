@@ -229,7 +229,12 @@ export const IntegrationProviderSchema = z.enum([
   "TEAMS",
   "JIRA",
   "WEBHOOK",
-  "EMAIL",
+  "RESEND",
+  "ZOOM",
+  "GOOGLE_MEET",
+  "LINEAR",
+  "NOTION",
+  "HUBSPOT",
 ]);
 export type IntegrationProvider = z.infer<typeof IntegrationProviderSchema>;
 
@@ -237,9 +242,8 @@ export const IntegrationStatusSchema = z.enum(["ACTIVE", "INACTIVE", "ERROR"]);
 
 export const IntegrationSchema = z.object({
   id: z.string(),
-  tenant_id: z.string().optional(),
-  provider: z.string(),
   name: z.string().optional(),
+  provider: z.string(),
   status: z.string(),
   webhook_url: z.string().nullable().optional(),
   channel_or_project_id: z.string().nullable().optional(),
@@ -247,34 +251,25 @@ export const IntegrationSchema = z.object({
   events_subscribed: z.array(z.string()).optional(),
   metadata_json: z.record(z.any()).optional(),
   created_at: z.string(),
-  updated_at: z.string(),
+  updated_at: z.string().optional(),
 });
 export type Integration = z.infer<typeof IntegrationSchema>;
 
-export interface IntegrationEvent {
-  id: string;
-  tenant_id: string;
-  integration_id?: string;
-  direction: string;
-  external_event_id: string;
-  event_type: string;
-  status: string;
-  attempt_count: number;
-  max_retries: number;
-  payload_json: Record<string, any>;
-  response_status_code?: number;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TestDispatchResponse {
-  integration_id: string;
-  event_type: string;
-  dispatched: boolean;
-  status: string;
-  detail: string;
-}
+export const IntegrationEventSchema = z.object({
+  id: z.string(),
+  integration_id: z.string().nullable().optional(),
+  direction: z.string(),
+  external_event_id: z.string(),
+  event_type: z.string(),
+  status: z.string(),
+  attempt_count: z.number().optional(),
+  max_retries: z.number().optional(),
+  payload_json: z.record(z.any()).optional(),
+  response_status_code: z.number().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+export type IntegrationEvent = z.infer<typeof IntegrationEventSchema>;
 
 // ─── Actions & Decisions ──────────────────────────────────────────────────────
 

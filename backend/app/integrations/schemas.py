@@ -12,16 +12,32 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class IntegrationCreate(BaseModel):
-    provider: str = Field(..., description="SLACK | TEAMS | JIRA | WEBHOOK")
-    name: str = Field(..., min_length=2, max_length=100)
-    credentials_secret: str = Field(..., description="API key, OAuth token, or signing secret to be encrypted")
+    provider: str = Field(..., description="SLACK | TEAMS | JIRA | WEBHOOK | RESEND | ZOOM | GOOGLE_MEET | LINEAR")
+    name: Optional[str] = Field(None, description="Display name for integration")
+    credentials_secret: Optional[str] = Field(None, description="API key, OAuth token, or signing secret to be encrypted")
     webhook_url: Optional[str] = Field(None, description="Target external URL for outbound events")
-    channel_or_project_id: Optional[str] = Field(None, description="Slack channel ID or Jira project key")
+    channel_or_project_id: Optional[str] = Field(None, description="Slack channel ID, Jira project key, or email recipient")
     events_subscribed: List[str] = Field(
-        default=["ACTION_CREATED", "DECISION_CONFIRMED"],
+        default=["ACTION_CREATED", "DECISION_CONFIRMED", "MEETING_PROCESSED"],
         description="Event types to forward to this integration",
     )
     metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ResendTestRequest(BaseModel):
+    api_key: Optional[str] = Field(None, description="Resend API Key (re_...)")
+    to_email: Optional[str] = Field("delivered@resend.dev", description="Recipient email address")
+    meeting_title: Optional[str] = Field("Q3 Strategic Architecture & Executive Review", description="Meeting subject")
+    recipient_name: Optional[str] = Field("Executive Team", description="Recipient display name")
+
+
+class ResendTestResponse(BaseModel):
+    success: bool
+    email_id: str
+    recipient: str
+    subject: str
+    message: str
+    timestamp: datetime
 
 
 class IntegrationUpdate(BaseModel):

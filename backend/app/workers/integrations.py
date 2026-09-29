@@ -66,64 +66,6 @@ def execute_integration_dispatch_sync(db: Session, event_id: UUID) -> Integratio
         "User-Agent": "Knowra-Integration-Worker/1.0",
     }
 
-    # ── Handle EMAIL Provider ────────────────────────────────────────────────
-    if integration.provider.upper() == "EMAIL":
-        recipient = (integration.channel_or_project_id or integration.webhook_url or "").replace("mailto:", "").strip()
-        payload_dict = event.payload_json or {}
-        subject = f"[Knowra Executive Briefing] {payload_dict.get('meeting_title', event.event_type.replace('_', ' ').title())}"
-        
-        from app.services.email_service import generate_executive_briefing_html, send_email_via_resend
-
-        meeting_title = payload_dict.get("meeting_title", "Enterprise Executive Sync")
-        summary_text = payload_dict.get("summary", payload_dict.get("message", "Executive intelligence briefing extracted from meeting conversation."))
-
-        decisions_list = []
-        if "decision_title" in payload_dict:
-            decisions_list.append({
-                "title": payload_dict["decision_title"],
-                "description": payload_dict.get("summary", ""),
-                "decided_by": payload_dict.get("decided_by", "Leadership Committee"),
-                "consensus": payload_dict.get("consensus", "100% Unanimous"),
-            })
-
-        actions_list = []
-        if "item_title" in payload_dict:
-            actions_list.append({
-                "title": payload_dict["item_title"],
-                "assignee": payload_dict.get("assigned_to", "Leadership"),
-                "priority": payload_dict.get("priority", "URGENT"),
-            })
-
-        html_body = generate_executive_briefing_html(
-            meeting_title=meeting_title,
-            summary=summary_text,
-            decisions=decisions_list if decisions_list else None,
-            action_items=actions_list if actions_list else None,
-            recipient_name=recipient,
-        )
-
-        resend_result = send_email_via_resend(
-            to_email=recipient,
-            subject=subject,
-            html_content=html_body,
-            text_content=summary_text,
-        )
-
-        if resend_result.get("status") in ("DELIVERED", "SIMULATED"):
-            event.status = "COMPLETED"
-            event.response_status_code = 200
-            event.error_message = None
-            if resend_result.get("id"):
-                event.external_event_id = f"resend_{resend_result['id']}"
-        else:
-            event.status = "FAILED"
-            event.response_status_code = resend_result.get("status_code", 500)
-            event.error_message = str(resend_result.get("error", "Email dispatch failed"))
-
-        db.commit()
-        db.refresh(event)
-        return event
-
     target_url = integration.webhook_url
     # If simulated integration without live endpoint
     if not target_url or target_url.startswith(("mock://", "test://")):

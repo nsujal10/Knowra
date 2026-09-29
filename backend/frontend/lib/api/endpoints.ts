@@ -75,25 +75,14 @@ export const EVALUATION = {
 
 // ─── Integrations ─────────────────────────────────────────────────────────────
 export const INTEGRATIONS = {
-  list: (params?: { provider?: string; status?: string }) => {
-    const q = new URLSearchParams();
-    if (params?.provider && params.provider !== "ALL") q.append("provider", params.provider);
-    if (params?.status && params.status !== "ALL") q.append("status_filter", params.status);
-    const qs = q.toString();
-    return qs ? `/integrations?${qs}` : "/integrations";
-  },
+  list: () => "/integrations",
   create: () => "/integrations",
   get: (id: string) => `/integrations/${id}`,
   update: (id: string) => `/integrations/${id}`,
   delete: (id: string) => `/integrations/${id}`,
   test: (id: string) => `/integrations/${id}/test`,
-  eventsHistory: (params?: { integrationId?: string; limit?: number }) => {
-    const q = new URLSearchParams();
-    if (params?.integrationId) q.append("integration_id", params.integrationId);
-    if (params?.limit) q.append("limit", params.limit.toString());
-    const qs = q.toString();
-    return qs ? `/integrations/events/history?${qs}` : "/integrations/events/history";
-  },
+  events: () => "/integrations/events/history",
+  testResend: () => "/integrations/resend/test",
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────

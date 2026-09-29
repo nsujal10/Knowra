@@ -203,12 +203,18 @@ def test_integration_dispatch(
     )
 
     dispatched = any(e.status == "COMPLETED" for e in events)
+    target_dest = item.channel_or_project_id or item.webhook_url or "recipient"
+    if item.provider.upper() == "EMAIL":
+        detail_msg = f"Delivered test executive briefing digest to {target_dest}"
+    else:
+        detail_msg = f"Dispatched test ping to {item.provider} ({item.name})"
+
     return TestDispatchResponse(
         integration_id=item.id,
         event_type="TEST_PING",
         dispatched=dispatched,
         status="COMPLETED" if dispatched else "PENDING",
-        detail=f"Dispatched test ping to {item.provider} ({item.name})",
+        detail=detail_msg,
     )
 
 

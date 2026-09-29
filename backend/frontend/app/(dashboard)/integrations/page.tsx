@@ -7,6 +7,7 @@ import { INTEGRATIONS } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/query/keys";
 import type { Integration, IntegrationEvent, TestDispatchResponse } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
+import { useSession } from "@/lib/auth/session";
 import {
   Layers,
   Plus,
@@ -22,25 +23,25 @@ import {
   ExternalLink,
   Trash2,
   Zap,
-  Shield,
   ShieldCheck,
   Send,
-  MessageSquare,
   Bot,
   User,
   Clock,
   ChevronRight,
   ChevronDown,
-  Terminal,
-  Code,
-  FileCode,
   X,
-  Sliders,
   Sparkles,
   PanelRightClose,
   PanelRightOpen,
-  ArrowRight,
   Lock,
+  Mail,
+  Calendar,
+  AtSign,
+  CalendarCheck,
+  SendHorizontal,
+  Inbox,
+  UserCheck,
 } from "lucide-react";
 
 // ─── BRAND DEFINITIONS ────────────────────────────────────────────────────────
@@ -56,6 +57,16 @@ interface ProviderMeta {
 }
 
 const PROVIDER_CONFIG: Record<string, ProviderMeta> = {
+  EMAIL: {
+    label: "Direct Email ID / Digest",
+    brandColor: "#059669",
+    badgeBg: "bg-emerald-50 text-emerald-700",
+    badgeBorder: "border-emerald-200",
+    iconText: "✉️",
+    defaultChannelPlaceholder: "sujal.nage@softude.com",
+    description: "Deliver executive meeting briefings, assigned action items, and confirmed decisions straight to email.",
+    sampleUrl: "mailto:sujal.nage@softude.com",
+  },
   SLACK: {
     label: "Slack",
     brandColor: "#4A154B",
@@ -118,6 +129,10 @@ interface ChatMessage {
 
 export default function IntegrationsPage() {
   const queryClient = useQueryClient();
+  const { session } = useSession();
+
+  const userEmail = session?.user?.email || "sujal.nage@softude.com";
+  const userName = session?.user?.full_name || "Sujal Nage";
 
   // Search and Filter states
   const [searchQuery, setSearchQuery] = useState("");
@@ -129,6 +144,7 @@ export default function IntegrationsPage() {
   const [activeDrawerTab, setActiveDrawerTab] = useState<"stream" | "copilot">("stream");
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [botEmailCopied, setBotEmailCopied] = useState(false);
 
   // Test Ping Toast State
   const [testResult, setTestResult] = useState<{
@@ -138,14 +154,15 @@ export default function IntegrationsPage() {
   } | null>(null);
 
   // New Integration Form State
-  const [formProvider, setFormProvider] = useState<string>("SLACK");
-  const [formName, setFormName] = useState("");
-  const [formWebhookUrl, setFormWebhookUrl] = useState("");
-  const [formChannel, setFormChannel] = useState("");
-  const [formSecret, setFormSecret] = useState("");
+  const [formProvider, setFormProvider] = useState<string>("EMAIL");
+  const [formName, setFormName] = useState(`Direct Email Digest (${userEmail})`);
+  const [formWebhookUrl, setFormWebhookUrl] = useState(`mailto:${userEmail}`);
+  const [formChannel, setFormChannel] = useState(userEmail);
+  const [formSecret, setFormSecret] = useState("knowra-email-auth-token");
   const [formEvents, setFormEvents] = useState<string[]>([
     "ACTION_CREATED",
     "DECISION_CONFIRMED",
+    "MEETING_TRANSCRIBED",
   ]);
   const [formError, setFormError] = useState("");
 
@@ -156,16 +173,14 @@ export default function IntegrationsPage() {
       id: "msg-welcome",
       sender: "bot",
       content:
-        "Hello! I am your Knowra Integrations Copilot. I can guide you through setting up Slack bots, verifying HMAC-SHA256 signatures, or configuring Jira automation webhooks.",
+        `Hello ${userName.split(" ")[0]}! I am your Knowra Integrations Copilot. You can connect your meetings directly through your email ID (${userEmail}) or invite bot@knowra.ai to any calendar meeting for automated meeting notes.`,
       timestamp: "Just now",
       codeSnippet: {
-        language: "python",
-        code: `# HMAC-SHA256 Signature Verification Example
-import hmac, hashlib
-
-def verify_knowra_signature(payload_bytes, signature_header, secret):
-    expected = hmac.new(secret.encode(), payload_bytes, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(f"sha256={expected}", signature_header)`,
+        language: "text",
+        code: `Calendar Invite Method:
+1. Schedule a meeting in Google Calendar, Outlook, or Zoom.
+2. Add "bot@knowra.ai" as a guest attendee.
+3. Knowra auto-joins, records, and delivers executive notes to ${userEmail}.`,
       },
     },
   ]);
@@ -211,7 +226,7 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
   } = useQuery<IntegrationEvent[]>({
     queryKey: ["integrations-events-history"],
     queryFn: () => api.get<IntegrationEvent[]>(INTEGRATIONS.eventsHistory({ limit: 40 })),
-    refetchInterval: 10_000, // poll every 10s for real-time delivery stream
+    refetchInterval: 10_000,
   });
 
   // ─── MUTATIONS ───────────────────────────────────────────────────────────────
@@ -253,7 +268,7 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
       setTestResult({
         integrationId: id,
         status: "loading",
-        detail: "Dispatching verification ping to external endpoint...",
+        detail: "Dispatching verification ping to destination endpoint...",
       });
     },
     onSuccess: (data, id) => {
@@ -269,7 +284,7 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
       setTestResult({
         integrationId: id,
         status: "error",
-        detail: err?.message || "Connection timeout or invalid webhook destination.",
+        detail: err?.message || "Connection timeout or invalid destination.",
       });
       setTimeout(() => setTestResult(null), 5000);
     },
@@ -284,11 +299,12 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
   });
 
   const resetForm = () => {
-    setFormName("");
-    setFormWebhookUrl("");
-    setFormChannel("");
-    setFormSecret("");
-    setFormEvents(["ACTION_CREATED", "DECISION_CONFIRMED"]);
+    setFormProvider("EMAIL");
+    setFormName(`Direct Email Digest (${userEmail})`);
+    setFormWebhookUrl(`mailto:${userEmail}`);
+    setFormChannel(userEmail);
+    setFormSecret("knowra-email-auth-token");
+    setFormEvents(["ACTION_CREATED", "DECISION_CONFIRMED", "MEETING_TRANSCRIBED"]);
     setFormError("");
   };
 
@@ -298,25 +314,39 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
       setFormError("Connector name is required.");
       return;
     }
-    if (!formWebhookUrl.trim()) {
-      setFormError("Target Webhook URL is required.");
+    const finalUrl =
+      formProvider === "EMAIL"
+        ? formWebhookUrl.startsWith("mailto:")
+          ? formWebhookUrl
+          : `mailto:${formWebhookUrl.trim()}`
+        : formWebhookUrl.trim();
+
+    if (!finalUrl) {
+      setFormError(formProvider === "EMAIL" ? "Email ID is required." : "Target Webhook URL is required.");
       return;
     }
+
     createMutation.mutate({
       provider: formProvider,
       name: formName.trim(),
       credentials_secret: formSecret.trim() || "sk-knowra-default-secret",
-      webhook_url: formWebhookUrl.trim(),
+      webhook_url: finalUrl,
       channel_or_project_id: formChannel.trim() || undefined,
       events_subscribed: formEvents,
     });
   };
 
-  // Copy to clipboard helper
+  // Copy helper
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const handleCopyBotEmail = () => {
+    navigator.clipboard.writeText("bot@knowra.ai");
+    setBotEmailCopied(true);
+    setTimeout(() => setBotEmailCopied(false), 2000);
   };
 
   // Filtered Integrations list
@@ -339,6 +369,9 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
     });
   }, [integrations, searchQuery, selectedProvider, selectedStatus]);
 
+  // Find primary email integration
+  const primaryEmailIntegration = integrations.find((i) => i.provider === "EMAIL");
+
   // AI Copilot response handler
   const handleSendChat = () => {
     if (!chatInput.trim() || isCopilotTyping) return;
@@ -358,9 +391,19 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
       let codeSnippet: ChatMessage["codeSnippet"] | undefined = undefined;
 
       const lower = userText.toLowerCase();
-      if (lower.includes("slack")) {
+      if (lower.includes("email") || lower.includes("mail")) {
         botResponse =
-          "To configure a Slack connector in Knowra:\n1. Go to your Slack API workspace and create a New App.\n2. Enable 'Incoming Webhooks' and generate a Webhook URL for your target channel.\n3. Paste the Webhook URL into the Knowra Slack Connector form. Knowra will automatically dispatch formatted block-kit messages with action owner mentions!";
+          `Yes! You can connect everything directly via email:\n1. Your email (${userEmail}) is configured to receive executive briefings as soon as any meeting ends.\n2. To record calls automatically, invite 'bot@knowra.ai' to any Google Meet, Zoom, or Teams calendar event.\n3. Slack and Teams channels also have direct incoming email addresses that you can paste into Knowra!`;
+        codeSnippet = {
+          language: "text",
+          code: `Direct Email Pipeline:
+- Recipient: ${userEmail}
+- Format: HTML Executive Summary with Action Item Badges
+- Delivery: Realtime upon transcription completion`,
+        };
+      } else if (lower.includes("slack")) {
+        botResponse =
+          "To configure a Slack connector:\n1. Go to Slack API and create an Incoming Webhook.\n2. Or, use your channel's direct email: In Slack, right-click any channel -> 'Get email address', and paste that email into Knowra!";
         codeSnippet = {
           language: "json",
           code: `{
@@ -370,43 +413,17 @@ def verify_knowra_signature(payload_bytes, signature_header, secret):
       "type": "section",
       "text": {
         "type": "mrkdwn",
-        "text": "*Decision Confirmed:* Architecture Committee agreed on PostgreSQL pgvector.\\n*Decided by:* Sujal Nage"
+        "text": "*Decision Confirmed:* Architecture Committee agreed on PostgreSQL pgvector.\\n*Decided by:* ${userName}"
       }
     }
   ]
 }`,
         };
-      } else if (lower.includes("hmac") || lower.includes("signature") || lower.includes("verify")) {
+      } else if (lower.includes("calendar") || lower.includes("bot")) {
         botResponse =
-          "All outbound payloads from Knowra contain the `X-Knowra-Signature-256` header. You can verify it in Node.js or Python using your connector's signing secret:";
-        codeSnippet = {
-          language: "javascript",
-          code: `// Node.js Express HMAC Verification
-const crypto = require("crypto");
-
-function verifyWebhook(req, secret) {
-  const signature = req.headers["x-knowra-signature-256"];
-  const hmac = crypto.createHmac("sha256", secret);
-  const digest = "sha256=" + hmac.update(req.rawBody).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
-}`,
-        };
-      } else if (lower.includes("jira")) {
-        botResponse =
-          "For Jira Cloud integrations, specify your Project Key (e.g. `KNOWRA` or `PROJ`). When an Action Item is flagged with high or urgent priority, Knowra automatically crafts a Jira issue payload with description and due date.";
-        codeSnippet = {
-          language: "json",
-          code: `{
-  "fields": {
-    "project": { "key": "KNOWRA" },
-    "summary": "Implement Redis Cluster failover parameter checks",
-    "description": "Deliverable extracted from Sprint Planning Meeting",
-    "issuetype": { "name": "Task" }
-  }
-}`,
-        };
+          "You do not need any webhooks for calendar recording! Just add `bot@knowra.ai` as an attendee in Google Calendar or Microsoft Outlook. The bot joins the call at the scheduled time, transcribes, and emails the recap to all attendees.";
       } else {
-        botResponse = `Knowra dispatches CloudEvents v1.0 standard payloads for all meeting intelligence milestones (${integrations.length} active connectors listening). Outbound events are retried with exponential backoff if your endpoint returns a 5xx response code.`;
+        botResponse = `Knowra dispatches meeting intelligence milestones across your active connectors (${integrations.length} active). You can dispatch either to webhooks or directly to email IDs.`;
       }
 
       setChatMessages((prev) => [
@@ -420,10 +437,10 @@ function verifyWebhook(req, secret) {
         },
       ]);
       setIsCopilotTyping(false);
-    }, 700);
+    }, 600);
   };
 
-  // Metrics calculation
+  // Metrics
   const totalCount = integrations.length;
   const activeCount = integrations.filter((i) => i.status === "ACTIVE").length;
   const totalDispatches = eventHistory.length;
@@ -434,8 +451,8 @@ function verifyWebhook(req, secret) {
     <div className="space-y-6 max-w-[1600px] mx-auto pb-16 animate-fade-in">
       {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
       <PageHeader
-        title="Enterprise Connectors & Webhooks"
-        subtitle="Manage mission-critical event dispatching for Slack, Microsoft Teams, Jira, and enterprise HTTP endpoints with HMAC-SHA256 signature verification."
+        title="Enterprise Connectors & Email Sync"
+        subtitle="Connect Knowra directly via your corporate Email ID, automated calendar bot invites, or outbound webhooks for Slack, Teams, and Jira."
         icon={Layers}
         statusDot={true}
         badge={
@@ -458,7 +475,7 @@ function verifyWebhook(req, secret) {
                 size={13}
                 className={isIntegrationsFetching || isEventsFetching ? "animate-spin" : ""}
               />
-              <span>Sync Connectors</span>
+              <span>Sync All</span>
             </button>
 
             <button
@@ -485,7 +502,7 @@ function verifyWebhook(req, secret) {
                 setShowCreateModal(true);
               }}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
-              title="Add a new external connector"
+              title="Add a new external connector or email digest"
             >
               <Plus size={13} className="stroke-[2.5]" />
               <span>New Integration</span>
@@ -493,6 +510,85 @@ function verifyWebhook(req, secret) {
           </div>
         }
       />
+
+      {/* ── HERO BANNER: DIRECT EMAIL & CALENDAR CONNECTIVITY ──────────────── */}
+      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 rounded-2xl p-5 text-white shadow-sm border border-indigo-700/50">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="space-y-1.5 max-w-2xl">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">
+              <Sparkles size={11} className="text-indigo-300" />
+              <span>Direct Zero-Config Integration</span>
+            </div>
+            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-white">
+              Connect Everything Directly Through Your Email ID
+            </h2>
+            <p className="text-xs text-indigo-200 leading-relaxed">
+              No webhooks needed! Add your corporate email address to receive real-time executive digests, or invite our AI bot directly to your Google Meet, Teams, or Zoom calendar invites.
+            </p>
+          </div>
+
+          {/* Quick email action cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 shrink-0">
+            {/* Direct Email Digest Quick Status */}
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-xl p-3 flex flex-col justify-between gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center">
+                    <Mail size={14} />
+                  </div>
+                  <span className="text-xs font-bold text-white">Direct Email Digest</span>
+                </div>
+                <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
+                  Active
+                </span>
+              </div>
+              <p className="text-[11px] font-mono text-indigo-200 truncate">
+                {userEmail}
+              </p>
+              {primaryEmailIntegration && (
+                <button
+                  onClick={() => testMutation.mutate(primaryEmailIntegration.id)}
+                  disabled={testMutation.isPending}
+                  className="w-full py-1.5 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Send size={11} />
+                  <span>Send Test Digest to My Inbox</span>
+                </button>
+              )}
+            </div>
+
+            {/* Calendar Bot Invite */}
+            <div className="bg-white/10 backdrop-blur-md border border-white/15 rounded-xl p-3 flex flex-col justify-between gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-blue-500/20 text-blue-300 flex items-center justify-center">
+                    <CalendarCheck size={14} />
+                  </div>
+                  <span className="text-xs font-bold text-white">Calendar Bot Invite</span>
+                </div>
+                <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-blue-500/20 text-blue-300 border border-blue-400/30">
+                  Auto-Join
+                </span>
+              </div>
+              <p className="text-[11px] text-indigo-200 leading-relaxed">
+                Add to any calendar invite:
+              </p>
+              <button
+                onClick={handleCopyBotEmail}
+                className="w-full py-1.5 px-2.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-mono font-semibold flex items-center justify-between gap-1.5 transition-colors cursor-pointer"
+                title="Click to copy bot email address"
+              >
+                <span>bot@knowra.ai</span>
+                {botEmailCopied ? (
+                  <Check size={12} className="text-emerald-300" />
+                ) : (
+                  <Copy size={12} className="text-indigo-300" />
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* ── KPI METRICS RIBBON ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -542,7 +638,7 @@ function verifyWebhook(req, secret) {
               <span className="text-3xl font-bold text-slate-900 tracking-tight">
                 {isEventsLoading ? "—" : totalDispatches}
               </span>
-              <p className="text-[11px] text-slate-400 font-medium mt-0.5">Audited delivery records</p>
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5">Email & Webhook records</p>
             </div>
             <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
               <Radio size={18} />
@@ -558,7 +654,7 @@ function verifyWebhook(req, secret) {
           <div className="flex items-baseline justify-between mt-2">
             <div>
               <span className="text-xl font-bold text-slate-900 tracking-tight">
-                HMAC-SHA256
+                HMAC & TLS
               </span>
               <p className="text-[11px] text-indigo-600 font-medium mt-0.5">AES-256 Fernet at rest</p>
             </div>
@@ -613,14 +709,14 @@ function verifyWebhook(req, secret) {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name, channel, or URL..."
+                  placeholder="Search by name, email, or URL..."
                   className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-2xs"
                 />
               </div>
 
               {/* Provider filter tabs */}
               <div className="flex items-center gap-1.5 flex-wrap">
-                {["ALL", "SLACK", "TEAMS", "JIRA", "WEBHOOK"].map((p) => (
+                {["ALL", "EMAIL", "SLACK", "TEAMS", "JIRA", "WEBHOOK"].map((p) => (
                   <button
                     key={p}
                     onClick={() => setSelectedProvider(p)}
@@ -630,7 +726,7 @@ function verifyWebhook(req, secret) {
                         : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                     }`}
                   >
-                    {p === "ALL" ? "All Providers" : p === "WEBHOOK" ? "Webhooks" : p}
+                    {p === "ALL" ? "All Channels" : p === "EMAIL" ? "Direct Email" : p === "WEBHOOK" ? "Webhooks" : p}
                   </button>
                 ))}
               </div>
@@ -653,7 +749,7 @@ function verifyWebhook(req, secret) {
                   <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
                     {searchQuery
                       ? "No connectors matched your search query. Try clearing the filter."
-                      : "Connect Knowra to Slack, Microsoft Teams, Jira, or custom webhooks to dispatch meeting intelligence."}
+                      : "Connect your email ID or configure Slack, Microsoft Teams, or Jira to dispatch meeting intelligence."}
                   </p>
                   <button
                     onClick={() => {
@@ -663,7 +759,7 @@ function verifyWebhook(req, secret) {
                     className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
                   >
                     <Plus size={14} />
-                    <span>Configure First Integration</span>
+                    <span>Configure Integration</span>
                   </button>
                 </div>
               ) : (
@@ -673,6 +769,7 @@ function verifyWebhook(req, secret) {
                     const isActive = item.status === "ACTIVE";
                     const isTesting =
                       testMutation.isPending && testMutation.variables === item.id;
+                    const isEmailProvider = item.provider === "EMAIL";
 
                     return (
                       <div
@@ -745,20 +842,20 @@ function verifyWebhook(req, secret) {
                           </div>
                         </div>
 
-                        {/* Mid row: Target Webhook URL & Channel / Project */}
+                        {/* Mid row: Target Webhook URL / Email Address */}
                         <div className="bg-slate-50/80 rounded-lg p-3 border border-slate-100 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                           <div className="flex items-center gap-2 min-w-0">
                             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0">
-                              Target Endpoint:
+                              {isEmailProvider ? "Target Email:" : "Target Endpoint:"}
                             </span>
-                            <span className="font-mono text-[11px] text-slate-700 truncate">
-                              {item.webhook_url || "Configured via OAuth App"}
+                            <span className="font-mono text-[11px] text-slate-700 truncate font-semibold">
+                              {item.channel_or_project_id || (item.webhook_url ? item.webhook_url.replace("mailto:", "") : "Configured via OAuth App")}
                             </span>
                             {item.webhook_url && (
                               <button
-                                onClick={() => handleCopy(item.webhook_url!, item.id)}
+                                onClick={() => handleCopy(item.webhook_url!.replace("mailto:", ""), item.id)}
                                 className="text-slate-400 hover:text-slate-600 p-0.5 shrink-0 cursor-pointer"
-                                title="Copy Webhook URL"
+                                title="Copy destination"
                               >
                                 {copiedId === item.id ? (
                                   <Check size={12} className="text-emerald-600" />
@@ -769,7 +866,7 @@ function verifyWebhook(req, secret) {
                             )}
                           </div>
 
-                          {(item.channel_or_project_id || item.channel_or_project) && (
+                          {(item.channel_or_project_id || item.channel_or_project) && !isEmailProvider && (
                             <div className="flex items-center gap-1.5 shrink-0 text-slate-600">
                               <span className="text-[10px] text-slate-400 font-bold uppercase">
                                 {item.provider === "JIRA" ? "Project:" : "Channel:"}
@@ -807,10 +904,20 @@ function verifyWebhook(req, secret) {
                               onClick={() => testMutation.mutate(item.id)}
                               disabled={isTesting || !isActive}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer disabled:opacity-50"
-                              title="Send instantaneous test ping to verify connectivity"
+                              title={isEmailProvider ? "Send instant test digest to this email" : "Send instantaneous test ping to verify connectivity"}
                             >
-                              <Zap size={12} className={isTesting ? "animate-spin text-amber-500" : "text-amber-500"} />
-                              <span>{isTesting ? "Verifying..." : "Test Ping"}</span>
+                              {isEmailProvider ? (
+                                <Mail size={12} className={isTesting ? "animate-spin text-emerald-500" : "text-emerald-500"} />
+                              ) : (
+                                <Zap size={12} className={isTesting ? "animate-spin text-amber-500" : "text-amber-500"} />
+                              )}
+                              <span>
+                                {isTesting
+                                  ? "Verifying..."
+                                  : isEmailProvider
+                                  ? "Send Test Digest"
+                                  : "Test Ping"}
+                              </span>
                             </button>
 
                             {/* Delete Button */}
@@ -896,7 +1003,7 @@ function verifyWebhook(req, secret) {
                       <Radio size={24} className="mx-auto text-slate-300 mb-2" />
                       <p className="text-xs font-bold text-slate-700">No Events Dispatched Yet</p>
                       <p className="text-[11px] text-slate-400 mt-1">
-                        Trigger a Test Ping on any connector to watch real-time delivery logs.
+                        Trigger a Test Ping or send a test email to watch real-time delivery logs.
                       </p>
                     </div>
                   ) : (
@@ -1003,7 +1110,7 @@ function verifyWebhook(req, secret) {
                     {isCopilotTyping && (
                       <div className="flex gap-2 items-center text-xs text-slate-400 animate-pulse">
                         <Bot size={14} />
-                        <span>Copilot is generating code snippet...</span>
+                        <span>Copilot is formulating response...</span>
                       </div>
                     )}
                   </div>
@@ -1012,27 +1119,27 @@ function verifyWebhook(req, secret) {
                   <div className="p-2 border-t border-slate-100 bg-white flex gap-1.5 overflow-x-auto text-[11px]">
                     <button
                       onClick={() => {
-                        setChatInput("How do I set up Slack Incoming Webhooks?");
+                        setChatInput("How can I connect everything using just my email ID?");
                       }}
                       className="whitespace-nowrap px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                     >
-                      💡 Slack Webhooks Setup
+                      ✉️ Email ID Setup
                     </button>
                     <button
                       onClick={() => {
-                        setChatInput("Show HMAC signature verification code");
+                        setChatInput("How does the bot@knowra.ai calendar invite work?");
                       }}
                       className="whitespace-nowrap px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                     >
-                      🔐 HMAC Verification
+                      📅 Calendar Bot Invite
                     </button>
                     <button
                       onClick={() => {
-                        setChatInput("How to automate Jira tickets from meetings?");
+                        setChatInput("How do I post to Slack channels using an email address?");
                       }}
                       className="whitespace-nowrap px-2.5 py-1 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
                     >
-                      📋 Jira Automation
+                      💬 Slack via Email
                     </button>
                   </div>
 
@@ -1043,7 +1150,7 @@ function verifyWebhook(req, secret) {
                       value={chatInput}
                       onChange={(e) => setChatInput(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleSendChat()}
-                      placeholder="Ask about webhooks, payload schemas, HMAC..."
+                      placeholder="Ask about email digests, calendar invites, webhooks..."
                       className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                     <button
@@ -1080,7 +1187,7 @@ function verifyWebhook(req, secret) {
                 <div>
                   <h3 className="text-sm font-bold text-slate-900">Add New Integration</h3>
                   <p className="text-[11px] text-slate-500">
-                    Connect an external service to receive automated meeting events.
+                    Connect an email address or external webhook to receive automated meeting events.
                   </p>
                 </div>
               </div>
@@ -1104,17 +1211,24 @@ function verifyWebhook(req, secret) {
               {/* Provider Selection */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  1. Select Destination Platform
+                  1. Select Destination Type
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {Object.entries(PROVIDER_CONFIG).map(([key, cfg]) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => {
                         setFormProvider(key);
-                        if (!formName) setFormName(`${cfg.label} Dispatcher`);
-                        if (!formChannel) setFormChannel(cfg.defaultChannelPlaceholder);
+                        if (key === "EMAIL") {
+                          setFormName(`Executive Email Digest (${userEmail})`);
+                          setFormWebhookUrl(`mailto:${userEmail}`);
+                          setFormChannel(userEmail);
+                        } else {
+                          setFormName(`${cfg.label} Dispatcher`);
+                          setFormWebhookUrl(cfg.sampleUrl);
+                          setFormChannel(cfg.defaultChannelPlaceholder);
+                        }
                       }}
                       className={`p-3 rounded-xl border text-left flex flex-col justify-between transition-all cursor-pointer ${
                         formProvider === key
@@ -1139,63 +1253,72 @@ function verifyWebhook(req, secret) {
                   required
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder={`e.g. Production ${PROVIDER_CONFIG[formProvider]?.label} Alerts`}
+                  placeholder={`e.g. ${PROVIDER_CONFIG[formProvider]?.label}`}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
-              {/* Target Webhook URL */}
+              {/* Target Webhook URL or Email Address */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  3. Webhook URL / Ingest Endpoint
+                  3. {formProvider === "EMAIL" ? "Destination Email Address" : "Webhook URL / Ingest Endpoint"}
                 </label>
                 <input
-                  type="url"
+                  type={formProvider === "EMAIL" ? "email" : "url"}
                   required
-                  value={formWebhookUrl}
+                  value={formWebhookUrl.replace("mailto:", "")}
                   onChange={(e) => setFormWebhookUrl(e.target.value)}
-                  placeholder={PROVIDER_CONFIG[formProvider]?.sampleUrl}
+                  placeholder={formProvider === "EMAIL" ? userEmail : PROVIDER_CONFIG[formProvider]?.sampleUrl}
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 />
+                {formProvider === "EMAIL" && (
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Meeting recaps, action items, and decisions will be delivered directly to this email.
+                  </p>
+                )}
               </div>
 
               {/* Channel / Project ID */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
-                  4. {formProvider === "JIRA" ? "Project Key" : "Channel / Stream ID"}
-                </label>
-                <input
-                  type="text"
-                  value={formChannel}
-                  onChange={(e) => setFormChannel(e.target.value)}
-                  placeholder={PROVIDER_CONFIG[formProvider]?.defaultChannelPlaceholder}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
+              {formProvider !== "EMAIL" && (
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    4. {formProvider === "JIRA" ? "Project Key" : "Channel / Stream ID"}
+                  </label>
+                  <input
+                    type="text"
+                    value={formChannel}
+                    onChange={(e) => setFormChannel(e.target.value)}
+                    placeholder={PROVIDER_CONFIG[formProvider]?.defaultChannelPlaceholder}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              )}
 
               {/* Signing Secret */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                    5. Signing Secret / Token
-                  </label>
-                  <span className="text-[10px] text-emerald-600 flex items-center gap-1 font-medium">
-                    <Lock size={10} /> AES-256 Encrypted
-                  </span>
+              {formProvider !== "EMAIL" && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                      5. Signing Secret / Token
+                    </label>
+                    <span className="text-[10px] text-emerald-600 flex items-center gap-1 font-medium">
+                      <Lock size={10} /> AES-256 Encrypted
+                    </span>
+                  </div>
+                  <input
+                    type="password"
+                    value={formSecret}
+                    onChange={(e) => setFormSecret(e.target.value)}
+                    placeholder="Optional signing secret or bot token"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
                 </div>
-                <input
-                  type="password"
-                  value={formSecret}
-                  onChange={(e) => setFormSecret(e.target.value)}
-                  placeholder="Optional signing secret or bot token"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-xs font-mono text-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
+              )}
 
               {/* Event Subscriptions */}
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                  6. Event Subscriptions
+                  {formProvider === "EMAIL" ? "4. Digest Content Subscriptions" : "6. Event Subscriptions"}
                 </label>
                 <div className="space-y-2">
                   {AVAILABLE_EVENTS.map((evt) => {
@@ -1251,7 +1374,7 @@ function verifyWebhook(req, secret) {
                       <span>Saving...</span>
                     </>
                   ) : (
-                    <span>Save & Deploy Connector</span>
+                    <span>Deploy Connector</span>
                   )}
                 </button>
               </div>

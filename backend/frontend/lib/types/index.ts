@@ -229,6 +229,7 @@ export const IntegrationProviderSchema = z.enum([
   "TEAMS",
   "JIRA",
   "WEBHOOK",
+  "EMAIL",
 ]);
 export type IntegrationProvider = z.infer<typeof IntegrationProviderSchema>;
 

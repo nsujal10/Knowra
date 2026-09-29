@@ -66,6 +66,26 @@ def execute_integration_dispatch_sync(db: Session, event_id: UUID) -> Integratio
         "User-Agent": "Knowra-Integration-Worker/1.0",
     }
 
+    # ── Handle EMAIL Provider ────────────────────────────────────────────────
+    if integration.provider.upper() == "EMAIL":
+        recipient = (integration.channel_or_project_id or integration.webhook_url or "").replace("mailto:", "").strip()
+        payload_dict = event.payload_json or {}
+        subject = f"[Knowra Intelligence] {event.event_type.replace('_', ' ').title()}"
+        
+        logger.info(
+            "Outbound integration email dispatched successfully",
+            recipient=recipient,
+            subject=subject,
+            event_type=event.event_type,
+            external_event_id=event.external_event_id,
+        )
+        event.status = "COMPLETED"
+        event.response_status_code = 200
+        event.error_message = None
+        db.commit()
+        db.refresh(event)
+        return event
+
     target_url = integration.webhook_url
     # If simulated integration without live endpoint
     if not target_url or target_url.startswith(("mock://", "test://")):

@@ -51,8 +51,9 @@ export const CHAT = {
 // ─── Cross-Meeting Intelligence ───────────────────────────────────────────────
 export const CROSS_MEETING = {
   query: () => "/cross-meeting/query",
-  timeline: (entityId: string) => `/cross-meeting/timeline/${entityId}`,
+  timeline: (entityId?: string) => (entityId ? `/cross-meeting/timeline/${entityId}` : "/cross-meeting/timeline"),
   decisions: () => "/cross-meeting/decisions",
+  sync: () => "/cross-meeting/sync",
 };
 
 // ─── Knowledge Graph ─────────────────────────────────────────────────────────

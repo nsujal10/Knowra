@@ -218,11 +218,12 @@ export default function IntegrationsPage() {
   // ── Real OAuth Account & Mail ID Selection Modal State ─────────────────────
   const [isOAuthModalOpen, setIsOAuthModalOpen] = useState(false);
   const [authConnector, setAuthConnector] = useState<ConnectorItem | null>(null);
-  const [connectingEmail, setConnectingEmail] = useState<string | null>(null);
-  const [showCustomInput, setShowCustomInput] = useState<boolean>(false);
-  const [customEmail, setCustomEmail] = useState<string>("");
-  const [selectedLanguage, setSelectedLanguage] = useState<string>("English (United States)");
-  const [showLanguageDropdown, setShowLanguageDropdown] = useState<boolean>(false);
+  const [connectingAccountEmail, setConnectingAccountEmail] = useState<string | null>(null);
+  const [showCustomAccountInput, setShowCustomAccountInput] = useState<boolean>(false);
+  const [customAccountEmail, setCustomAccountEmail] = useState<string>("");
+  const [scopeCalendar, setScopeCalendar] = useState<boolean>(true);
+  const [scopeNotetaker, setScopeNotetaker] = useState<boolean>(true);
+  const [scopeEmailSummaries, setScopeEmailSummaries] = useState<boolean>(true);
 
   // Payload viewer modal
   const [viewingPayload, setViewingPayload] = useState<Record<string, unknown> | null>(null);
@@ -266,8 +267,11 @@ export default function IntegrationsPage() {
   });
 
   const { data: calendarEvents = [], isLoading: isLoadingCalendarEvents, refetch: refetchCalendarEvents } = useQuery<CalendarMeetingItem[]>({
-    queryKey: queryKeys.integrations.calendarEvents(),
-    queryFn: () => api.get<CalendarMeetingItem[]>(INTEGRATIONS.calendarEvents()),
+    queryKey: queryKeys.integrations.calendarEvents(selectedConnectorId),
+    queryFn: () => {
+      const conn = ALL_CONNECTORS.find((c) => c.id === selectedConnectorId);
+      return api.get<CalendarMeetingItem[]>(INTEGRATIONS.calendarEvents(conn?.provider));
+    },
   });
 
   const { data: eventsHistory = [], isLoading: isLoadingEvents, refetch: refetchEvents } = useQuery<IntegrationEvent[]>({
@@ -299,7 +303,14 @@ export default function IntegrationsPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarStatus() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+      setConnectingAccountEmail(null);
+      setShowCustomAccountInput(false);
+      setCustomAccountEmail("");
       setIsOAuthModalOpen(false);
+    },
+    onError: () => {
+      setConnectingAccountEmail(null);
     },
   });
 
@@ -398,20 +409,23 @@ export default function IntegrationsPage() {
   // ── Open Real OAuth Account Picker Modal ─────────────────────────────────
   const handleOpenConnect = (connector: ConnectorItem) => {
     setAuthConnector(connector);
-    setConnectingEmail(null);
-    setShowCustomInput(false);
-    setCustomEmail("");
+    setConnectingAccountEmail(null);
+    setShowCustomAccountInput(false);
+    setCustomAccountEmail("");
     setIsOAuthModalOpen(true);
   };
 
-  // ── Real Account Selection & OAuth Handshake Handler ─────────────────────
-  const handleSelectAccountToConnect = (chosenEmail: string) => {
-    if (!authConnector || !chosenEmail || !chosenEmail.includes("@")) {
+  // ── Direct OAuth Account Connection (Exact Google/Microsoft Account Picker) ─
+  const handleSelectAccount = (chosenEmail: string) => {
+    if (!authConnector) return;
+    const cleanEmail = chosenEmail.trim();
+
+    if (!cleanEmail || !cleanEmail.includes("@")) {
       alert("Please provide a valid email address to connect.");
       return;
     }
 
-    setConnectingEmail(chosenEmail);
+    setConnectingAccountEmail(cleanEmail);
 
     if (
       authConnector.provider === "GOOGLE_CALENDAR" ||
@@ -419,49 +433,25 @@ export default function IntegrationsPage() {
       authConnector.provider === "GOOGLE_MEET" ||
       authConnector.provider === "ZOOM"
     ) {
-      connectCalendarMutation.mutate(
-        {
-          provider: authConnector.provider,
-          account_email: chosenEmail,
-          auto_join: true,
-          email_summaries: true,
-        },
-        {
-          onSettled: () => {
-            setConnectingEmail(null);
-            setIsOAuthModalOpen(false);
-          },
-        }
-      );
+      connectCalendarMutation.mutate({
+        provider: authConnector.provider,
+        account_email: cleanEmail,
+        auto_join: scopeNotetaker,
+        email_summaries: scopeEmailSummaries,
+      });
     } else if (authConnector.provider === "RESEND") {
-      createIntegrationMutation.mutate(
-        {
-          provider: "RESEND",
-          name: "Resend Email Dispatcher",
-          channel_or_project_id: chosenEmail,
-          credentials_secret: DEFAULT_RESEND_KEY,
-        },
-        {
-          onSettled: () => {
-            setConnectingEmail(null);
-            setIsOAuthModalOpen(false);
-          },
-        }
-      );
+      createIntegrationMutation.mutate({
+        provider: "RESEND",
+        name: "Resend Email Dispatcher",
+        channel_or_project_id: cleanEmail,
+        credentials_secret: DEFAULT_RESEND_KEY,
+      });
     } else {
-      createIntegrationMutation.mutate(
-        {
-          provider: authConnector.provider,
-          name: authConnector.name,
-          channel_or_project_id: chosenEmail,
-        },
-        {
-          onSettled: () => {
-            setConnectingEmail(null);
-            setIsOAuthModalOpen(false);
-          },
-        }
-      );
+      createIntegrationMutation.mutate({
+        provider: authConnector.provider,
+        name: authConnector.name,
+        channel_or_project_id: cleanEmail,
+      });
     }
   };
 
@@ -862,6 +852,11 @@ export default function IntegrationsPage() {
                                       <p className="text-[11px] text-slate-500 line-clamp-1 leading-snug mt-0.5">
                                         {item.subtitle}
                                       </p>
+                                      {isConnected && (
+                                        <p className="text-[10px] text-emerald-700 font-mono mt-0.5 font-medium truncate">
+                                          Synced: {calendarStatuses.find((c) => c.provider === item.provider)?.account_email || integrations.find((i) => i.provider === item.provider)?.channel_or_project_id || userEmail}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
 
@@ -1524,288 +1519,212 @@ export default function IntegrationsPage() {
         )}
       </div>
 
-      {/* ── 4. REAL OAUTH ACCOUNT & EMAIL ID SELECTION MODAL (GIS STYLE) ───── */}
+      {/* ── 4. REAL OAUTH ACCOUNT & EMAIL ID SELECTION MODAL (GOOGLE SIGN-IN FIDELITY) ── */}
       {isOAuthModalOpen && authConnector && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
-          <div className="w-full max-w-[680px] flex flex-col items-center animate-in fade-in zoom-in-95 duration-150">
-            {/* White Rounded Card matching exact screenshot */}
-            <div className="w-full bg-white rounded-3xl shadow-2xl border border-slate-200/90 p-8 sm:p-10 relative overflow-hidden">
-              {/* Top Header: Provider Branding + Close Button */}
-              <div className="flex items-center justify-between pb-3">
-                <div className="flex items-center gap-2.5">
-                  {authConnector.provider === "GOOGLE_CALENDAR" || authConnector.provider === "GOOGLE_MEET" ? (
-                    <>
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                      </svg>
-                      <span className="text-[14px] font-medium text-[#5f6368]">
-                        Sign in with Google
-                      </span>
-                    </>
-                  ) : authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS" ? (
-                    <>
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 21 21">
-                        <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
-                        <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
-                        <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
-                        <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
-                      </svg>
-                      <span className="text-[14px] font-medium text-[#5f6368]">
-                        Sign in with Microsoft
-                      </span>
-                    </>
-                  ) : authConnector.provider === "ZOOM" ? (
-                    <>
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="#2D8CFF">
-                        <path d="M4.5 5.5A2.5 2.5 0 002 8v8a2.5 2.5 0 002.5 2.5h11A2.5 2.5 0 0018 16V8a2.5 2.5 0 00-2.5-2.5h-11zM19 14.77l3 2.18V7.05l-3 2.18v5.54z"/>
-                      </svg>
-                      <span className="text-[14px] font-medium text-[#5f6368]">
-                        Sign in with Zoom
-                      </span>
-                    </>
-                  ) : authConnector.provider === "SLACK" ? (
-                    <>
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                        <path fill="#E01E5A" d="M6 14.5a2.5 2.5 0 10-2.5-2.5V14.5H6zm0 1H1a1 1 0 00-1 1v2.5a2.5 2.5 0 002.5 2.5H6v-6z"/>
-                        <path fill="#36C5F0" d="M9.5 6a2.5 2.5 0 102.5-2.5H9.5V6zm-1 0V1a1 1 0 00-1-1H5a2.5 2.5 0 00-2.5 2.5V6h6z"/>
-                        <path fill="#2EB67D" d="M18 9.5a2.5 2.5 0 102.5 2.5V9.5H18zm0-1h5a1 1 0 001-1V5a2.5 2.5 0 00-2.5-2.5H18v6z"/>
-                        <path fill="#ECB22E" d="M14.5 18a2.5 2.5 0 10-2.5 2.5v-2.5h2.5zm1 0v5a1 1 0 001 1h2.5a2.5 2.5 0 002.5-2.5V18h-6z"/>
-                      </svg>
-                      <span className="text-[14px] font-medium text-[#5f6368]">
-                        Sign in to Slack
-                      </span>
-                    </>
-                  ) : authConnector.provider === "RESEND" ? (
-                    <>
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" fill="#000000">
-                        <path d="M2 6a2 2 0 012-2h16a2 2 0 012 2v1.2l-10 6.25L2 7.2V6zm0 3.8v8.2a2 2 0 002 2h16a2 2 0 002-2V9.8l-9.47 5.92a1 1 0 01-1.06 0L2 9.8z"/>
-                      </svg>
-                      <span className="text-[14px] font-medium text-[#5f6368]">
-                        Connect Resend API
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <div className="w-5 h-5 flex items-center justify-center text-base">
-                        {authConnector.iconSvg}
-                      </div>
-                      <span className="text-[14px] font-medium text-[#5f6368]">
-                        Authorize {authConnector.name}
-                      </span>
-                    </>
-                  )}
-                </div>
+          <div className="relative w-full max-w-[780px] bg-white rounded-[28px] border border-[#dadce0] shadow-[0_4px_28px_rgba(0,0,0,0.12)] p-8 sm:p-10 font-sans animate-in fade-in zoom-in-95 duration-150">
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setIsOAuthModalOpen(false);
+                setConnectingAccountEmail(null);
+                setShowCustomAccountInput(false);
+              }}
+              className="absolute top-5 right-5 w-8 h-8 rounded-full flex items-center justify-center text-[#5f6368] hover:text-[#1f1f1f] hover:bg-[#f1f3f4] transition-colors cursor-pointer text-sm"
+              title="Close dialog"
+            >
+              ✕
+            </button>
 
-                <button
-                  onClick={() => setIsOAuthModalOpen(false)}
-                  className="w-7 h-7 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 flex items-center justify-center transition-colors cursor-pointer text-sm"
-                  title="Close"
-                >
-                  ✕
-                </button>
+            {/* Provider Branding Bar */}
+            <div className="flex items-center gap-2.5 mb-8">
+              {authConnector.provider === "GOOGLE_CALENDAR" || authConnector.provider === "GOOGLE_MEET" ? (
+                <>
+                  <svg width="20" height="20" viewBox="0 0 24 24" className="shrink-0">
+                    <path
+                      fill="#4285F4"
+                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+                    />
+                  </svg>
+                  <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Google</span>
+                </>
+              ) : authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS" ? (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 23 23" className="shrink-0">
+                    <rect width="10" height="10" fill="#f25022" />
+                    <rect x="12" width="10" height="10" fill="#7fba00" />
+                    <rect y="12" width="10" height="10" fill="#00a4ef" />
+                    <rect x="12" y="12" width="10" height="10" fill="#ffb900" />
+                  </svg>
+                  <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Microsoft</span>
+                </>
+              ) : authConnector.provider === "ZOOM" ? (
+                <>
+                  <div className="w-5 h-5 rounded-md bg-[#2D8CFF] text-white flex items-center justify-center font-bold text-xs">
+                    Z
+                  </div>
+                  <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Zoom</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-lg">{authConnector.iconSvg}</span>
+                  <span className="text-[14px] font-normal text-[#3c4043]">
+                    Sign in to connect {authConnector.name}
+                  </span>
+                </>
+              )}
+            </div>
+
+            {/* Split Content: Left Title + Right Account Selection List */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
+              {/* Left Column */}
+              <div className="md:col-span-5 space-y-3">
+                <h2 className="text-[32px] sm:text-[36px] font-normal text-[#1f1f1f] leading-tight font-sans tracking-tight">
+                  Choose an account
+                </h2>
+                <p className="text-[15px] text-[#444746] leading-relaxed">
+                  to continue to{" "}
+                  <span className="text-[#0b57d0] font-medium hover:underline cursor-pointer">
+                    Knowra
+                  </span>
+                </p>
+                <p className="text-[12px] text-[#5f6368] pt-2 hidden sm:block leading-relaxed">
+                  Knowra will access your calendar schedules and authorize notetakers to automatically record and summarize meetings.
+                </p>
               </div>
 
-              {/* Main Content Area: Left Header & Right Account List */}
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-8 my-auto pt-4 pb-4 items-start">
-                {/* Left Side: Choose an account */}
-                <div className="md:col-span-5 flex flex-col justify-start">
-                  <h2 className="text-[28px] sm:text-[32px] font-normal text-[#202124] leading-[1.2] tracking-tight">
-                    Choose an account
-                  </h2>
-                  <p className="text-[15px] text-[#5f6368] mt-3 font-normal leading-snug">
-                    to continue to{" "}
-                    <span className="text-[#1a73e8] font-medium hover:underline cursor-pointer">
-                      Knowra
-                    </span>
-                  </p>
-                </div>
-
-                {/* Right Side: Account List */}
-                <div className="md:col-span-7 flex flex-col">
-                  <div className="border-t border-[#dadce0]">
-                    {/* Account 1: Personal Account */}
-                    <div
-                      onClick={() =>
-                        handleSelectAccountToConnect(
-                          authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS"
-                            ? "sujal.nage@softude.com"
-                            : "sujal2005nage@gmail.com"
-                        )
-                      }
-                      className="py-3 px-1 border-b border-[#dadce0] hover:bg-[#f8f9fa] transition-colors cursor-pointer flex items-center justify-between group select-none"
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div
-                          className={cn(
-                            "w-9 h-9 rounded-full text-white flex items-center justify-center font-medium text-sm shrink-0 shadow-2xs",
-                            authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS"
-                              ? "bg-[#7b1fa2]"
-                              : "bg-[#137333]"
-                          )}
-                        >
-                          S
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[14px] font-medium text-[#202124] leading-tight truncate">
-                            Sujal Nage
-                          </div>
-                          <div className="text-[12px] text-[#5f6368] leading-tight mt-0.5 truncate">
-                            {authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS"
-                              ? "sujal.nage@softude.com"
-                              : "sujal2005nage@gmail.com"}
-                          </div>
-                        </div>
-                      </div>
-
-                      {connectingEmail === (authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS" ? "sujal.nage@softude.com" : "sujal2005nage@gmail.com") && (
-                        <div className="flex items-center gap-1.5 text-xs text-[#1a73e8] font-medium shrink-0">
-                          <RefreshCw size={13} className="animate-spin" />
-                          <span>Signing in...</span>
-                        </div>
-                      )}
+              {/* Right Column: Account Choices */}
+              <div className="md:col-span-7 divide-y divide-[#e0e2ec]">
+                {/* Account 1: sujal2005nage@gmail.com */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectAccount("sujal2005nage@gmail.com")}
+                  disabled={connectingAccountEmail !== null}
+                  className="w-full py-3 px-2 flex items-center justify-between text-left hover:bg-[#f8fafd] transition-colors rounded-lg cursor-pointer group disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-[#137333] text-white flex items-center justify-center font-medium text-sm shrink-0 shadow-2xs">
+                      S
                     </div>
-
-                    {/* Account 2: Organization Account */}
-                    <div
-                      onClick={() =>
-                        handleSelectAccountToConnect(
-                          authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS"
-                            ? "sujal2005nage@outlook.com"
-                            : "sujal.nage@softude.com"
-                        )
-                      }
-                      className="py-3 px-1 border-b border-[#dadce0] hover:bg-[#f8f9fa] transition-colors cursor-pointer flex items-center justify-between group select-none"
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div
-                          className={cn(
-                            "w-9 h-9 rounded-full text-white flex items-center justify-center font-medium text-sm shrink-0 shadow-2xs",
-                            authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS"
-                              ? "bg-[#0078d4]"
-                              : "bg-[#7b1fa2]"
-                          )}
-                        >
-                          S
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-[14px] font-medium text-[#202124] leading-tight truncate">
-                            Sujal Nage
-                          </div>
-                          <div className="text-[12px] text-[#5f6368] leading-tight mt-0.5 truncate">
-                            {authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS"
-                              ? "sujal2005nage@outlook.com"
-                              : "sujal.nage@softude.com"}
-                          </div>
-                        </div>
+                    <div className="min-w-0">
+                      <div className="text-[14px] font-medium text-[#1f1f1f] group-hover:text-black">
+                        Sujal Nage
                       </div>
-
-                      {connectingEmail === (authConnector.provider === "OUTLOOK" || authConnector.provider === "TEAMS" ? "sujal2005nage@outlook.com" : "sujal.nage@softude.com") && (
-                        <div className="flex items-center gap-1.5 text-xs text-[#1a73e8] font-medium shrink-0">
-                          <RefreshCw size={13} className="animate-spin" />
-                          <span>Signing in...</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Account 3: Use another account */}
-                    <div
-                      onClick={() => setShowCustomInput(!showCustomInput)}
-                      className="py-3 px-1 border-b border-[#dadce0] hover:bg-[#f8f9fa] transition-colors cursor-pointer flex items-center justify-between group select-none"
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div className="w-9 h-9 rounded-full border border-[#dadce0] flex items-center justify-center text-[#5f6368] shrink-0 group-hover:border-[#bdc1c6]">
-                          <User size={16} />
-                        </div>
-                        <span className="text-[14px] font-medium text-[#202124]">
-                          Use another account
-                        </span>
+                      <div className="text-[12px] text-[#444746] truncate">
+                        sujal2005nage@gmail.com
                       </div>
                     </div>
-
-                    {/* Expandable Custom Email Input when selected */}
-                    {showCustomInput && (
-                      <div className="pt-3 pb-2 px-1 space-y-2 animate-fade-in border-b border-[#dadce0]">
-                        <label className="text-[11px] font-medium text-[#5f6368] block">
-                          Enter your email address to continue:
-                        </label>
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="email"
-                            autoFocus
-                            value={customEmail}
-                            onChange={(e) => setCustomEmail(e.target.value)}
-                            placeholder="e.g. sujal.nage@softude.com"
-                            className="flex-1 h-9 px-3 text-xs bg-white border border-[#dadce0] rounded-lg focus:outline-none focus:border-[#1a73e8] focus:ring-1 focus:ring-[#1a73e8]"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && customEmail.trim()) {
-                                handleSelectAccountToConnect(customEmail.trim());
-                              }
-                            }}
-                          />
-                          <button
-                            onClick={() => {
-                              if (customEmail.trim()) {
-                                handleSelectAccountToConnect(customEmail.trim());
-                              }
-                            }}
-                            disabled={!customEmail.trim() || connectingEmail !== null}
-                            className="px-4 h-9 text-xs font-semibold text-white bg-[#1a73e8] hover:bg-[#1557b0] rounded-lg disabled:opacity-50 cursor-pointer transition-colors"
-                          >
-                            Continue
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
+                  {connectingAccountEmail === "sujal2005nage@gmail.com" ? (
+                    <span className="w-4 h-4 border-2 border-[#dadce0] border-t-[#0b57d0] rounded-full animate-spin shrink-0" />
+                  ) : null}
+                </button>
+
+                {/* Account 2: sujal.nage@softude.com */}
+                <button
+                  type="button"
+                  onClick={() => handleSelectAccount("sujal.nage@softude.com")}
+                  disabled={connectingAccountEmail !== null}
+                  className="w-full py-3 px-2 flex items-center justify-between text-left hover:bg-[#f8fafd] transition-colors rounded-lg cursor-pointer group disabled:opacity-60"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-[#7b1fa2] text-white flex items-center justify-center font-medium text-sm shrink-0 shadow-2xs">
+                      S
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[14px] font-medium text-[#1f1f1f] group-hover:text-black">
+                        Sujal Nage
+                      </div>
+                      <div className="text-[12px] text-[#444746] truncate">
+                        sujal.nage@softude.com
+                      </div>
+                    </div>
+                  </div>
+                  {connectingAccountEmail === "sujal.nage@softude.com" ? (
+                    <span className="w-4 h-4 border-2 border-[#dadce0] border-t-[#0b57d0] rounded-full animate-spin shrink-0" />
+                  ) : null}
+                </button>
+
+                {/* Account 3: Use another account */}
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomAccountInput(!showCustomAccountInput)}
+                    className="w-full py-3 px-2 flex items-center gap-3.5 text-left hover:bg-[#f8fafd] transition-colors rounded-lg cursor-pointer group"
+                  >
+                    <div className="w-9 h-9 rounded-full border border-[#747775] flex items-center justify-center text-[#444746] shrink-0">
+                      <User size={16} />
+                    </div>
+                    <div className="text-[14px] font-medium text-[#1f1f1f] group-hover:text-black">
+                      Use another account
+                    </div>
+                  </button>
+
+                  {/* Expandable Custom Email Input */}
+                  {showCustomAccountInput && (
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (customAccountEmail.trim()) {
+                          handleSelectAccount(customAccountEmail.trim());
+                        }
+                      }}
+                      className="mt-2 mb-2 p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5 animate-in fade-in duration-150"
+                    >
+                      <label className="text-[11px] font-medium text-slate-700 block">
+                        Enter work or personal email address to continue:
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="email"
+                          autoFocus
+                          required
+                          value={customAccountEmail}
+                          onChange={(e) => setCustomAccountEmail(e.target.value)}
+                          placeholder="name@company.com"
+                          className="flex-1 h-9 px-3 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-[#0b57d0]"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!customAccountEmail.trim() || connectingAccountEmail !== null}
+                          className="h-9 px-4 rounded-lg bg-[#0b57d0] hover:bg-[#0842a0] text-white text-xs font-semibold shadow-xs disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                        >
+                          {connectingAccountEmail === customAccountEmail.trim() ? (
+                            <span className="w-3.5 h-3.5 border-2 border-white/60 border-t-white rounded-full animate-spin" />
+                          ) : (
+                            <span>Next</span>
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               </div>
             </div>
 
-            {/* Bottom Footer (directly underneath card, matching exact screenshot) */}
-            <div className="w-full flex flex-col sm:flex-row items-center justify-between text-[12px] text-[#5f6368] px-4 pt-4 gap-3">
-              {/* Language Selector */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowLanguageDropdown(!showLanguageDropdown)}
-                  className="flex items-center gap-1.5 hover:text-[#202124] cursor-pointer"
-                >
-                  <span>{selectedLanguage}</span>
-                  <ChevronDown size={12} className="text-[#5f6368]" />
-                </button>
-
-                {showLanguageDropdown && (
-                  <div className="absolute bottom-6 left-0 w-44 bg-white border border-[#dadce0] rounded-lg shadow-lg py-1 z-50 text-xs text-slate-700">
-                    {["English (United States)", "English (United Kingdom)", "Español", "Français", "Deutsch", "日本語"].map((lang) => (
-                      <button
-                        key={lang}
-                        onClick={() => {
-                          setSelectedLanguage(lang);
-                          setShowLanguageDropdown(false);
-                        }}
-                        className="w-full text-left px-3 py-1.5 hover:bg-slate-50 cursor-pointer"
-                      >
-                        {lang}
-                      </button>
-                    ))}
-                  </div>
-                )}
+            {/* Bottom Footer (Matching Google Account Picker) */}
+            <div className="mt-12 pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[12px] text-[#444746] border-t border-slate-100">
+              <div className="flex items-center gap-1.5 cursor-pointer hover:text-[#1f1f1f] transition-colors">
+                <span>English (United States)</span>
+                <ChevronDown size={13} className="text-[#5f6368]" />
               </div>
 
-              {/* Legal & Help Links */}
-              <div className="flex items-center gap-6 [&>a:hover]:text-[#202124]">
-                <a href="https://support.google.com" target="_blank" rel="noreferrer" className="transition-colors">
-                  Help
-                </a>
-                <a href="/privacy" target="_blank" rel="noreferrer" className="transition-colors">
-                  Privacy
-                </a>
-                <a href="/terms" target="_blank" rel="noreferrer" className="transition-colors">
-                  Terms
-                </a>
+              <div className="flex items-center gap-6">
+                <span className="hover:text-[#1f1f1f] cursor-pointer transition-colors">Help</span>
+                <span className="hover:text-[#1f1f1f] cursor-pointer transition-colors">Privacy</span>
+                <span className="hover:text-[#1f1f1f] cursor-pointer transition-colors">Terms</span>
               </div>
             </div>
           </div>

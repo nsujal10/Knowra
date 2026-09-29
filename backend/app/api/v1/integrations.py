@@ -427,18 +427,18 @@ def get_calendar_status(
     for prov_key, name in providers_meta:
         item = next((i for i in integrations if i.provider == prov_key and i.status == "ACTIVE"), None)
         meta = item.metadata_json if item and isinstance(item.metadata_json, dict) else {}
-        is_conn = item is not None and item.status == "ACTIVE" and meta.get("account_email") is not None
+        is_conn = item is not None
         results.append(
             CalendarConnectionStatus(
                 provider=prov_key,
                 name=name,
                 is_connected=is_conn,
-                account_email=meta.get("account_email") if is_conn else None,
-                last_synced_at=item.updated_at if (item and is_conn) else None,
-                auto_join=meta.get("auto_join", True) if is_conn else False,
-                email_summaries=meta.get("email_summaries", True) if is_conn else False,
+                account_email=meta.get("account_email", user_email if is_conn else None),
+                last_synced_at=item.updated_at if item else None,
+                auto_join=meta.get("auto_join", True),
+                email_summaries=meta.get("email_summaries", True),
                 internal_only=meta.get("internal_only", False),
-                events_count=meta.get("synced_events_count", 6) if is_conn else 0,
+                events_count=meta.get("synced_events_count", 6 if is_conn else 0),
             )
         )
     return results
@@ -539,28 +539,7 @@ def disconnect_calendar(
     )
     if item:
         item.status = "INACTIVE"
-        if item.metadata_json and isinstance(item.metadata_json, dict):
-            new_meta = dict(item.metadata_json)
-            new_meta["account_email"] = None
-            new_meta["auto_join"] = False
-            new_meta["synced_events_count"] = 0
-            item.metadata_json = new_meta
         db.commit()
-
-    # Record event in audit log
-    ev = IntegrationEvent(
-        tenant_id=tenant_id,
-        direction="INBOUND",
-        external_event_id=f"cal_disc_{secrets.token_hex(6)}",
-        event_type="CALENDAR_DISCONNECTED",
-        status="COMPLETED",
-        attempt_count=1,
-        max_retries=3,
-        payload_json={"provider": provider_key, "status": "DISCONNECTED"},
-        response_status_code=200,
-    )
-    db.add(ev)
-    db.commit()
 
     return CalendarConnectionStatus(
         provider=provider_key,
@@ -585,197 +564,210 @@ def get_calendar_events(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> List[CalendarMeetingItem]:
     tenant_id = current_user.organization_id
-    user_email = current_user.email or "sujal.nage@softude.com"
+    default_email = current_user.email or "sujal.nage@softude.com"
 
-    # Find active calendar integrations
+    # Find active calendar integrations for this tenant
     active_integrations = (
         db.query(Integration)
         .filter(
             Integration.tenant_id == tenant_id,
-            Integration.status == "ACTIVE",
             Integration.provider.in_(["GOOGLE_CALENDAR", "GOOGLE_MEET", "OUTLOOK", "ZOOM"]),
+            Integration.status == "ACTIVE",
         )
         .all()
     )
+    active_map = {item.provider: item for item in active_integrations}
 
+    # If provider specified, check if it's connected. If not connected, return empty list
     if provider:
         p_up = provider.upper()
-        active_provider = next((i for i in active_integrations if i.provider == p_up), None)
-    else:
-        active_provider = active_integrations[0] if active_integrations else None
+        if p_up not in active_map:
+            return []
 
-    # If no calendar is connected, return empty list
-    if not active_provider and not active_integrations:
+    events: List[CalendarMeetingItem] = []
+
+    def _create_events_for_provider(prov: str, item: Integration):
+        meta = item.metadata_json if isinstance(item.metadata_json, dict) else {}
+        acct_email = meta.get("account_email") or item.channel_or_project_id or default_email
+        auto_join = meta.get("auto_join", True)
+
+        if "softude.com" in acct_email.lower():
+            if prov in ("GOOGLE_CALENDAR", "GOOGLE_MEET"):
+                return [
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_01",
+                        title="Softude Executive Boardroom: Knowra AI Deployment",
+                        provider=prov,
+                        start_time="Today, 2:30 PM",
+                        end_time="3:30 PM",
+                        duration_minutes=60,
+                        meeting_link="https://meet.google.com/qwa-bckp-dzy",
+                        organizer=acct_email,
+                        attendees=[acct_email, "ceo@softude.com", "cfo@softude.com", "sarah.chen@knowra.ai"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=False,
+                    ),
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_02",
+                        title="Sprint 44 Engineering Sync & Vector DB Partitioning",
+                        provider=prov,
+                        start_time="Today, 4:00 PM",
+                        end_time="4:45 PM",
+                        duration_minutes=45,
+                        meeting_link="https://meet.google.com/eng-sync-vctr",
+                        organizer=acct_email,
+                        attendees=[acct_email, "dev-team@softude.com", "david.kim@softude.com"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=False,
+                    ),
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_03",
+                        title="Softude Client Discovery & Architecture Solutioning",
+                        provider=prov,
+                        start_time="Tomorrow, 10:00 AM",
+                        end_time="11:00 AM",
+                        duration_minutes=60,
+                        meeting_link="https://meet.google.com/softude-arch-sync",
+                        organizer=acct_email,
+                        attendees=[acct_email, "elena.rostova@softude.com", "marcus.vance@enterprise.com"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=True,
+                    ),
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_04",
+                        title="Weekly Decision Audit & Action Item Retrospective",
+                        provider=prov,
+                        start_time="Friday, 3:00 PM",
+                        end_time="3:45 PM",
+                        duration_minutes=45,
+                        meeting_link="https://meet.google.com/ret-aud-sync",
+                        organizer=acct_email,
+                        attendees=[acct_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=False,
+                    ),
+                ]
+            elif prov == "OUTLOOK":
+                return [
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_01",
+                        title="Softude M365 Strategic Planning & OKRs Review",
+                        provider=prov,
+                        start_time="Today, 3:00 PM",
+                        end_time="4:00 PM",
+                        duration_minutes=60,
+                        meeting_link="https://teams.microsoft.com/l/meetup-join/boardroom-sync",
+                        organizer=acct_email,
+                        attendees=[acct_email, "ceo@softude.com", "vp-eng@softude.com"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=False,
+                    ),
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_02",
+                        title="Enterprise Client Architecture & Security Review",
+                        provider=prov,
+                        start_time="Tomorrow, 11:30 AM",
+                        end_time="12:30 PM",
+                        duration_minutes=60,
+                        meeting_link="https://teams.microsoft.com/l/meetup-join/client-review",
+                        organizer=acct_email,
+                        attendees=[acct_email, "ciso@softude.com", "security@clientcorp.com"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=True,
+                    ),
+                ]
+            elif prov == "ZOOM":
+                return [
+                    CalendarMeetingItem(
+                        id=f"{prov.lower()}_evt_01",
+                        title="Cross-Functional Product Demo & Client Walkthrough",
+                        provider=prov,
+                        start_time="Tomorrow, 1:00 PM",
+                        end_time="1:45 PM",
+                        duration_minutes=45,
+                        meeting_link="https://zoom.us/j/94829104821",
+                        organizer=acct_email,
+                        attendees=[acct_email, "alex.turner@clientcorp.com", "product-ops@knowra.ai"],
+                        auto_join=auto_join,
+                        status="SCHEDULED",
+                        is_external=True,
+                    ),
+                ]
+        else:
+            # Personal account (e.g. sujal2005nage@gmail.com) or custom email
+            return [
+                CalendarMeetingItem(
+                    id=f"{prov.lower()}_evt_01",
+                    title="Knowra AI & Google Cloud Platform Architecture Sync",
+                    provider=prov,
+                    start_time="Today, 2:30 PM",
+                    end_time="3:30 PM",
+                    duration_minutes=60,
+                    meeting_link="https://meet.google.com/qwa-bckp-dzy",
+                    organizer=acct_email,
+                    attendees=[acct_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com", "elena.rostova@softude.com"],
+                    auto_join=auto_join,
+                    status="SCHEDULED",
+                    is_external=False,
+                ),
+                CalendarMeetingItem(
+                    id=f"{prov.lower()}_evt_02",
+                    title="AI Knowledge Pipeline & Vector Search Optimization",
+                    provider=prov,
+                    start_time="Today, 4:00 PM",
+                    end_time="4:45 PM",
+                    duration_minutes=45,
+                    meeting_link="https://meet.google.com/eng-sync-vctr",
+                    organizer=acct_email,
+                    attendees=[acct_email, "dev-team@knowra.ai", "david.kim@softude.com"],
+                    auto_join=auto_join,
+                    status="SCHEDULED",
+                    is_external=False,
+                ),
+                CalendarMeetingItem(
+                    id=f"{prov.lower()}_evt_03",
+                    title="Weekly Decision Audit & Model Evaluation",
+                    provider=prov,
+                    start_time="Tomorrow, 11:00 AM",
+                    end_time="11:45 AM",
+                    duration_minutes=45,
+                    meeting_link="https://meet.google.com/ret-aud-sync",
+                    organizer=acct_email,
+                    attendees=[acct_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com"],
+                    auto_join=auto_join,
+                    status="SCHEDULED",
+                    is_external=False,
+                ),
+                CalendarMeetingItem(
+                    id=f"{prov.lower()}_evt_04",
+                    title="Live Customer Discovery & Product Feedback Session",
+                    provider=prov,
+                    start_time="Tomorrow, 3:00 PM",
+                    end_time="3:30 PM",
+                    duration_minutes=30,
+                    meeting_link="https://meet.google.com/client-disc-89",
+                    organizer=acct_email,
+                    attendees=[acct_email, "product-ops@knowra.ai", "alex.turner@clientcorp.com"],
+                    auto_join=auto_join,
+                    status="SCHEDULED",
+                    is_external=True,
+                ),
+            ]
         return []
 
-    active_meta = active_provider.metadata_json if (active_provider and isinstance(active_provider.metadata_json, dict)) else {}
-    connected_email = active_meta.get("account_email") or user_email
-
-    # Determine meeting templates based on whether personal (@gmail.com) or corporate
-    is_personal_gmail = "gmail.com" in connected_email.lower()
-    
-    if is_personal_gmail:
-        events: List[CalendarMeetingItem] = [
-            CalendarMeetingItem(
-                id="cal_evt_g01",
-                title="Knowra AI Architecture & Pipeline Integration Sync",
-                provider="GOOGLE_CALENDAR",
-                start_time="Today, 2:30 PM",
-                end_time="3:30 PM",
-                duration_minutes=60,
-                meeting_link="https://meet.google.com/qwa-bckp-dzy",
-                organizer=connected_email,
-                attendees=[connected_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=False,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_g02",
-                title="Real-Time Speech-to-Text Benchmark & Whisper Testing",
-                provider="GOOGLE_MEET",
-                start_time="Today, 4:00 PM",
-                end_time="4:45 PM",
-                duration_minutes=45,
-                meeting_link="https://meet.google.com/eng-sync-vctr",
-                organizer="sarah.chen@knowra.ai",
-                attendees=[connected_email, "ai-team@knowra.ai", "david.kim@softude.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=False,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_g03",
-                title="Developer Platform & Custom Connector Integration",
-                provider="GOOGLE_CALENDAR",
-                start_time="Tomorrow, 11:00 AM",
-                end_time="11:45 AM",
-                duration_minutes=45,
-                meeting_link="https://meet.google.com/dev-int-sync",
-                organizer=connected_email,
-                attendees=[connected_email, "partners@knowra.ai", "alex.turner@clientcorp.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=True,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_g04",
-                title="Google Cloud & Vertex AI Strategy Sync",
-                provider="GOOGLE_CALENDAR",
-                start_time="Friday, 3:00 PM",
-                end_time="3:45 PM",
-                duration_minutes=45,
-                meeting_link="https://meet.google.com/gcp-vrtx-sync",
-                organizer=connected_email,
-                attendees=[connected_email, "sarah.chen@knowra.ai"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=False,
-            ),
-        ]
-    else:
-        events: List[CalendarMeetingItem] = [
-            CalendarMeetingItem(
-                id="cal_evt_01",
-                title="Q3 Strategic Architecture & Executive Review",
-                provider="GOOGLE_CALENDAR",
-                start_time="Today, 2:30 PM",
-                end_time="3:30 PM",
-                duration_minutes=60,
-                meeting_link="https://meet.google.com/qwa-bckp-dzy",
-                organizer=connected_email,
-                attendees=[connected_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com", "elena.rostova@softude.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=False,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_02",
-                title="Sprint 44 Engineering Sync & Vector DB Partitioning",
-                provider="GOOGLE_MEET",
-                start_time="Today, 4:00 PM",
-                end_time="4:45 PM",
-                duration_minutes=45,
-                meeting_link="https://meet.google.com/eng-sync-vctr",
-                organizer="sarah.chen@knowra.ai",
-                attendees=[connected_email, "dev-team@softude.com", "david.kim@softude.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=False,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_03",
-                title="Boardroom Executive Briefing: Knowra AI Deployment",
-                provider="OUTLOOK",
-                start_time="Tomorrow, 10:00 AM",
-                end_time="11:00 AM",
-                duration_minutes=60,
-                meeting_link="https://teams.microsoft.com/l/meetup-join/boardroom-sync",
-                organizer="ceo@softude.com",
-                attendees=[connected_email, "ceo@softude.com", "cfo@softude.com", "vp-eng@softude.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=True,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_04",
-                title="Cross-Functional Product Demo & Client Walkthrough",
-                provider="ZOOM",
-                start_time="Tomorrow, 1:00 PM",
-                end_time="1:45 PM",
-                duration_minutes=45,
-                meeting_link="https://zoom.us/j/94829104821",
-                organizer="alex.turner@clientcorp.com",
-                attendees=[connected_email, "alex.turner@clientcorp.com", "product-ops@knowra.ai"],
-                auto_join=False,
-                status="SCHEDULED",
-                is_external=True,
-            ),
-            CalendarMeetingItem(
-                id="cal_evt_05",
-                title="Weekly Decision Audit & Action Item Retrospective",
-                provider="GOOGLE_CALENDAR",
-                start_time="Friday, 3:00 PM",
-                end_time="3:45 PM",
-                duration_minutes=45,
-                meeting_link="https://meet.google.com/ret-aud-sync",
-                organizer=connected_email,
-                attendees=[connected_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com"],
-                auto_join=True,
-                status="SCHEDULED",
-                is_external=False,
-            ),
-        ]
-
-    # Include recent meetings from database if any
-    db_meetings = (
-        db.query(Meeting)
-        .filter(Meeting.tenant_id == tenant_id)
-        .order_by(Meeting.created_at.desc())
-        .limit(5)
-        .all()
-    )
-    for idx, m in enumerate(db_meetings):
-        events.append(
-            CalendarMeetingItem(
-                id=str(m.id),
-                title=m.title or "Executive Sync",
-                provider="GOOGLE_CALENDAR" if idx % 2 == 0 else "OUTLOOK",
-                start_time=m.meeting_date.strftime("%b %d, %I:%M %p") if m.meeting_date else f"Recent Sync #{idx+1}",
-                end_time="45m session",
-                duration_minutes=45,
-                meeting_link="https://meet.google.com/knowra-sync",
-                organizer=connected_email,
-                attendees=[connected_email, "attendees@knowra.ai"],
-                auto_join=True,
-                status=m.status if m.status in ["SCHEDULED", "IN_PROGRESS", "COMPLETED"] else "COMPLETED",
-                is_external=False,
-            )
-        )
-
     if provider:
         p_up = provider.upper()
-        events = [e for e in events if e.provider == p_up]
+        if p_up in active_map:
+            events.extend(_create_events_for_provider(p_up, active_map[p_up]))
+    else:
+        for p_key, itm in active_map.items():
+            events.extend(_create_events_for_provider(p_key, itm))
 
     return events
 

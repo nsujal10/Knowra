@@ -52,6 +52,18 @@ class Settings(BaseSettings):
     MEETING_BAAS_API_KEY: str = ""
     MEETING_BAAS_WEBHOOK_URL: str = ""
 
+    # SMTP Outbound Email Settings
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@knowra.ai"
+    SMTP_TLS: bool = True
+
+    # Resend API Settings
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "Knowra Intelligence <onboarding@resend.dev>"
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=ENV_FILE,

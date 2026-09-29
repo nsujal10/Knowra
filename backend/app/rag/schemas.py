@@ -26,6 +26,8 @@ class RAGCitation(BaseModel):
     """Verifiable citation linking generated claims back to canonical video/transcript segments."""
     chunk_id: UUID = Field(..., description="ID of the retrieved knowledge chunk")
     segment_id: UUID = Field(..., description="Canonical transcript segment ID")
+    meeting_id: Optional[UUID] = Field(None, description="Associated meeting ID")
+    meeting_title: Optional[str] = Field(None, description="Title of the meeting")
     start_seconds: float = Field(0.0, description="Start timestamp in seconds")
     end_seconds: float = Field(0.0, description="End timestamp in seconds")
     speaker_name: str = Field("Unknown", description="Attributed speaker")

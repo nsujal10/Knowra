@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.knowledge.models import KnowledgeChunkSegment
 from app.knowledge.schemas import SearchResultItem
+from app.models.meeting import Meeting
 from app.models.transcript_segment import TranscriptSegment
 from app.rag.schemas import RAGCitation
 
@@ -52,6 +53,13 @@ class CitationValidator:
             for seg in item.citations:
                 retrieved_segment_map[(item.chunk_id, seg.segment_id)] = (item, seg)
 
+        # Preload meeting titles for retrieved chunks
+        meeting_ids = {item.meeting_id for item in retrieved_results if getattr(item, "meeting_id", None)}
+        meeting_titles: dict[UUID, str] = {}
+        if meeting_ids:
+            meetings = self.db.query(Meeting.id, Meeting.title).filter(Meeting.id.in_(meeting_ids)).all()
+            meeting_titles = {m.id: m.title for m in meetings}
+
         verified_citations: List[RAGCitation] = []
 
         for raw in raw_citations:
@@ -76,10 +84,13 @@ class CitationValidator:
             if mapping_key in retrieved_segment_map:
                 item, seg = retrieved_segment_map[mapping_key]
                 quote = str(raw.get("quote") or seg.text).strip()
+                m_title = meeting_titles.get(item.meeting_id) or "Meeting"
                 verified_citations.append(
                     RAGCitation(
                         chunk_id=chunk_id,
                         segment_id=segment_id,
+                        meeting_id=item.meeting_id,
+                        meeting_title=m_title,
                         start_seconds=seg.start_seconds,
                         end_seconds=seg.end_seconds,
                         speaker_name=seg.speaker_name,
@@ -120,11 +131,16 @@ class CitationValidator:
                 else "Unknown"
             )
             quote = str(raw.get("quote") or db_segment.text).strip()
+            item = retrieved_chunk_ids.get(chunk_id)
+            m_id = item.meeting_id if item else None
+            m_title = meeting_titles.get(m_id) if m_id else "Meeting"
 
             verified_citations.append(
                 RAGCitation(
                     chunk_id=chunk_id,
                     segment_id=segment_id,
+                    meeting_id=m_id,
+                    meeting_title=m_title,
                     start_seconds=db_segment.start_seconds,
                     end_seconds=db_segment.end_seconds,
                     speaker_name=speaker_name,

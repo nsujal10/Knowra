@@ -90,12 +90,17 @@ export type Transcript = z.infer<typeof TranscriptSchema>;
 export const CitationSchema = z.object({
   chunk_id: z.string(),
   segment_id: z.string().optional(),
-  meeting_id: z.string(),
-  meeting_title: z.string().optional(),
-  text: z.string(),
+  meeting_id: z.string().nullable().optional(),
+  meeting_title: z.string().nullable().optional(),
+  text: z.string().optional(),
+  quote: z.string().optional(),
   speaker: z.string().nullable().optional(),
+  speaker_name: z.string().nullable().optional(),
   timestamp: z.number().optional(),
+  start_seconds: z.number().optional(),
+  end_seconds: z.number().optional(),
   relevance_score: z.number().optional(),
+  verified: z.boolean().optional(),
 });
 export type Citation = z.infer<typeof CitationSchema>;
 

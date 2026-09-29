@@ -21,9 +21,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./knowra.db" # Using SQLite for standalone execution, switch to postgres URL for prod
 
     # LLM Settings (Phase 15 & 16)
-    LLM_PROVIDER: str = "mock"
+    LLM_PROVIDER: str = "Groq"
     LLM_API_KEY: str = ""
-    LLM_MODEL: str = "gpt-4o-mini"
+    LLM_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
 
     # Embedding Settings (Phase 18)
     EMBEDDING_PROVIDER: str = "deterministic"

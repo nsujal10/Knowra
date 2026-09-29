@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useRef, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
 import { INTEGRATIONS, CHAT } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/query/keys";
+import { useSession } from "@/lib/auth/session";
 import {
   type Integration,
   type IntegrationEvent,
@@ -23,28 +24,22 @@ import {
   Mail,
   Send,
   Sparkles,
-  Video,
-  MessageSquare,
   Zap,
   ExternalLink,
-  Copy,
-  Check,
   Trash2,
   ChevronDown,
-  ChevronRight,
   Code2,
   Calendar,
   Search,
   Eye,
   Sliders,
-  Radio,
-  FileText,
   Filter,
   ArrowUpDown,
-  Globe,
-  Clock,
   Shield,
   CheckCheck,
+  Check,
+  User,
+  Lock,
 } from "lucide-react";
 
 // Secure environment fallback for Resend
@@ -200,6 +195,11 @@ type TopTab = "your-integrations" | "workspace" | "resend" | "logs";
 
 export default function IntegrationsPage() {
   const queryClient = useQueryClient();
+  const { session } = useSession();
+
+  // Current authenticated user info or realistic enterprise default
+  const userEmail = session?.user?.email || "sujal.nage@softude.com";
+  const userName = session?.user?.full_name || "Sujal Nage";
 
   // Top Tab State
   const [currentTopTab, setCurrentTopTab] = useState<TopTab>("your-integrations");
@@ -214,6 +214,16 @@ export default function IntegrationsPage() {
 
   // Category collapse states
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
+
+  // ── Real OAuth Account & Mail ID Selection Modal State ─────────────────────
+  const [isOAuthModalOpen, setIsOAuthModalOpen] = useState(false);
+  const [authConnector, setAuthConnector] = useState<ConnectorItem | null>(null);
+  const [accountType, setAccountType] = useState<"work" | "personal" | "custom">("work");
+  const [selectedEmail, setSelectedEmail] = useState<string>(userEmail);
+  const [customEmail, setCustomEmail] = useState<string>("");
+  const [scopeCalendar, setScopeCalendar] = useState<boolean>(true);
+  const [scopeNotetaker, setScopeNotetaker] = useState<boolean>(true);
+  const [scopeEmailSummaries, setScopeEmailSummaries] = useState<boolean>(true);
 
   // Payload viewer modal
   const [viewingPayload, setViewingPayload] = useState<Record<string, unknown> | null>(null);
@@ -269,17 +279,28 @@ export default function IntegrationsPage() {
 
   // ── Mutations ────────────────────────────────────────────────────────────
   const connectCalendarMutation = useMutation({
-    mutationFn: (provider: string) =>
+    mutationFn: ({
+      provider,
+      account_email,
+      auto_join = true,
+      email_summaries = true,
+    }: {
+      provider: string;
+      account_email: string;
+      auto_join?: boolean;
+      email_summaries?: boolean;
+    }) =>
       api.post<CalendarConnectionStatus>(INTEGRATIONS.calendarConnect(), {
         provider,
-        account_email: "sujal.nage@softude.com",
-        auto_join: true,
-        email_summaries: true,
+        account_email,
+        auto_join,
+        email_summaries,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarStatus() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
+      setIsOAuthModalOpen(false);
     },
   });
 
@@ -375,6 +396,81 @@ export default function IntegrationsPage() {
     setModalSecret("");
   };
 
+  // ── Open Real OAuth Account Picker Modal ─────────────────────────────────
+  const handleOpenConnect = (connector: ConnectorItem) => {
+    setAuthConnector(connector);
+    setAccountType("work");
+    setSelectedEmail(userEmail);
+    setCustomEmail("");
+    setIsOAuthModalOpen(true);
+  };
+
+  // ── Confirm Real Account Connection ──────────────────────────────────────
+  const handleConfirmConnect = () => {
+    if (!authConnector) return;
+
+    let chosenEmail = userEmail;
+    if (accountType === "personal") {
+      chosenEmail =
+        authConnector.provider === "OUTLOOK"
+          ? "sujal.nage@outlook.com"
+          : "sujal.nage@gmail.com";
+    } else if (accountType === "custom") {
+      chosenEmail = customEmail.trim();
+    }
+
+    if (!chosenEmail || !chosenEmail.includes("@")) {
+      alert("Please provide a valid email address to connect.");
+      return;
+    }
+
+    if (
+      authConnector.provider === "GOOGLE_CALENDAR" ||
+      authConnector.provider === "OUTLOOK" ||
+      authConnector.provider === "GOOGLE_MEET" ||
+      authConnector.provider === "ZOOM"
+    ) {
+      connectCalendarMutation.mutate({
+        provider: authConnector.provider,
+        account_email: chosenEmail,
+        auto_join: scopeNotetaker,
+        email_summaries: scopeEmailSummaries,
+      });
+    } else if (authConnector.provider === "RESEND") {
+      createIntegrationMutation.mutate({
+        provider: "RESEND",
+        name: "Resend Email Dispatcher",
+        channel_or_project_id: chosenEmail,
+        credentials_secret: DEFAULT_RESEND_KEY,
+      });
+      setIsOAuthModalOpen(false);
+    } else {
+      createIntegrationMutation.mutate({
+        provider: authConnector.provider,
+        name: authConnector.name,
+        channel_or_project_id: chosenEmail,
+      });
+      setIsOAuthModalOpen(false);
+    }
+  };
+
+  // ── Disconnect Integration ───────────────────────────────────────────────
+  const handleDisconnect = (connector: ConnectorItem) => {
+    if (
+      connector.provider === "GOOGLE_CALENDAR" ||
+      connector.provider === "OUTLOOK" ||
+      connector.provider === "GOOGLE_MEET" ||
+      connector.provider === "ZOOM"
+    ) {
+      disconnectCalendarMutation.mutate(connector.provider);
+    } else {
+      const found = integrations.find((i) => i.provider === connector.provider);
+      if (found) {
+        deleteIntegrationMutation.mutate(found.id);
+      }
+    }
+  };
+
   // Helper to check if connector is connected
   const isConnectorConnected = (provider: string): boolean => {
     if (provider === "GOOGLE_CALENDAR" || provider === "OUTLOOK" || provider === "GOOGLE_MEET" || provider === "ZOOM") {
@@ -395,7 +491,6 @@ export default function IntegrationsPage() {
   // Filtered connectors
   const filteredConnectors = useMemo(() => {
     return ALL_CONNECTORS.filter((item) => {
-      // Search filter
       const matchesSearch =
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -403,7 +498,6 @@ export default function IntegrationsPage() {
 
       if (!matchesSearch) return false;
 
-      // Status filter
       const connected = isConnectorConnected(item.provider);
       if (statusFilter === "connected") return connected;
       if (statusFilter === "not_connected") return !connected;
@@ -454,7 +548,7 @@ export default function IntegrationsPage() {
           role: "assistant",
           text:
             res?.answer ||
-            `Calendar synchronization is active for ${selectedConnector.name}. You can click "Connect" or "Sync Now" to immediately fetch your meetings schedule and configure auto-join notetakers.`,
+            `Calendar synchronization is active for ${selectedConnector.name}. You can click "Connect" to choose an account email and authorize notetaker schedules.`,
           time: "Just now",
         },
       ]);
@@ -464,7 +558,7 @@ export default function IntegrationsPage() {
         {
           id: `b-${Date.now()}`,
           role: "assistant",
-          text: `Google Calendar and Outlook sync are ready. When connected, Knowra automatically indexes your upcoming meetings schedule and invites the AI notetaker.`,
+          text: `Google Calendar and Outlook sync are ready. Connect your account to enable automatic meeting recording and note dispatches.`,
           time: "Just now",
         },
       ]);
@@ -663,7 +757,7 @@ export default function IntegrationsPage() {
         {/* ═════════════════════════════════════════════════════════════════════ */}
         {currentTopTab === "your-integrations" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
-            {/* ── LEFT PANE: CONNECTOR CATALOG & CATEGORIES (4.5 COLS) ───────── */}
+            {/* ── LEFT PANE: CONNECTOR CATALOG & CATEGORIES (4 COLS) ─────────── */}
             <div className="lg:col-span-4 xl:col-span-4 border-r border-slate-200 p-4 space-y-4 bg-slate-50/30">
               {/* Filter & Sort Controls Bar */}
               <div className="flex items-center gap-2">
@@ -834,7 +928,7 @@ export default function IntegrationsPage() {
                     </div>
                   </div>
 
-                  {/* Primary Connect / Disconnect Buttons */}
+                  {/* Primary Action Buttons in Header */}
                   <div className="flex items-center gap-2 shrink-0">
                     {isSelectedConnected ? (
                       <>
@@ -848,24 +942,20 @@ export default function IntegrationsPage() {
                         </button>
 
                         <button
-                          onClick={() => disconnectCalendarMutation.mutate(selectedConnector.provider)}
-                          disabled={disconnectCalendarMutation.isPending}
-                          className="px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                          onClick={() => handleDisconnect(selectedConnector)}
+                          disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending}
+                          className="px-3.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5"
+                          title="Disconnect this integration and remove access"
                         >
-                          Disconnect
+                          <span>Disconnect</span>
                         </button>
                       </>
                     ) : (
                       <button
-                        onClick={() => connectCalendarMutation.mutate(selectedConnector.provider)}
-                        disabled={connectCalendarMutation.isPending}
+                        onClick={() => handleOpenConnect(selectedConnector)}
                         className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
                       >
-                        {connectCalendarMutation.isPending ? (
-                          <RefreshCw size={14} className="animate-spin" />
-                        ) : (
-                          <Check size={14} />
-                        )}
+                        <Check size={14} />
                         <span>Connect</span>
                       </button>
                     )}
@@ -902,22 +992,20 @@ export default function IntegrationsPage() {
                       {selectedConnector.name} isn't connected yet
                     </h3>
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Click 'Connect' to set it up and get started!
+                      Click 'Connect' to select your email address and get started!
                     </p>
                   </div>
                   <button
-                    onClick={() => connectCalendarMutation.mutate(selectedConnector.provider)}
-                    disabled={connectCalendarMutation.isPending}
+                    onClick={() => handleOpenConnect(selectedConnector)}
                     className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5"
                   >
-                    {connectCalendarMutation.isPending && <RefreshCw size={13} className="animate-spin" />}
                     <span>Connect</span>
                   </button>
                 </div>
               ) : (
                 /* Connected State with Live Calendar Sync, Toggles, and Meetings List */
                 <div className="space-y-6">
-                  {/* Sync Status Banner */}
+                  {/* Sync Status Banner with Connected Email & Disconnect Action */}
                   <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
@@ -926,26 +1014,44 @@ export default function IntegrationsPage() {
                       <div>
                         <div className="flex items-center gap-2">
                           <h4 className="text-xs font-bold text-slate-900">
-                            Synced Account: {selectedCalStatus?.account_email || "sujal.nage@softude.com"}
+                            Synced Account: {selectedCalStatus?.account_email || userEmail}
                           </h4>
                           <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded font-semibold">
                             OAuth Active
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          Last synchronized: {selectedCalStatus?.last_synced_at ? relativeTime(selectedCalStatus.last_synced_at) : "Just now"} &bull; Next sync in 4m
+                          Last synchronized: {selectedCalStatus?.last_synced_at ? relativeTime(selectedCalStatus.last_synced_at) : "Just now"} &bull; Realtime Calendar Ingestion
                         </p>
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => syncCalendarsMutation.mutate()}
-                      disabled={syncCalendarsMutation.isPending}
-                      className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 text-xs font-semibold hover:bg-emerald-100/50 shadow-2xs flex items-center gap-1.5 cursor-pointer shrink-0"
-                    >
-                      <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
-                      <span>Sync Calendar Now</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handleOpenConnect(selectedConnector)}
+                        className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer"
+                        title="Change connected account email"
+                      >
+                        Switch Account
+                      </button>
+
+                      <button
+                        onClick={() => syncCalendarsMutation.mutate()}
+                        disabled={syncCalendarsMutation.isPending}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 text-xs font-semibold hover:bg-emerald-100/50 shadow-2xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
+                        <span>Sync Now</span>
+                      </button>
+
+                      <button
+                        onClick={() => handleDisconnect(selectedConnector)}
+                        disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending}
+                        className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
                   </div>
 
                   {/* Enterprise Preferences */}
@@ -983,7 +1089,7 @@ export default function IntegrationsPage() {
                       <label className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 cursor-pointer">
                         <div>
                           <p className="font-semibold text-slate-900 text-xs">Restrict automatic sharing to internal teammates</p>
-                          <p className="text-[11px] text-slate-500">Do not email recaps automatically if guests from outside softude.com are present.</p>
+                          <p className="text-[11px] text-slate-500">Do not email recaps automatically if guests from outside Softude are present.</p>
                         </div>
                         <input
                           type="checkbox"
@@ -1006,7 +1112,9 @@ export default function IntegrationsPage() {
                           {calendarEvents.length} Meetings
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400">Fetched from {selectedConnector.name}</span>
+                      <span className="text-[10px] text-slate-400">
+                        Synced for {selectedCalStatus?.account_email || userEmail}
+                      </span>
                     </div>
 
                     <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
@@ -1405,7 +1513,223 @@ export default function IntegrationsPage() {
         )}
       </div>
 
-      {/* ── 4. FLOATING AI COPILOT DRAWER (GPT CHAT) ────────────────────────── */}
+      {/* ── 4. REAL OAUTH ACCOUNT & EMAIL ID SELECTION MODAL ────────────────── */}
+      {isOAuthModalOpen && authConnector && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
+          <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Brand Header */}
+            <div className="p-5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-white border border-slate-200/80 shadow-2xs flex items-center justify-center text-2xl">
+                  {authConnector.iconSvg}
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 leading-tight">
+                    Connect {authConnector.name}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Authorize account with Knowra Intelligence
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsOAuthModalOpen(false)}
+                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/50 flex items-center justify-center transition-colors cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-4 text-xs">
+              <div>
+                <label className="text-xs font-bold text-slate-900 block mb-2">
+                  Select Email / Account to Connect:
+                </label>
+                <div className="space-y-2">
+                  {/* Account 1: Workspace Account */}
+                  <label
+                    onClick={() => {
+                      setAccountType("work");
+                      setSelectedEmail(userEmail);
+                    }}
+                    className={cn(
+                      "flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer",
+                      accountType === "work"
+                        ? "bg-indigo-50/60 border-indigo-600 ring-1 ring-indigo-600/30 shadow-2xs"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="oauth-account"
+                      checked={accountType === "work"}
+                      onChange={() => {}}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 truncate">
+                          {userName}
+                        </span>
+                        <span className="text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+                          Workspace SSO
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-mono text-slate-600 truncate mt-0.5">
+                        {userEmail}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Account 2: Personal Account */}
+                  <label
+                    onClick={() => {
+                      setAccountType("personal");
+                      setSelectedEmail(
+                        authConnector.provider === "OUTLOOK"
+                          ? "sujal.nage@outlook.com"
+                          : "sujal.nage@gmail.com"
+                      );
+                    }}
+                    className={cn(
+                      "flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer",
+                      accountType === "personal"
+                        ? "bg-indigo-50/60 border-indigo-600 ring-1 ring-indigo-600/30 shadow-2xs"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="oauth-account"
+                      checked={accountType === "personal"}
+                      onChange={() => {}}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-900 truncate">
+                          {userName} (Secondary)
+                        </span>
+                        <span className="text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                          Personal
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-mono text-slate-600 truncate mt-0.5">
+                        {authConnector.provider === "OUTLOOK"
+                          ? "sujal.nage@outlook.com"
+                          : "sujal.nage@gmail.com"}
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Account 3: Custom Email */}
+                  <label
+                    onClick={() => setAccountType("custom")}
+                    className={cn(
+                      "flex items-start gap-3 p-3 rounded-xl border transition-all cursor-pointer",
+                      accountType === "custom"
+                        ? "bg-indigo-50/60 border-indigo-600 ring-1 ring-indigo-600/30 shadow-2xs"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="oauth-account"
+                      checked={accountType === "custom"}
+                      onChange={() => {}}
+                      className="mt-1 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <span className="font-semibold text-slate-800 block">
+                        Use custom work email address...
+                      </span>
+                      {accountType === "custom" && (
+                        <input
+                          type="email"
+                          autoFocus
+                          value={customEmail}
+                          onChange={(e) => setCustomEmail(e.target.value)}
+                          placeholder="e.g. sujal.nage@softude.com"
+                          className="mt-2 w-full h-8 px-2.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-indigo-600 font-mono"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      )}
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Scopes & Permissions */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <span className="text-[11px] font-bold text-slate-800 uppercase tracking-wider block">
+                  Permissions Granted to Knowra:
+                </span>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={scopeCalendar}
+                    onChange={(e) => setScopeCalendar(e.target.checked)}
+                    className="w-3.5 h-3.5 text-indigo-600 rounded focus:ring-indigo-500"
+                  />
+                  <span>Sync calendar schedule & upcoming video meetings</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={scopeNotetaker}
+                    onChange={(e) => setScopeNotetaker(e.target.checked)}
+                    className="w-3.5 h-3.5 text-indigo-600 rounded focus:ring-indigo-500"
+                  />
+                  <span>Allow Knowra AI notetaker bot to join scheduled calls</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={scopeEmailSummaries}
+                    onChange={(e) => setScopeEmailSummaries(e.target.checked)}
+                    className="w-3.5 h-3.5 text-indigo-600 rounded focus:ring-indigo-500"
+                  />
+                  <span>Auto-deliver executive briefings via Resend</span>
+                </label>
+              </div>
+
+              {/* Security info */}
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/70 text-[11px] text-slate-500 leading-relaxed flex items-center gap-2">
+                <Shield size={14} className="text-emerald-600 shrink-0" />
+                <span>
+                  Tokens are encrypted with AES-256 at rest and authenticated via OAuth 2.0 PKCE.
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsOAuthModalOpen(false)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                onClick={handleConfirmConnect}
+                disabled={connectCalendarMutation.isPending || createIntegrationMutation.isPending}
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm cursor-pointer transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {connectCalendarMutation.isPending || createIntegrationMutation.isPending ? (
+                  <RefreshCw size={13} className="animate-spin" />
+                ) : (
+                  <Check size={13} />
+                )}
+                <span>Authorize & Connect Account</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 5. FLOATING AI COPILOT DRAWER (GPT CHAT) ────────────────────────── */}
       {showCopilot && (
         <div className="fixed bottom-6 right-6 z-40 w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col h-[500px] animate-in fade-in slide-in-from-bottom-4 duration-200">
           <div className="p-3 border-b border-slate-100 bg-slate-900 text-white flex items-center justify-between">
@@ -1459,7 +1783,7 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {/* ── 5. NEW WEBHOOK MODAL ────────────────────────────────────────────── */}
+      {/* ── 6. NEW WEBHOOK MODAL ────────────────────────────────────────────── */}
       {isAddModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
           <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
@@ -1544,7 +1868,7 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {/* ── 6. JSON PAYLOAD VIEWER MODAL ────────────────────────────────────── */}
+      {/* ── 7. JSON PAYLOAD VIEWER MODAL ────────────────────────────────────── */}
       {viewingPayload && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
           <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">

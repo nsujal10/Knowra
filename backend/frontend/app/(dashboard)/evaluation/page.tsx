@@ -32,7 +32,8 @@ import {
   Legend,
 } from "recharts";
 import { formatMetric, formatCost, metricColor, formatDate, cn } from "@/lib/utils";
-import { CheckCircle2, XCircle, AlertCircle, Zap, DollarSign, Clock } from "lucide-react";
+import { CheckCircle2, XCircle, AlertCircle, Zap, DollarSign, Clock, ShieldCheck, RefreshCw } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 const TABS = ["Overview", "Runs", "Traces", "Costs"] as const;
 type Tab = (typeof TABS)[number];
@@ -40,22 +41,22 @@ type Tab = (typeof TABS)[number];
 export default function EvaluationPage() {
   const [activeTab, setActiveTab] = useState<Tab>("Overview");
 
-  const { data: quality } = useQuery({
+  const { data: quality, refetch: refetchQuality, isFetching: isFetchingQuality } = useQuery({
     queryKey: queryKeys.evaluation.quality(),
     queryFn: () => api.get<QualityOverview>(EVALUATION.quality()),
   });
 
-  const { data: costs } = useQuery({
+  const { data: costs, refetch: refetchCosts } = useQuery({
     queryKey: queryKeys.evaluation.costs(),
     queryFn: () => api.get<CostSummary>(EVALUATION.costs()),
   });
 
-  const { data: runs = [], isLoading: runsLoading } = useQuery({
+  const { data: runs = [], isLoading: runsLoading, refetch: refetchRuns } = useQuery({
     queryKey: queryKeys.evaluation.runs(),
     queryFn: () => api.get<EvaluationRun[]>(EVALUATION.runs()),
   });
 
-  const { data: traces = [], isLoading: tracesLoading } = useQuery({
+  const { data: traces = [], isLoading: tracesLoading, refetch: refetchTraces } = useQuery({
     queryKey: queryKeys.evaluation.traces(),
     queryFn: () =>
       api.get<AITrace[]>(`${EVALUATION.traces()}?limit=50`),
@@ -69,8 +70,39 @@ export default function EvaluationPage() {
     WER: r.metrics.wer ?? 0,
   }));
 
+  const handleRefreshAll = () => {
+    refetchQuality();
+    refetchCosts();
+    refetchRuns();
+    refetchTraces();
+  };
+
   return (
-    <div className="space-y-5 animate-fade-in">
+    <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-fade-in">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="AI Quality & Governance"
+        subtitle="Continuous faithfulness benchmarking, context precision verification, token cost telemetry, and safety guardrails."
+        icon={ShieldCheck}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            {quality ? `${quality.passed_runs}/${quality.total_runs} Evals Passed` : "Continuous RBAC"}
+          </span>
+        }
+        actions={
+          <button
+            onClick={handleRefreshAll}
+            disabled={isFetchingQuality}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            title="Refresh AI evaluation metrics"
+          >
+            <RefreshCw size={13} className={isFetchingQuality ? "animate-spin" : ""} />
+            <span>Sync Telemetry</span>
+          </button>
+        }
+      />
+
       {/* Tabs */}
       <div className="flex gap-1 border-b border-[var(--border)] pb-0">
         {TABS.map((tab) => (

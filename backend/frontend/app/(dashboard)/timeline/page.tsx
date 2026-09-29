@@ -8,8 +8,9 @@ import { queryKeys } from "@/lib/query/keys";
 import { type TimelineEvent } from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Spinner, EmptyState, Input } from "@/components/ui/card";
 import { cn, formatDate, speakerColor, truncate } from "@/lib/utils";
-import { Clock, Search, Filter } from "lucide-react";
+import { Clock, Search, Filter, BarChart3, RefreshCw } from "lucide-react";
 import Link from "next/link";
+import { PageHeader } from "@/components/ui/page-header";
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
   decision: "warning",
@@ -23,7 +24,7 @@ export default function TimelinePage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
 
-  const { data: events = [], isLoading } = useQuery({
+  const { data: events = [], isLoading, refetch, isFetching } = useQuery({
     queryKey: queryKeys.timeline.decisions(),
     queryFn: () => api.get<TimelineEvent[]>(CROSS_MEETING.decisions()),
   });
@@ -51,7 +52,31 @@ export default function TimelinePage() {
   const sortedDays = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-4xl">
+    <div className="space-y-6 max-w-5xl mx-auto pb-16 animate-fade-in">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="Timeline & Cross-Meeting Analytics"
+        subtitle="Chronological audit trail of decisions, commitments, and topic evolution across all workspace meetings."
+        icon={BarChart3}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {events.length} Historical Events
+          </span>
+        }
+        actions={
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            title="Refresh timeline events"
+          >
+            <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
+            <span>Sync Events</span>
+          </button>
+        }
+      />
+
       {/* Filters */}
       <Card>
         <CardContent>

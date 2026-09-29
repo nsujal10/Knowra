@@ -17,7 +17,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import { cn } from "@/lib/utils";
-import { GitBranch, Users, Brain, FileText, Zap, CheckSquare, X } from "lucide-react";
+import { GitBranch, Users, Brain, FileText, Zap, CheckSquare, X, RefreshCw } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 const NODE_TYPE_CONFIG: Record<
   string,
@@ -90,7 +91,7 @@ export default function GraphPage() {
     new Set(NODE_TYPES_LIST)
   );
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: queryKeys.graph.data(),
     queryFn: () => api.get<GraphData>(GRAPH.nodes()),
   });
@@ -119,6 +120,29 @@ export default function GraphPage() {
 
   return (
     <div className="space-y-4 animate-fade-in h-[calc(100vh-56px-48px)] flex flex-col">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="Cross-Meeting Knowledge Graph"
+        subtitle="Interactive network of participants, topics, decisions, and action items discovered across conversations."
+        icon={GitBranch}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            {filteredNodes.length} Entities • {filteredEdges.length} Relations
+          </span>
+        }
+        actions={
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            title="Refresh graph data"
+          >
+            <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
+            <span>Sync Graph</span>
+          </button>
+        }
+      />
       {/* Filters */}
       <div className="flex items-center gap-2 flex-wrap shrink-0">
         <span className="text-xs text-[var(--muted)] font-medium">Filter:</span>

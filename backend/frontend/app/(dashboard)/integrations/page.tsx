@@ -21,7 +21,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatDate } from "@/lib/utils";
-import { Plug, Plus, CheckCircle2, XCircle, AlertCircle, RefreshCw } from "lucide-react";
+import { Plug, Plus, CheckCircle2, XCircle, AlertCircle, RefreshCw, Layers } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 const PROVIDER_META: Record<
   IntegrationProvider,
@@ -74,22 +75,31 @@ export default function IntegrationsPage() {
   const PROVIDERS: IntegrationProvider[] = ["SLACK", "TEAMS", "JIRA", "WEBHOOK"];
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-4xl">
-      {/* Header Actions */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-[var(--muted)]">
-          Connect Knowra to your external tools. Events are dispatched with HMAC-signed payloads.
-        </p>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() => setShowForm((v) => !v)}
-          id="add-integration-btn"
-        >
-          <Plus size={14} />
-          {showForm ? "Cancel" : "Add Integration"}
-        </Button>
-      </div>
+    <div className="space-y-6 max-w-5xl mx-auto pb-16 animate-fade-in">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="Enterprise Connectors & Webhooks"
+        subtitle="Connect Knowra to Slack, Microsoft Teams, Jira, and custom HTTP webhooks with HMAC-SHA256 signature verification."
+        icon={Layers}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {integrations.length} Active Connectors
+          </span>
+        }
+        actions={
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => setShowForm((v) => !v)}
+            id="add-integration-btn"
+            className="gap-1.5"
+          >
+            <Plus size={14} />
+            {showForm ? "Cancel" : "Add Integration"}
+          </Button>
+        }
+      />
 
       {/* Add Integration Form */}
       {showForm && (

@@ -23,7 +23,9 @@ import {
   Filter,
   RefreshCw,
   Flame,
+  ListTodo,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 const STATUS_FILTERS = ["ALL", "PENDING", "COMPLETED"];
 const PRIORITY_FILTERS = ["ALL", "URGENT", "HIGH", "MEDIUM", "LOW"];
@@ -160,38 +162,29 @@ export default function GlobalActionsPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-fade-in">
-      {/* ── HEADER & LIVE STATUS ─────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Action Items Tracker
-            </h1>
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Centrally tracked deliverables, owners, and verbal commitments extracted by AI from company meetings.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="Action Items Tracker"
+        subtitle="Centrally tracked deliverables, owners, and verbal commitments extracted by AI from company meetings."
+        icon={ListTodo}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            {metrics.total_items} Tracked Deliverables
+          </span>
+        }
+        actions={
           <button
             onClick={() => refetch()}
             disabled={isFetching}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
             title="Refresh action items from database"
           >
             <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
             <span>Sync Actions</span>
           </button>
-          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-            {metrics.total_items} Tracked Deliverables
-          </span>
-        </div>
-      </div>
+        }
+      />
 
       {/* ── METRIC CARDS ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

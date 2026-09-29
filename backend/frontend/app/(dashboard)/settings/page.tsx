@@ -3,13 +3,26 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/auth/session";
 import { Button } from "@/components/ui/button";
-import { User, Shield, Bell, Palette } from "lucide-react";
+import { User, Shield, Bell, Palette, Settings } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 export default function SettingsPage() {
   const { session, logout } = useSession();
 
   return (
-    <div className="space-y-5 animate-fade-in max-w-2xl">
+    <div className="space-y-6 max-w-3xl mx-auto pb-16 animate-fade-in">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="Workspace Settings & RBAC"
+        subtitle="Manage user identity, enterprise security policies, session tokens, and tenant access control."
+        icon={Settings}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+            {session?.user?.role_code || "Admin"} Access
+          </span>
+        }
+      />
       {/* Profile */}
       <Card>
         <CardHeader>

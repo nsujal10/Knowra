@@ -22,7 +22,9 @@ import {
   RefreshCw,
   Filter,
   Layers,
+  CheckSquare,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 
 const CATEGORIES = [
   "ALL",
@@ -124,38 +126,29 @@ export default function GlobalDecisionsPage() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-fade-in">
-      {/* ── HEADER & LIVE STATUS ─────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-              Enterprise Decisions Registry
-            </h1>
-            <span className="flex h-2 w-2 relative">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Real-time consensus records, architectural resolutions, and provenance-anchored governance across meetings.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
+      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+      <PageHeader
+        title="Enterprise Decisions Registry"
+        subtitle="Real-time consensus records, architectural resolutions, and provenance-anchored governance across meetings."
+        icon={CheckSquare}
+        statusDot={true}
+        badge={
+          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {metrics.total_decisions} Verified Decisions
+          </span>
+        }
+        actions={
           <button
             onClick={() => refetch()}
             disabled={isFetching}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
             title="Refresh decisions from database"
           >
             <RefreshCw size={13} className={isFetching ? "animate-spin" : ""} />
             <span>Sync Graph</span>
           </button>
-          <span className="px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            {metrics.total_decisions} Verified Decisions
-          </span>
-        </div>
-      </div>
+        }
+      />
 
       {/* ── METRIC CARDS (TOTAL DECISIONS, CONSENSUS LEVEL, AI VERIFIED) ───── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

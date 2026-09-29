@@ -30,6 +30,7 @@ import { UploadMeetingModal } from "@/components/meetings/UploadMeetingModal";
 import { LiveMeetingModal } from "@/components/meetings/LiveMeetingModal";
 import { DeleteMeetingModal } from "@/components/meetings/DeleteMeetingModal";
 import { MeetingThumbnail } from "@/components/meetings/MeetingThumbnail";
+import { PageHeader } from "@/components/ui/page-header";
 import { api } from "@/lib/api/client";
 
 // ============================================================================
@@ -477,7 +478,48 @@ export default function MeetingsPage() {
   return (
     <div className="w-full min-w-0 flex-1 overflow-x-hidden">
       {/* Container with flex-col and gap-6 to enforce vertical rhythm */}
-      <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-6 pb-16">
+        {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+        <PageHeader
+          title="Meetings Intelligence"
+          subtitle="Enterprise video archives, real-time transcription, and automated AI recaps across Zoom, Teams, and Google Meet."
+          icon={Video}
+          statusDot={true}
+          badge={
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              {allMeetings.length} Total Meetings
+            </span>
+          }
+          actions={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                title="Refresh meetings from server"
+              >
+                <RefreshCw size={13} className={isRefreshing ? "animate-spin" : ""} />
+                <span>Refresh</span>
+              </button>
+              <button
+                onClick={() => setIsLiveModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer"
+                title="Record or simulate live meeting stream"
+              >
+                <Radio size={13} className="text-rose-500 animate-pulse" />
+                <span>Live Meeting</span>
+              </button>
+              <button
+                onClick={() => setIsUploadModalOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
+                title="Upload meeting recording"
+              >
+                <Upload size={13} />
+                <span>Upload Recording</span>
+              </button>
+            </div>
+          }
+        />
         
         {/* ================================================================= */}
         {/* 1. TOP GLOBAL SEARCH BAR (Ask Read / Knowra Anything)            */}

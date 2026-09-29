@@ -147,7 +147,7 @@ export default function DashboardPage() {
             className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-xs hover:bg-indigo-700 transition-colors"
           >
             <Sparkles size={14} />
-            Ask Copilot
+            Ask Knowra
           </Link>
         </div>
       </div>
@@ -517,7 +517,7 @@ export default function DashboardPage() {
                 href="/chat"
                 className="text-[11px] font-medium text-indigo-600 hover:text-indigo-700"
               >
-                Open Copilot
+                Open Knowra
               </Link>
             </div>
             <div className="divide-y divide-slate-50">
@@ -529,7 +529,7 @@ export default function DashboardPage() {
                 <div className="flex flex-col items-center justify-center py-8 gap-2 text-center px-4">
                   <MessageSquare size={24} className="text-slate-300" />
                   <p className="text-xs text-slate-400">
-                    No conversations yet. Start asking questions in the Copilot.
+                    No conversations yet. Start asking questions in the Knowra.
                   </p>
                   <Link
                     href="/chat"

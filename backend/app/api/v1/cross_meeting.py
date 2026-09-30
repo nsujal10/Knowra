@@ -32,7 +32,7 @@ from app.intelligence.cross_meeting.schemas import (
     TimelineResponse,
 )
 from app.intelligence.cross_meeting.timeline import TimelineBuilder
-from app.intelligence.models import Topic
+from app.models import Topic
 from app.models.meeting import Meeting
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user

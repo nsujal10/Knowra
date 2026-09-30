@@ -62,6 +62,9 @@ export const GRAPH = {
   edges: () => "/graph/edges",
   entity: (id: string) => `/graph/entities/${id}`,
   expand: (entityId: string) => `/graph/entities/${entityId}/expand`,
+  sync: () => "/graph/sync",
+  query: () => "/graph/query",
+  metrics: () => "/graph/metrics",
 };
 
 // ─── Evaluation & Observability ───────────────────────────────────────────────

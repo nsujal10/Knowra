@@ -161,11 +161,43 @@ export const GraphEdgeSchema = z.object({
 });
 export type GraphEdge = z.infer<typeof GraphEdgeSchema>;
 
+export const GraphMetricsSchema = z.object({
+  total_nodes: z.number(),
+  total_edges: z.number(),
+  active_communities: z.number(),
+  density: z.number(),
+  type_counts: z.record(z.number()),
+});
+export type GraphMetrics = z.infer<typeof GraphMetricsSchema>;
+
 export const GraphDataSchema = z.object({
   nodes: z.array(GraphNodeSchema),
   edges: z.array(GraphEdgeSchema),
+  metrics: GraphMetricsSchema.optional(),
 });
 export type GraphData = z.infer<typeof GraphDataSchema>;
+
+export interface GraphNodeCitation {
+  id: string;
+  label: string;
+  type: string;
+  context: string;
+}
+
+export interface GraphChatResponse {
+  answer: string;
+  citations: GraphNodeCitation[];
+  nodes_traversed: number;
+  confidence: number;
+}
+
+export interface GraphSyncResponse {
+  success: boolean;
+  message: string;
+  entities_count: number;
+  relations_count: number;
+  timestamp: string;
+}
 
 // ─── Evaluation ───────────────────────────────────────────────────────────────
 

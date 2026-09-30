@@ -8,18 +8,22 @@ and interacting with the cross-meeting knowledge graph copilot.
 
 from __future__ import annotations
 
+import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from uuid import UUID, uuid4
 
+import httpx
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.actions.models import ActionItem
 from app.auth.service import AuthorizationService
+from app.core.config import settings
 from app.core.database import get_db
 from app.decisions.models import EnterpriseDecision
 from app.graph.extraction.service import GraphExtractionService
@@ -34,6 +38,8 @@ from app.graph.schemas import (
 from app.models.meeting import Meeting
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user
+
+logger = structlog.get_logger(__name__)
 
 router = APIRouter()
 
@@ -82,6 +88,7 @@ class GraphSyncResponse(BaseModel):
 class GraphChatRequest(BaseModel):
     query: str = Field(..., min_length=2)
     conversation_id: Optional[str] = None
+    meeting_id: Optional[str] = None
 
 
 class GraphNodeCitation(BaseModel):
@@ -612,6 +619,17 @@ def get_graph_metrics(
     )
 
 
+GRAPH_STOP_WORDS = {
+    "what", "which", "who", "where", "when", "why", "how", "the", "a", "an", "and", "or",
+    "in", "on", "at", "to", "for", "with", "from", "by", "about", "regarding", "were", "was",
+    "are", "is", "been", "have", "has", "had", "do", "does", "did", "tell", "show", "me",
+    "summarize", "explain", "give", "list", "any", "all", "some", "can", "could", "would",
+    "should", "will", "please", "discuss", "discussed", "mention", "mentioned", "key", "main",
+    "between", "into", "through", "across", "there", "their", "this", "that", "these", "those",
+    "look", "find", "get", "need", "know", "question", "questions", "answer", "details"
+}
+
+
 @router.post(
     "/query",
     response_model=GraphChatResponse,
@@ -623,11 +641,12 @@ def query_knowledge_graph(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> GraphChatResponse:
     """
-    Performs multi-hop graph retrieval and traversal across real meetings,
-    decisions, actions, and participants to provide an enterprise-grade AI answer.
+    Performs multi-hop graph traversal and invokes the Groq LLM gateway
+    to provide dynamic, query-specific synthesis with verifiable entity citations.
     """
     tenant_id = current_user.organization_id
-    query_text = payload.query.strip().lower()
+    query_text = payload.query.strip()
+    query_lower = query_text.lower()
 
     # Ensure graph is populated
     count = db.query(KnowledgeEntity).filter(KnowledgeEntity.tenant_id == tenant_id).count()
@@ -636,142 +655,317 @@ def query_knowledge_graph(
 
     entities = db.query(KnowledgeEntity).filter(KnowledgeEntity.tenant_id == tenant_id).all()
     if len(entities) < 10:
-        entities = db.query(KnowledgeEntity).limit(150).all()
+        entities = db.query(KnowledgeEntity).limit(200).all()
 
     relationships = db.query(KnowledgeRelationship).filter(KnowledgeRelationship.tenant_id == tenant_id).all()
     if len(relationships) < 5:
-        relationships = db.query(KnowledgeRelationship).limit(200).all()
+        relationships = db.query(KnowledgeRelationship).limit(300).all()
     entity_map = {e.id: e for e in entities}
 
-    # Match relevant nodes
-    matched_nodes: List[KnowledgeEntity] = []
-    keywords = [k for k in re.split(r"\W+", query_text) if len(k) > 2]
-
+    # Map meeting IDs to meeting titles
+    meeting_id_to_name: Dict[str, str] = {}
     for e in entities:
-        e_name = e.name.lower()
-        e_type = e.entity_type.lower()
-        meta_str = str(e.metadata_json or {}).lower()
-        if any(kw in e_name or kw in e_type or kw in meta_str for kw in keywords):
-            matched_nodes.append(e)
+        if e.entity_type == "MEETING":
+            meeting_id_to_name[str(e.id)] = e.name
+            m_id = (e.metadata_json or {}).get("meeting_id")
+            if m_id:
+                meeting_id_to_name[str(m_id)] = e.name
 
-    # If no direct keyword match, fall back to top connected nodes
-    if not matched_nodes:
-        matched_nodes = entities[:8]
+    # 1. Candidate Scope Filtering (Optional Meeting Scoping)
+    candidate_entities = entities
+    if payload.meeting_id and payload.meeting_id != "ALL":
+        target_meeting = None
+        for e in entities:
+            if e.entity_type == "MEETING":
+                if str(e.id) == payload.meeting_id or str((e.metadata_json or {}).get("meeting_id")) == payload.meeting_id:
+                    target_meeting = e
+                    break
 
-    citations: List[GraphNodeCitation] = []
-    nodes_traversed = len(matched_nodes)
-
-    # Build response sections
-    response_parts: List[str] = []
-    response_parts.append(f"### Knowledge Graph Analysis for **\"{payload.query}\"**:\n\n")
-
-    # Group matched nodes by type
-    by_type: Dict[str, List[KnowledgeEntity]] = {}
-    for node in matched_nodes[:10]:
-        t = node.entity_type.upper()
-        by_type.setdefault(t, []).append(node)
-
-    if "DECISION" in by_type:
-        response_parts.append("#### Key Decisions & Architectural Commitments:\n")
-        for d_node in by_type["DECISION"][:4]:
-            meta = d_node.metadata_json or {}
-            decided_by = meta.get("decided_by", "Executive Leadership")
-            status_str = meta.get("status", "CONFIRMED")
-            response_parts.append(
-                f"- **{d_node.name}**\n"
-                f"  - **Status**: `{status_str}` | **Decided By**: {decided_by}\n"
-                f"  - **Context**: {meta.get('rationale', 'Approved in architecture review.')}\n"
-            )
-            citations.append(
-                GraphNodeCitation(
-                    id=str(d_node.id),
-                    label=d_node.name,
-                    type="decision",
-                    context=f"Status: {status_str} | Decided by: {decided_by}",
-                )
-            )
-
-    if "ACTION" in by_type:
-        response_parts.append("\n#### Action Commitments & Ownership:\n")
-        for a_node in by_type["ACTION"][:4]:
-            meta = a_node.metadata_json or {}
-            assignee = meta.get("assignee", "Engineering Lead")
-            priority = meta.get("priority", "HIGH")
-            response_parts.append(
-                f"- **{a_node.name}**\n"
-                f"  - **Owner**: {assignee} | **Priority**: `{priority}`\n"
-            )
-            citations.append(
-                GraphNodeCitation(
-                    id=str(a_node.id),
-                    label=a_node.name,
-                    type="action",
-                    context=f"Owner: {assignee} | Priority: {priority}",
-                )
-            )
-
-    if "PERSON" in by_type:
-        response_parts.append("\n#### Connected Stakeholders & Collaborators:\n")
-        for p_node in by_type["PERSON"][:4]:
-            # find incident relations
-            connected_meetings = [
+        if target_meeting:
+            m_db_id = str((target_meeting.metadata_json or {}).get("meeting_id") or "")
+            meeting_rels = [
                 r for r in relationships
-                if (r.source_entity_id == p_node.id or r.target_entity_id == p_node.id)
+                if str(r.meeting_id) == str(target_meeting.id)
+                or (m_db_id and str(r.meeting_id) == m_db_id)
+                or r.source_entity_id == target_meeting.id
+                or r.target_entity_id == target_meeting.id
             ]
-            response_parts.append(
-                f"- **{p_node.name}** ({len(connected_meetings)} connected meetings & commitments)\n"
-            )
+            scoped_node_ids = {target_meeting.id}
+            for r in meeting_rels:
+                scoped_node_ids.add(r.source_entity_id)
+                scoped_node_ids.add(r.target_entity_id)
+
+            candidate_entities = [e for e in entities if e.id in scoped_node_ids]
+            if not candidate_entities:
+                candidate_entities = entities
+
+    # 2. Token Extraction & Semantic Entity Scoring
+    raw_tokens = [k.lower() for k in re.split(r"[^\w\+\#]+", query_lower) if len(k) > 1]
+    content_tokens = [k for k in raw_tokens if k not in GRAPH_STOP_WORDS and len(k) > 2]
+
+    wants_decisions = any(w in query_lower for w in ["decision", "decisions", "decided", "approved", "chosen"])
+    wants_actions = any(w in query_lower for w in ["action", "actions", "task", "tasks", "assigned", "todo", "commitment", "commitments", "next steps"])
+    wants_people = any(w in query_lower for w in ["who", "person", "people", "owner", "assignee", "lead", "attendee", "contributor"])
+    wants_topics = any(w in query_lower for w in ["topic", "theme", "domain", "architecture", "technology", "stack", "area"])
+
+    scored_entities: List[Tuple[KnowledgeEntity, float]] = []
+    for e in candidate_entities:
+        name_lower = e.name.lower()
+        meta = e.metadata_json or {}
+        meta_text = " ".join(str(v) for v in meta.values()).lower()
+        etype = e.entity_type.upper()
+        score = 0.0
+
+        # Exact phrase match in name
+        if len(query_lower) > 3 and query_lower in name_lower:
+            score += 25.0
+
+        for tok in content_tokens:
+            if tok in name_lower:
+                if re.search(r"\b" + re.escape(tok) + r"\b", name_lower):
+                    score += 12.0
+                else:
+                    score += 6.0
+            elif tok in meta_text:
+                if re.search(r"\b" + re.escape(tok) + r"\b", meta_text):
+                    score += 6.0
+                else:
+                    score += 3.0
+
+        # If entity matched content, add intent alignment boost
+        if score > 0:
+            if wants_decisions and etype == "DECISION":
+                score += 5.0
+            elif wants_actions and etype == "ACTION":
+                score += 5.0
+            elif wants_people and etype == "PERSON":
+                score += 5.0
+            elif wants_topics and etype in ("TOPIC", "TECHNOLOGY"):
+                score += 5.0
+
+        scored_entities.append((e, score))
+
+    scored_entities.sort(key=lambda x: x[1], reverse=True)
+    matched_entities = [e for e, s in scored_entities if s > 0]
+
+    # If query is broad (e.g. "summarize decisions" without specific keywords), gather top relevant by intent
+    if not matched_entities:
+        if wants_decisions:
+            matched_entities = [e for e in candidate_entities if e.entity_type == "DECISION"][:6]
+        elif wants_actions:
+            matched_entities = [e for e in candidate_entities if e.entity_type == "ACTION"][:6]
+        elif wants_people:
+            matched_entities = [e for e in candidate_entities if e.entity_type == "PERSON"][:6]
+        elif wants_topics:
+            matched_entities = [e for e in candidate_entities if e.entity_type in ("TOPIC", "TECHNOLOGY")][:6]
+        else:
+            decs = [e for e in candidate_entities if e.entity_type == "DECISION"][:4]
+            acts = [e for e in candidate_entities if e.entity_type == "ACTION"][:3]
+            tops = [e for e in candidate_entities if e.entity_type in ("TOPIC", "TECHNOLOGY")][:3]
+            peop = [e for e in candidate_entities if e.entity_type == "PERSON"][:2]
+            matched_entities = decs + acts + tops + peop
+
+    # 3. Multi-Hop Graph Traversal Context Construction
+    top_entities = matched_entities[:14]
+    entity_context_blocks: List[str] = []
+    citations: List[GraphNodeCitation] = []
+    seen_citation_ids: Set[str] = set()
+
+    def map_type(et: str) -> str:
+        et = et.lower()
+        if "decision" in et:
+            return "decision"
+        if "action" in et or "task" in et:
+            return "action"
+        if "person" in et:
+            return "person"
+        if "topic" in et or "tech" in et:
+            return "topic"
+        if "meeting" in et:
+            return "meeting"
+        return "entity"
+
+    for e in top_entities:
+        meta = e.metadata_json or {}
+        etype = e.entity_type.upper()
+        block_lines = [f"[{etype}] {e.name}"]
+
+        if meta.get("status"):
+            block_lines.append(f"  - Status: {meta.get('status')}")
+        if meta.get("impact") or meta.get("impact_level"):
+            block_lines.append(f"  - Impact: {meta.get('impact') or meta.get('impact_level')}")
+        if meta.get("priority"):
+            block_lines.append(f"  - Priority: {meta.get('priority')}")
+        if meta.get("decided_by"):
+            block_lines.append(f"  - Decided By: {meta.get('decided_by')}")
+        if meta.get("assignee"):
+            block_lines.append(f"  - Owner/Assignee: {meta.get('assignee')}")
+        if meta.get("due_date"):
+            block_lines.append(f"  - Due Date: {meta.get('due_date')}")
+        if meta.get("rationale"):
+            block_lines.append(f"  - Rationale: {meta.get('rationale')}")
+        if meta.get("domain"):
+            block_lines.append(f"  - Domain: {meta.get('domain')}")
+
+        # Incident graph edges
+        incident_rels = [
+            r for r in relationships
+            if r.source_entity_id == e.id or r.target_entity_id == e.id
+        ]
+        connected_names: List[str] = []
+        meeting_name = None
+        for r in incident_rels:
+            other_id = r.target_entity_id if r.source_entity_id == e.id else r.source_entity_id
+            other_ent = entity_map.get(other_id)
+            if other_ent:
+                if other_ent.entity_type == "MEETING":
+                    meeting_name = other_ent.name
+                else:
+                    connected_names.append(f"{other_ent.name} ({r.relationship_type.replace('_', ' ')})")
+            if r.meeting_id and str(r.meeting_id) in meeting_id_to_name:
+                meeting_name = meeting_id_to_name[str(r.meeting_id)]
+
+        if meeting_name:
+            block_lines.append(f"  - Meeting Provenance: {meeting_name}")
+        if connected_names:
+            block_lines.append(f"  - Graph Relationships: {', '.join(connected_names[:4])}")
+
+        entity_context_blocks.append("\n".join(block_lines))
+
+        cid = str(e.id)
+        if cid not in seen_citation_ids:
+            seen_citation_ids.add(cid)
+            ctx_summary = f"{etype}: {meta.get('status') or meta.get('priority') or 'Active'} | {meta.get('decided_by') or meta.get('assignee') or meeting_name or 'Workspace'}"
             citations.append(
                 GraphNodeCitation(
-                    id=str(p_node.id),
-                    label=p_node.name,
-                    type="person",
-                    context=f"Collaborator with {len(connected_meetings)} graph connections",
+                    id=cid,
+                    label=e.name,
+                    type=map_type(e.entity_type),
+                    context=ctx_summary,
                 )
             )
 
-    if "TOPIC" in by_type:
-        response_parts.append("\n#### Interlinked Knowledge Domains:\n")
-        for t_node in by_type["TOPIC"][:4]:
-            meta = t_node.metadata_json or {}
-            domain = meta.get("domain", "Enterprise Intelligence")
-            response_parts.append(
-                f"- **{t_node.name}** — Domain: *{domain}*\n"
-            )
-            citations.append(
-                GraphNodeCitation(
-                    id=str(t_node.id),
-                    label=t_node.name,
-                    type="topic",
-                    context=f"Domain: {domain}",
-                )
-            )
-
-    if not citations and entities:
-        # Fallback citation
-        first = entities[0]
-        citations.append(
-            GraphNodeCitation(
-                id=str(first.id),
-                label=first.name,
-                type=first.entity_type.lower(),
-                context="Primary workspace entity",
-            )
-        )
-        response_parts.append(
-            f"The cross-meeting graph contains **{len(entities)} entities** and **{len(relationships)} relationships** "
-            f"bridging decisions, actions, and participants across your meeting transcripts."
-        )
-
-    response_parts.append(
-        f"\n\n*Graph Traversal completed: analyzed {nodes_traversed} nodes with high-confidence edge paths.*"
+    # 4. Invoke Groq LLM Gateway
+    llm_answer = None
+    api_key = (
+        getattr(settings, "LLM_API_KEY", "")
+        or os.getenv("LLM_API_KEY", "")
+        or getattr(settings, "GROQ_API_KEY", "")
+        or os.getenv("GROQ_API_KEY", "")
     )
 
+    if api_key:
+        system_instruction = (
+            "You are Knowra's Cross-Meeting Knowledge Graph Intelligence Copilot.\n"
+            "Your mission is to synthesize enterprise decisions, commitments, owners, and technical architecture "
+            "from the provided organizational knowledge graph.\n\n"
+            "CRITICAL RULES:\n"
+            "1. Directly answer the user's specific question with executive clarity.\n"
+            "2. If the user asks about a specific topic (e.g. 'PostgreSQL', 'Cloud Architecture', 'Production Release', 'Sujal Nage'), "
+            "focus specifically on that topic and its connected decisions, owners, and actions.\n"
+            "3. Explicitly state the provenance (which meeting and who decided/owns it).\n"
+            "4. Structure your response professionally using Markdown:\n"
+            "   - Start with an executive direct summary answering the prompt.\n"
+            "   - Use bold bullet points for Key Decisions & Commitments.\n"
+            "   - Detail the Status, Owners/Assignees, and Rationale.\n"
+            "5. If the knowledge graph does not contain decisions for the requested topic, clearly state that no records match that specific subject, "
+            "and mention what related items are available.\n"
+            "6. DO NOT dump unrelated decisions or default templates."
+        )
+
+        user_prompt = (
+            f"User Question: {payload.query}\n\n"
+            f"Knowledge Graph Subgraph Context:\n"
+            + "\n\n".join(entity_context_blocks[:10])
+        )
+
+        candidate_models = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+        env_model = os.getenv("GRAPH_LLM_MODEL")
+        if env_model and env_model in candidate_models:
+            candidate_models.remove(env_model)
+            candidate_models.insert(0, env_model)
+
+        for groq_model in candidate_models:
+            try:
+                with httpx.Client(timeout=20.0) as client:
+                    resp = client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": groq_model,
+                            "messages": [
+                                {"role": "system", "content": system_instruction},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": 0.15,
+                            "max_tokens": 500,
+                        },
+                    )
+                    if resp.status_code == 200:
+                        body = resp.json()
+                        content = body["choices"][0]["message"]["content"]
+                        if content and len(content.strip()) > 20:
+                            llm_answer = content.strip()
+                            break
+                    elif resp.status_code == 429:
+                        logger.info("Groq 429 rate limit on model, trying next candidate", model=groq_model)
+                        continue
+                    else:
+                        logger.warning("Groq API returned non-200 in graph query", model=groq_model, status=resp.status_code, text=resp.text[:150])
+            except Exception as exc:
+                logger.warning("Groq API call exception in graph query", model=groq_model, error=str(exc))
+
+    # 5. Deterministic Dynamic Fallback if LLM is unavailable
+    if not llm_answer:
+        resp_lines = [f"### Knowledge Graph Intelligence for **\"{payload.query}\"**:\n"]
+        by_type: Dict[str, List[KnowledgeEntity]] = {}
+        for node in top_entities:
+            by_type.setdefault(node.entity_type.upper(), []).append(node)
+
+        if "DECISION" in by_type:
+            resp_lines.append("#### Key Decisions & Architectural Commitments:")
+            for d in by_type["DECISION"]:
+                m = d.metadata_json or {}
+                decider = m.get("decided_by", "Executive Leadership")
+                status_val = m.get("status", "CONFIRMED")
+                rationale = m.get("rationale") or m.get("description", "Approved in technical review.")
+                resp_lines.append(f"- **{d.name}**\n  - **Status**: `{status_val}` | **Decided By**: {decider}\n  - **Context**: {rationale}")
+
+        if "ACTION" in by_type:
+            resp_lines.append("\n#### Action Commitments & Ownership:")
+            for a in by_type["ACTION"]:
+                m = a.metadata_json or {}
+                owner = m.get("assignee", "Engineering Team")
+                prio = m.get("priority", "HIGH")
+                resp_lines.append(f"- **{a.name}**\n  - **Owner**: {owner} | **Priority**: `{prio}`")
+
+        if "PERSON" in by_type:
+            resp_lines.append("\n#### Key Collaborators & Contributors:")
+            for p in by_type["PERSON"]:
+                resp_lines.append(f"- **{p.name}** (Active contributor in workspace lineage)")
+
+        if "TOPIC" in by_type:
+            resp_lines.append("\n#### Related Architectural Domains:")
+            for t in by_type["TOPIC"]:
+                dom = (t.metadata_json or {}).get("domain", "System Architecture")
+                resp_lines.append(f"- **{t.name}** — *{dom}*")
+
+        if not resp_lines or len(resp_lines) <= 1:
+            resp_lines.append(
+                f"No specific decisions or commitments matching **\"{payload.query}\"** were found in the knowledge graph. "
+                "Try asking about PostgreSQL, architecture releases, or specific meeting attendees."
+            )
+
+        llm_answer = "\n".join(resp_lines)
+
     return GraphChatResponse(
-        answer="".join(response_parts),
-        citations=citations,
-        nodes_traversed=nodes_traversed,
-        confidence=0.96,
+        answer=llm_answer,
+        citations=citations[:8],
+        nodes_traversed=len(top_entities),
+        confidence=0.98 if api_key else 0.90,
     )
 
 

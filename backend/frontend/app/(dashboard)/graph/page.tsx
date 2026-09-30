@@ -955,6 +955,7 @@ export default function GraphPage() {
       const response = await api.post<GraphChatResponse>(GRAPH.query(), {
         query,
         conversation_id: activeSessionId,
+        meeting_id: selectedMeetingId !== "ALL" ? selectedMeetingId : undefined,
       });
 
       const assistantMsg: GraphChatMessage = {

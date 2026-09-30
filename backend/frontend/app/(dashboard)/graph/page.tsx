@@ -54,6 +54,8 @@ import {
   ArrowRight,
   Filter,
   RotateCcw,
+  Copy,
+  Check,
 } from "lucide-react";
 
 // ─── Visual Tokens & Type Configurations ──────────────────────────────────────
@@ -529,6 +531,245 @@ const SUGGESTED_QUERIES = [
   "Summarize active engineering commitments across recent syncs",
 ];
 
+// ─── Rich Markdown Formatter for Copilot ─────────────────────────────────────
+
+function formatGraphInlineMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*.*?\*\*|`.*?`|\*.*?\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      const inner = token.slice(2, -2).trim();
+      if (inner) {
+        parts.push(
+          <strong key={`${match.index}-b`} className="font-semibold text-slate-900">
+            {inner}
+          </strong>
+        );
+      }
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      const inner = token.slice(1, -1).trim();
+      const upper = inner.toUpperCase();
+      let badgeStyle = "bg-slate-100 text-slate-700 border-slate-200";
+      if (upper === "CONFIRMED" || upper === "COMPLETED" || upper === "ACTIVE") {
+        badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold";
+      } else if (upper === "HIGH" || upper === "CRITICAL" || upper === "URGENT") {
+        badgeStyle = "bg-rose-50 text-rose-700 border-rose-200 font-semibold";
+      } else if (upper === "MEDIUM" || upper === "REVIEW_REQUIRED" || upper === "OPEN") {
+        badgeStyle = "bg-amber-50 text-amber-700 border-amber-200 font-semibold";
+      } else if (upper === "LOW") {
+        badgeStyle = "bg-slate-100 text-slate-600 border-slate-200";
+      }
+      parts.push(
+        <span
+          key={`${match.index}-c`}
+          className={cn(
+            "px-1.5 py-0.2 rounded text-[10px] font-mono border inline-block align-middle my-0.5",
+            badgeStyle
+          )}
+        >
+          {inner}
+        </span>
+      );
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      const inner = token.slice(1, -1).trim();
+      if (inner) {
+        parts.push(
+          <em key={`${match.index}-i`} className="italic text-slate-700">
+            {inner}
+          </em>
+        );
+      }
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : [text];
+}
+
+function FormattedGraphMessage({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+
+    if (!line) {
+      i++;
+      continue;
+    }
+
+    // 1. Table Detection (starts and ends with |)
+    if (line.startsWith("|") && line.endsWith("|")) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+
+      if (tableLines.length >= 2) {
+        const headerRow = tableLines[0];
+        const isDivider = (str: string) => /^\|(\s*:?-+:?\s*\|)+$/.test(str);
+        const dataRowsStart = isDivider(tableLines[1]) ? 2 : 1;
+        const parseRow = (r: string) =>
+          r
+            .slice(1, -1)
+            .split("|")
+            .map((c) => c.trim());
+
+        const headers = parseRow(headerRow);
+        const dataRows = tableLines.slice(dataRowsStart).map(parseRow);
+
+        nodes.push(
+          <div key={`table-${i}`} className="overflow-x-auto my-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                <tr>
+                  {headers.map((h, hIdx) => (
+                    <th key={hIdx} className="px-3 py-2 text-[10px] font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
+                      {formatGraphInlineMarkdown(h)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {dataRows.map((row, rIdx) => (
+                  <tr key={rIdx} className="hover:bg-slate-50/50 transition-colors">
+                    {row.map((cell, cIdx) => (
+                      <td key={cIdx} className="px-3 py-2 text-slate-700 text-[11px] leading-relaxed">
+                        {formatGraphInlineMarkdown(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        continue;
+      }
+    }
+
+    // 2. Headings
+    if (line.startsWith("#### ")) {
+      nodes.push(
+        <h5 key={i} className="text-xs font-bold text-slate-900 mt-2.5 mb-1 tracking-tight">
+          {formatGraphInlineMarkdown(line.slice(5))}
+        </h5>
+      );
+      i++;
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      nodes.push(
+        <h4 key={i} className="text-sm font-bold text-slate-900 mt-3 mb-1 tracking-tight">
+          {formatGraphInlineMarkdown(line.slice(4))}
+        </h4>
+      );
+      i++;
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      nodes.push(
+        <h3 key={i} className="text-sm font-extrabold text-slate-900 mt-3 mb-1.5 tracking-tight">
+          {formatGraphInlineMarkdown(line.slice(3))}
+        </h3>
+      );
+      i++;
+      continue;
+    }
+
+    // Special standalone **Heading** pattern e.g. **Executive Summary**
+    if (/^\*\*[^*]+\*\*$/.test(line)) {
+      const headingText = line.replace(/^\*\*|\*\*$/g, "").trim();
+      nodes.push(
+        <div key={i} className="text-xs font-bold text-indigo-900 mt-2.5 mb-1 uppercase tracking-wider flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+          <span>{headingText}</span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 3. Dividers
+    if (line === "---" || line === "***") {
+      nodes.push(<hr key={i} className="my-2.5 border-slate-200/80" />);
+      i++;
+      continue;
+    }
+
+    // 4. Bullet lists (- or *)
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      const bulletText = line.slice(2);
+      nodes.push(
+        <div key={i} className="flex items-start gap-2 my-1 pl-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0 mt-1.5" />
+          <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+            {formatGraphInlineMarkdown(bulletText)}
+          </div>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 5. Nested bullet (indented)
+    if (/^\s+[-*]\s+/.test(rawLine)) {
+      const cleanBullet = line.replace(/^[-*]\s+/, "");
+      nodes.push(
+        <div key={i} className="flex items-start gap-2 my-0.5 pl-4">
+          <span className="w-1 h-1 rounded-full bg-slate-400 shrink-0 mt-1.5" />
+          <div className="flex-1 text-[11px] text-slate-600 leading-relaxed">
+            {formatGraphInlineMarkdown(cleanBullet)}
+          </div>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 6. Numbered lists
+    const numMatch = line.match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      nodes.push(
+        <div key={i} className="flex items-start gap-2 my-1 pl-1">
+          <span className="text-[10px] font-bold text-indigo-600 shrink-0 mt-0.5 min-w-[14px]">
+            {numMatch[1]}.
+          </span>
+          <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+            {formatGraphInlineMarkdown(numMatch[2])}
+          </div>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 7. Regular paragraph
+    nodes.push(
+      <p key={i} className="text-xs text-slate-700 leading-relaxed my-1">
+        {formatGraphInlineMarkdown(line)}
+      </p>
+    );
+    i++;
+  }
+
+  return <div className="space-y-0.5 select-text">{nodes}</div>;
+}
+
 // ─── Canvas Subcomponent (useReactFlow hook access) ──────────────────────────
 
 function GraphCanvas({
@@ -768,7 +1009,14 @@ export default function GraphPage() {
   const [isThinking, setIsThinking] = useState(false);
   const [sessions, setSessions] = useState<GraphChatSession[]>(DEFAULT_GRAPH_SESSIONS);
   const [activeSessionId, setActiveSessionId] = useState<string>("session-default");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyMessage = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
 
   // 1. Fetch Real Graph Data from Backend
   const { data, isLoading, refetch, isFetching } = useQuery({
@@ -1342,12 +1590,12 @@ export default function GraphPage() {
       </div>
 
       {/* ── 4. MAIN SPLIT PANE: HIERARCHICAL CANVAS + GPT COPILOT DRAWER ────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Left Pane: Hierarchical Flow Canvas */}
         <div
           className={cn(
-            "transition-all duration-200",
-            isCopilotOpen ? "lg:col-span-8 xl:col-span-8" : "lg:col-span-12"
+            "transition-all duration-300",
+            isCopilotOpen ? "lg:col-span-7 xl:col-span-8" : "lg:col-span-12"
           )}
         >
           {isLoading ? (
@@ -1393,52 +1641,68 @@ export default function GraphPage() {
 
         {/* Right Pane: GPT Chat Copilot Drawer */}
         {isCopilotOpen && (
-          <div className="lg:col-span-4 xl:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-lg overflow-hidden flex flex-col h-[660px] sticky top-20 animate-in fade-in slide-in-from-right-4 duration-200">
+          <div className="lg:col-span-5 xl:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-xl overflow-hidden flex flex-col h-[660px] sticky top-20 animate-in fade-in slide-in-from-right-4 duration-200">
             {/* Copilot Header */}
-            <div className="p-4 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
-                  <Bot size={16} />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-xs font-bold text-white truncate">
-                      Knowledge Graph Copilot
-                    </h3>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="p-3.5 bg-slate-900 border-b border-slate-800 text-white shrink-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-xs">
+                    <Sparkles size={15} />
                   </div>
-                  <p className="text-[10px] text-slate-300 truncate">
-                    Neural reasoning across {metrics.total_nodes} entities & {metrics.total_edges} relations
-                  </p>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-xs font-bold text-white tracking-tight truncate">
+                        Knowledge Copilot
+                      </h3>
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        Live
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={handleNewSession}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-200 hover:text-white transition-colors flex items-center gap-1 cursor-pointer border border-slate-700/70"
+                    title="Start a new chat thread"
+                  >
+                    <Plus size={11} />
+                    <span>New</span>
+                  </button>
+                  <button
+                    onClick={handleClearSessions}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer border border-transparent hover:border-slate-700/60"
+                    title="Reset conversation"
+                  >
+                    <RotateCcw size={12} />
+                  </button>
+                  <button
+                    onClick={() => setIsCopilotOpen(false)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Close Copilot"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={handleNewSession}
-                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
-                  title="Start a new chat thread"
-                >
-                  <Plus size={11} />
-                  <span>New</span>
-                </button>
-                <button
-                  onClick={() => setIsCopilotOpen(false)}
-                  className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                  title="Close Copilot"
-                >
-                  ✕
-                </button>
+              {/* Sub-strip with reasoning count */}
+              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+                <span className="truncate">
+                  Reasoning across <span className="font-semibold text-slate-200">{metrics.total_nodes}</span> entities & <span className="font-semibold text-slate-200">{metrics.total_edges}</span> relations
+                </span>
               </div>
             </div>
 
-            {/* Scoped Context Pill in Copilot */}
+            {/* Scoped Context Banner in Copilot */}
             {isMeetingScoped && scopedMeetingName && (
-              <div className="px-4 py-2 bg-indigo-50/80 border-b border-indigo-100 flex items-center justify-between gap-2 shrink-0">
-                <div className="flex items-center gap-1.5 text-[11px] text-indigo-900 font-medium truncate">
-                  <Sparkles size={12} className="text-indigo-600 shrink-0" />
+              <div className="px-3.5 py-2 bg-gradient-to-r from-indigo-50/90 via-purple-50/60 to-indigo-50/90 border-b border-indigo-100 flex items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 text-xs text-indigo-950 font-medium min-w-0">
+                  <Layers size={13} className="text-indigo-600 shrink-0" />
                   <span className="truncate">
-                    Focus: <strong>{scopedMeetingName}</strong>
+                    Focus: <strong className="font-semibold text-indigo-900">{scopedMeetingName}</strong>
                   </span>
                 </div>
                 <button
@@ -1447,105 +1711,84 @@ export default function GraphPage() {
                       `Summarize all decisions and action items that originated from "${scopedMeetingName}".`
                     )
                   }
-                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-white px-2 py-0.5 rounded-md border border-indigo-200 shrink-0 cursor-pointer shadow-2xs"
+                  className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-white px-2.5 py-1 rounded-lg border border-indigo-200 shrink-0 cursor-pointer shadow-2xs hover:shadow-xs transition-all"
                 >
-                  Summarize
+                  ✨ Summarize
                 </button>
               </div>
             )}
 
-            {/* Sessions Selector Bar */}
-            <div className="px-3.5 py-1.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
-              <div className="flex items-center gap-1.5 truncate">
-                <Compass size={12} className="text-indigo-600 shrink-0" />
-                <span className="font-semibold text-slate-700 truncate max-w-[200px]">
-                  {activeSession?.title || "Active Thread"}
-                </span>
-              </div>
-              <button
-                onClick={handleClearSessions}
-                className="text-[10px] text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                title="Reset conversation"
-              >
-                Clear
-              </button>
-            </div>
-
             {/* Chat Messages Area */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/40 text-xs">
+            <div className="flex-1 p-3.5 overflow-y-auto space-y-4 bg-slate-50/40 text-xs">
               {activeSession.messages.map((m) => {
                 const isUser = m.role === "user";
 
-                return (
-                  <div
-                    key={m.id}
-                    className={cn(
-                      "flex flex-col space-y-1.5",
-                      isUser ? "items-end" : "items-start"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex items-start gap-2.5 max-w-[90%]",
-                        isUser ? "flex-row-reverse" : "flex-row"
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "w-6 h-6 rounded-lg flex items-center justify-center text-xs shrink-0 mt-0.5",
-                          isUser
-                            ? "bg-slate-800 text-white"
-                            : "bg-indigo-600 text-white"
-                        )}
-                      >
-                        {isUser ? <User size={13} /> : <Bot size={13} />}
+                if (isUser) {
+                  return (
+                    <div key={m.id} className="flex flex-col items-end space-y-1 max-w-[88%] ml-auto">
+                      <div className="bg-[#4f46e5] text-white rounded-2xl rounded-tr-xs px-4 py-2.5 text-xs shadow-2xs leading-relaxed font-medium break-words select-text">
+                        {m.content}
                       </div>
+                      <span className="text-[9px] text-slate-400 pr-1">{m.timestamp}</span>
+                    </div>
+                  );
+                }
 
-                      <div
-                        className={cn(
-                          "rounded-2xl p-3.5 leading-relaxed text-xs shadow-2xs space-y-2",
-                          isUser
-                            ? "bg-indigo-600 text-white rounded-tr-xs"
-                            : "bg-white border border-slate-200/90 text-slate-800 rounded-tl-xs"
-                        )}
-                      >
-                        <div className="whitespace-pre-wrap font-normal leading-relaxed">
-                          {m.content}
-                        </div>
+                return (
+                  <div key={m.id} className="flex items-start gap-2.5 max-w-[96%]">
+                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-2xs">
+                      <Bot size={14} />
+                    </div>
 
-                        {/* Interactive Graph Citations */}
-                        {m.citations && m.citations.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-slate-100 space-y-1.5">
-                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1">
-                              <Compass size={11} />
-                              <span>Graph Entity Citations:</span>
-                            </span>
-                            <div className="flex flex-wrap gap-1">
-                              {m.citations.map((cite, cIdx) => (
-                                <button
-                                  key={cIdx}
-                                  onClick={() => handleCitationClick(cite)}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-indigo-50 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 transition-colors cursor-pointer shadow-2xs"
-                                  title={`Inspect in graph: ${cite.label}`}
-                                >
-                                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
-                                  <span className="truncate max-w-[130px]">
-                                    {cite.label}
-                                  </span>
-                                </button>
-                              ))}
-                            </div>
+                    <div className="flex-1 min-w-0 bg-white border border-slate-200/90 rounded-2xl rounded-tl-xs p-3.5 shadow-2xs space-y-2.5">
+                      {/* Rich Formatted Markdown Content */}
+                      <FormattedGraphMessage content={m.content} />
+
+                      {/* Interactive Graph Citations */}
+                      {m.citations && m.citations.length > 0 && (
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                            <Compass size={11} className="text-indigo-600" />
+                            <span>Verified Graph Citations:</span>
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {m.citations.map((cite, cIdx) => (
+                              <button
+                                key={cIdx}
+                                onClick={() => handleCitationClick(cite)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50/80 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 transition-all cursor-pointer shadow-2xs group"
+                                title={`Highlight in graph: ${cite.label}`}
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 group-hover:scale-125 transition-transform shrink-0" />
+                                <span className="truncate max-w-[190px]">
+                                  {cite.label}
+                                </span>
+                              </button>
+                            ))}
                           </div>
-                        )}
-
-                        <div
-                          className={cn(
-                            "text-[9px] font-mono text-right",
-                            isUser ? "text-indigo-200" : "text-slate-400"
-                          )}
-                        >
-                          {m.timestamp}
                         </div>
+                      )}
+
+                      {/* Card Footer: Timestamp & Copy Button */}
+                      <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
+                        <span>{m.timestamp}</span>
+                        <button
+                          onClick={() => handleCopyMessage(m.id, m.content)}
+                          className="flex items-center gap-1 hover:text-slate-700 text-[10px] text-slate-400 font-medium transition-colors cursor-pointer"
+                          title="Copy response to clipboard"
+                        >
+                          {copiedId === m.id ? (
+                            <>
+                              <Check size={11} className="text-emerald-600" />
+                              <span className="text-emerald-600 font-semibold">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={11} />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1554,12 +1797,12 @@ export default function GraphPage() {
 
               {isThinking && (
                 <div className="flex items-start gap-2.5">
-                  <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
-                    <Sparkles size={13} className="animate-spin" />
+                  <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <Sparkles size={14} className="animate-spin" />
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-xs p-3 text-xs text-slate-500 flex items-center gap-2 shadow-2xs">
+                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs text-slate-500 flex items-center gap-2 shadow-2xs">
                     <Spinner size={12} />
-                    <span>Traversing lineage paths...</span>
+                    <span className="font-medium animate-pulse">Traversing lineage graph & reasoning...</span>
                   </div>
                 </div>
               )}
@@ -1567,21 +1810,22 @@ export default function GraphPage() {
               <div ref={chatBottomRef} />
             </div>
 
-            {/* Quick Suggested Queries */}
+            {/* Quick Suggested Queries (shown when thread is fresh) */}
             {activeSession.messages.length <= 1 && (
-              <div className="p-3 border-t border-slate-200/80 bg-slate-50/70">
-                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
-                  <HelpCircle size={11} />
+              <div className="p-3 border-t border-slate-200/80 bg-slate-50/70 shrink-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <HelpCircle size={11} className="text-indigo-600" />
                   <span>Suggested Graph Queries:</span>
                 </p>
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {SUGGESTED_QUERIES.map((q, qIdx) => (
                     <button
                       key={qIdx}
                       onClick={() => handleSendMessage(q)}
-                      className="w-full text-left text-[11px] text-slate-700 hover:text-indigo-600 hover:bg-white p-1.5 rounded-lg border border-transparent hover:border-slate-200 transition-all truncate block cursor-pointer"
+                      className="w-full text-left text-xs text-slate-700 hover:text-indigo-700 hover:bg-white p-2 rounded-xl border border-transparent hover:border-slate-200 transition-all flex items-center justify-between group cursor-pointer shadow-2xs hover:shadow-xs"
                     >
-                      • {q}
+                      <span className="truncate pr-2">• {q}</span>
+                      <ArrowRight size={12} className="text-slate-400 group-hover:text-indigo-600 shrink-0 transition-transform group-hover:translate-x-0.5" />
                     </button>
                   ))}
                 </div>
@@ -1589,31 +1833,39 @@ export default function GraphPage() {
             )}
 
             {/* Chat Input Bar */}
-            <div className="p-3 bg-white border-t border-slate-200">
+            <div className="p-3 bg-white border-t border-slate-200 shrink-0">
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   handleSendMessage();
                 }}
-                className="flex items-center gap-2"
+                className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-indigo-600 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100 transition-all shadow-2xs"
               >
                 <input
                   type="text"
-                  placeholder="Ask about people, decisions, topics..."
+                  placeholder="Ask about decisions, architecture, commitments..."
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   disabled={isThinking}
-                  className="flex-1 h-9 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-indigo-600 focus:bg-white transition-all"
+                  className="w-full h-10 pl-3.5 pr-10 text-xs bg-transparent text-slate-800 placeholder-slate-400 focus:outline-none"
                 />
                 <button
                   type="submit"
                   disabled={!chatInput.trim() || isThinking}
-                  className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer shrink-0 shadow-2xs"
+                  className="absolute right-1.5 w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer shrink-0 shadow-2xs"
                   title="Send message"
                 >
-                  <Send size={13} />
+                  <Send size={12} />
                 </button>
               </form>
+              <div className="flex items-center justify-between mt-1.5 px-1 text-[10px] text-slate-400">
+                <span>Press Enter ↵ to send</span>
+                {isMeetingScoped && (
+                  <span className="text-indigo-600 font-medium truncate max-w-[190px]">
+                    Filtered to: {scopedMeetingName}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )}

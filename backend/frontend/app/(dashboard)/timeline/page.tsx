@@ -35,6 +35,10 @@ import {
   X,
   Sliders,
   Check,
+  Copy,
+  RotateCcw,
+  Compass,
+  HelpCircle,
 } from "lucide-react";
 
 interface ChatCitation {
@@ -72,12 +76,258 @@ const DEFAULT_SESSIONS: ChatSessionRecord[] = [
         id: "msg-welcome",
         role: "assistant",
         content:
-          "Welcome to the **Timeline Intelligence Copilot**. I have indexed all decisions, commitments, and topic evolutions across your workspace meetings. Ask me about specific architectural choices, pending action items, or how decisions were updated over time.",
+          "Welcome to the **Analytics Copilot**.\n\nI have indexed all decisions, commitments, and topic evolutions across your workspace meetings.\n\nAsk me about specific architectural choices, pending action items, or how decisions were updated over time.",
         timestamp: "Just now",
       },
     ],
   },
 ];
+
+const SUGGESTED_ANALYTICS_QUERIES = [
+  "Summarize key architectural decisions confirmed across all meetings",
+  "Which engineering action items are high priority and currently pending?",
+  "Trace the timeline and evolution of database decisions (PostgreSQL vs Spanner)",
+  "What commitments were agreed in recent infrastructure & architecture reviews?",
+];
+
+// ─── Rich Markdown Formatter for Analytics Copilot ───────────────────────────
+
+function formatAnalyticsInlineMarkdown(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  const regex = /(\*\*.*?\*\*|`.*?`|\*.*?\*)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**") && token.endsWith("**")) {
+      const inner = token.slice(2, -2).trim();
+      if (inner) {
+        parts.push(
+          <strong key={`${match.index}-b`} className="font-semibold text-slate-900">
+            {inner}
+          </strong>
+        );
+      }
+    } else if (token.startsWith("`") && token.endsWith("`")) {
+      const inner = token.slice(1, -1).trim();
+      const upper = inner.toUpperCase();
+      let badgeStyle = "bg-slate-100 text-slate-700 border-slate-200";
+      if (upper === "CONFIRMED" || upper === "COMPLETED" || upper === "ACTIVE") {
+        badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-200 font-semibold";
+      } else if (upper === "HIGH" || upper === "CRITICAL" || upper === "URGENT") {
+        badgeStyle = "bg-rose-50 text-rose-700 border-rose-200 font-semibold";
+      } else if (upper === "MEDIUM" || upper === "REVIEW_REQUIRED" || upper === "OPEN") {
+        badgeStyle = "bg-amber-50 text-amber-700 border-amber-200 font-semibold";
+      } else if (upper === "LOW") {
+        badgeStyle = "bg-slate-100 text-slate-600 border-slate-200";
+      }
+      parts.push(
+        <span
+          key={`${match.index}-c`}
+          className={cn(
+            "px-1.5 py-0.2 rounded text-[10px] font-mono border inline-block align-middle my-0.5",
+            badgeStyle
+          )}
+        >
+          {inner}
+        </span>
+      );
+    } else if (token.startsWith("*") && token.endsWith("*")) {
+      const inner = token.slice(1, -1).trim();
+      if (inner) {
+        parts.push(
+          <em key={`${match.index}-i`} className="italic text-slate-700">
+            {inner}
+          </em>
+        );
+      }
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : [text];
+}
+
+function FormattedAnalyticsMessage({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const nodes: React.ReactNode[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const rawLine = lines[i];
+    const line = rawLine.trim();
+
+    if (!line) {
+      i++;
+      continue;
+    }
+
+    // 1. Table Detection
+    if (line.startsWith("|") && line.endsWith("|")) {
+      const tableLines: string[] = [];
+      while (i < lines.length && lines[i].trim().startsWith("|") && lines[i].trim().endsWith("|")) {
+        tableLines.push(lines[i].trim());
+        i++;
+      }
+
+      if (tableLines.length >= 2) {
+        const headerRow = tableLines[0];
+        const isDivider = (str: string) => /^\|(\s*:?-+:?\s*\|)+$/.test(str);
+        const dataRowsStart = isDivider(tableLines[1]) ? 2 : 1;
+        const parseRow = (r: string) =>
+          r
+            .slice(1, -1)
+            .split("|")
+            .map((c) => c.trim());
+
+        const headers = parseRow(headerRow);
+        const dataRows = tableLines.slice(dataRowsStart).map(parseRow);
+
+        nodes.push(
+          <div key={`table-${i}`} className="overflow-x-auto my-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-700 font-semibold">
+                <tr>
+                  {headers.map((h, hIdx) => (
+                    <th key={hIdx} className="px-3 py-2 text-[10px] font-bold text-slate-600 uppercase tracking-wider whitespace-nowrap">
+                      {formatAnalyticsInlineMarkdown(h)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {dataRows.map((row, rIdx) => (
+                  <tr key={rIdx} className="hover:bg-slate-50/50 transition-colors">
+                    {row.map((cell, cIdx) => (
+                      <td key={cIdx} className="px-3 py-2 text-slate-700 text-[11px] leading-relaxed">
+                        {formatAnalyticsInlineMarkdown(cell)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+        continue;
+      }
+    }
+
+    // 2. Headings
+    if (line.startsWith("#### ")) {
+      nodes.push(
+        <h5 key={i} className="text-xs font-bold text-slate-900 mt-2.5 mb-1 tracking-tight">
+          {formatAnalyticsInlineMarkdown(line.slice(5))}
+        </h5>
+      );
+      i++;
+      continue;
+    }
+    if (line.startsWith("### ")) {
+      nodes.push(
+        <h4 key={i} className="text-sm font-bold text-slate-900 mt-3 mb-1.5 tracking-tight">
+          {formatAnalyticsInlineMarkdown(line.slice(4))}
+        </h4>
+      );
+      i++;
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      nodes.push(
+        <h3 key={i} className="text-sm font-extrabold text-slate-900 mt-3.5 mb-1.5 tracking-tight">
+          {formatAnalyticsInlineMarkdown(line.slice(3))}
+        </h3>
+      );
+      i++;
+      continue;
+    }
+
+    // Standalone **Heading**
+    if (/^\*\*[^*]+\*\*$/.test(line)) {
+      const headingText = line.replace(/^\*\*|\*\*$/g, "").trim();
+      nodes.push(
+        <div key={i} className="text-xs font-bold text-indigo-900 mt-2.5 mb-1 uppercase tracking-wider flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+          <span>{headingText}</span>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 3. Dividers
+    if (line === "---" || line === "***") {
+      nodes.push(<hr key={i} className="my-2.5 border-slate-200/80" />);
+      i++;
+      continue;
+    }
+
+    // 4. Bullet lists
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      const bulletText = line.slice(2);
+      nodes.push(
+        <div key={i} className="flex items-start gap-2 my-1 pl-1">
+          <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0 mt-1.5" />
+          <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+            {formatAnalyticsInlineMarkdown(bulletText)}
+          </div>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 5. Nested bullet
+    if (/^\s+[-*]\s+/.test(rawLine)) {
+      const cleanBullet = line.replace(/^[-*]\s+/, "");
+      nodes.push(
+        <div key={i} className="flex items-start gap-2 my-0.5 pl-4">
+          <span className="w-1 h-1 rounded-full bg-slate-400 shrink-0 mt-1.5" />
+          <div className="flex-1 text-[11px] text-slate-600 leading-relaxed">
+            {formatAnalyticsInlineMarkdown(cleanBullet)}
+          </div>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 6. Numbered lists
+    const numMatch = line.match(/^(\d+)\.\s+(.*)/);
+    if (numMatch) {
+      nodes.push(
+        <div key={i} className="flex items-start gap-2 my-1 pl-1">
+          <span className="text-[10px] font-bold text-indigo-600 shrink-0 mt-0.5 min-w-[14px]">
+            {numMatch[1]}.
+          </span>
+          <div className="flex-1 text-xs text-slate-700 leading-relaxed">
+            {formatAnalyticsInlineMarkdown(numMatch[2])}
+          </div>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    // 7. Regular paragraph
+    nodes.push(
+      <p key={i} className="text-xs text-slate-700 leading-relaxed my-1">
+        {formatAnalyticsInlineMarkdown(line)}
+      </p>
+    );
+    i++;
+  }
+
+  return <div className="space-y-0.5 select-text">{nodes}</div>;
+}
 
 export default function TimelinePage() {
   const queryClient = useQueryClient();
@@ -94,6 +344,7 @@ export default function TimelinePage() {
   const [isThinking, setIsThinking] = useState(false);
   const [sessions, setSessions] = useState<ChatSessionRecord[]>(DEFAULT_SESSIONS);
   const [activeSessionId, setActiveSessionId] = useState<string>("session-default");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   // Load chat sessions from localStorage on mount
@@ -238,9 +489,15 @@ export default function TimelinePage() {
   };
 
   const handleClearChatHistory = () => {
-    if (confirm("Reset conversation history?")) {
-      setSessions(DEFAULT_SESSIONS);
-      setActiveSessionId("session-default");
+    setSessions(DEFAULT_SESSIONS);
+    setActiveSessionId("session-default");
+  };
+
+  const handleCopyMessage = (id: string, text: string) => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
     }
   };
 
@@ -471,7 +728,7 @@ export default function TimelinePage() {
         <div
           className={cn(
             "space-y-6 transition-all duration-200",
-            isCopilotOpen ? "lg:col-span-8 xl:col-span-8" : "lg:col-span-12"
+            isCopilotOpen ? "lg:col-span-7 xl:col-span-8" : "lg:col-span-12"
           )}
         >
           {/* Filter & Search Bar Card */}
@@ -786,175 +1043,201 @@ export default function TimelinePage() {
           )}
         </div>
 
-        {/* ── RIGHT PANE: GPT-STYLE CHAT COPILOT DRAWER ─────────────────────── */}
+        {/* ── RIGHT PANE: ANALYTICS COPILOT DRAWER ────────────────────────────── */}
         {isCopilotOpen && (
-          <div className="lg:col-span-4 xl:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-lg overflow-hidden flex flex-col h-[740px] sticky top-20 animate-in fade-in slide-in-from-right-4 duration-200">
+          <div className="lg:col-span-5 xl:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-xl overflow-hidden flex flex-col h-[740px] sticky top-20 animate-in fade-in slide-in-from-right-4 duration-200">
             {/* Copilot Header */}
-            <div className="p-4 border-b border-slate-200 bg-slate-900 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shrink-0 shadow-2xs">
-                  <Bot size={16} />
+            <div className="px-4 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Sparkles size={16} />
                 </div>
                 <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-xs font-bold text-white truncate">
-                      Timeline Intelligence Copilot
-                    </h3>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  </div>
-                  <p className="text-[10px] text-slate-300 truncate">
-                    Conversational RAG over 208 decisions & 421 actions
+                  <h3 className="text-sm font-bold text-slate-900 leading-none">
+                    Analytics Copilot
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-1 truncate">
+                    Cross-meeting intelligence across {metrics.meetings} meetings & {metrics.decisions} decisions
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   onClick={handleNewChat}
-                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
                   title="Start a new chat thread"
                 >
-                  <Plus size={11} />
+                  <Plus size={13} />
                   <span>New</span>
                 </button>
                 <button
+                  onClick={handleClearChatHistory}
+                  className="w-8 h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
+                  title="Reset conversation"
+                >
+                  <RotateCcw size={13} />
+                </button>
+                <button
                   onClick={() => setIsCopilotOpen(false)}
-                  className="w-6 h-6 rounded flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-lg border border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
                   title="Close Copilot"
                 >
-                  ✕
+                  <X size={15} />
                 </button>
               </div>
             </div>
 
-            {/* Sessions Selector Bar */}
-            <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between text-xs text-slate-600">
-              <div className="flex items-center gap-1.5 truncate">
-                <MessageSquare size={12} className="text-indigo-600 shrink-0" />
-                <span className="font-semibold text-slate-700 truncate max-w-[200px]">
-                  {activeSession?.title || "Active Thread"}
-                </span>
-              </div>
-              <button
-                onClick={handleClearChatHistory}
-                className="text-[10px] text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                title="Reset conversation"
-              >
-                Clear
-              </button>
-            </div>
-
             {/* Chat Messages Area */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50/40 text-xs">
+            <div className="flex-1 p-3.5 overflow-y-auto space-y-4 bg-slate-50/40 text-xs">
               {activeSession?.messages.map((m) => {
                 const isUser = m.role === "user";
 
-                return (
-                  <div
-                    key={m.id}
-                    className={cn(
-                      "flex flex-col space-y-1.5",
-                      isUser ? "items-end" : "items-start"
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "p-3.5 rounded-2xl max-w-[92%] leading-relaxed shadow-2xs",
-                        isUser
-                          ? "bg-indigo-600 text-white rounded-br-xs"
-                          : "bg-white border border-slate-200/90 text-slate-800 rounded-bl-xs"
-                      )}
-                    >
-                      {/* Markdown text formatted with simple paragraph line breaks */}
-                      <div className="whitespace-pre-line space-y-1.5">
+                if (isUser) {
+                  return (
+                    <div key={m.id} className="flex flex-col items-end space-y-1 max-w-[88%] ml-auto">
+                      <div className="bg-[#4f46e5] text-white rounded-2xl rounded-tr-xs px-4 py-2.5 text-xs shadow-2xs leading-relaxed font-medium break-words select-text">
                         {m.content}
                       </div>
+                      <span className="text-[9px] text-slate-400 pr-1">{m.timestamp}</span>
+                    </div>
+                  );
+                }
 
-                      {/* Assistant Citations Row */}
-                      {!isUser && m.citations && m.citations.length > 0 && (
-                        <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1">
-                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                            Timeline Citations:
+                return (
+                  <div key={m.id} className="flex items-start gap-2.5 max-w-[96%]">
+                    <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center text-white shrink-0 mt-0.5 shadow-2xs">
+                      <Bot size={14} />
+                    </div>
+
+                    <div className="flex-1 min-w-0 bg-white border border-slate-200/90 rounded-2xl rounded-tl-xs p-3.5 shadow-2xs space-y-2.5">
+                      {/* Rich Formatted Markdown Content */}
+                      <FormattedAnalyticsMessage content={m.content} />
+
+                      {/* Verified Timeline Citations */}
+                      {m.citations && m.citations.length > 0 && (
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1.5">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                            <Compass size={11} className="text-indigo-600" />
+                            <span>Verified Timeline Citations:</span>
                           </span>
-                          <div className="flex flex-wrap gap-1">
+                          <div className="flex flex-wrap gap-1.5">
                             {m.citations.map((c, idx) => (
                               <Link
                                 key={idx}
                                 href={`/meetings/${c.meeting_id}`}
-                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-mono text-[10px] border border-indigo-200/70 transition-colors"
-                                title={`Jump to meeting: ${c.meeting_title}`}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-indigo-50/80 border border-indigo-200 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 transition-all cursor-pointer shadow-2xs group"
+                                title={`Open meeting: ${c.meeting_title}`}
                               >
-                                <span>📌</span>
-                                <span className="font-semibold truncate max-w-[140px]">
-                                  {c.event_title}
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 group-hover:scale-125 transition-transform shrink-0" />
+                                <span className="truncate max-w-[190px]">
+                                  {c.event_title || c.meeting_title}
                                 </span>
                               </Link>
                             ))}
                           </div>
                         </div>
                       )}
-                    </div>
 
-                    <span className="text-[10px] text-slate-400 px-1 font-mono">
-                      {m.timestamp}
-                    </span>
+                      {/* Card Footer: Timestamp & Copy Button */}
+                      <div className="flex items-center justify-between pt-1 text-[10px] text-slate-400">
+                        <span>{m.timestamp}</span>
+                        <button
+                          onClick={() => handleCopyMessage(m.id, m.content)}
+                          className="flex items-center gap-1 hover:text-slate-700 text-[10px] text-slate-400 font-medium transition-colors cursor-pointer"
+                          title="Copy response to clipboard"
+                        >
+                          {copiedId === m.id ? (
+                            <>
+                              <Check size={11} className="text-emerald-600" />
+                              <span className="text-emerald-600 font-semibold">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={11} />
+                              <span>Copy</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
 
               {isThinking && (
-                <div className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-2xl w-fit text-slate-500 animate-pulse">
-                  <Sparkles size={14} className="text-indigo-600 animate-spin" />
-                  <span className="text-xs">Analyzing 208 decisions & 421 actions across meetings...</span>
+                <div className="flex items-start gap-2.5">
+                  <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <Sparkles size={14} className="animate-spin" />
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-xs px-3.5 py-2.5 text-xs text-slate-500 flex items-center gap-2 shadow-2xs">
+                    <RefreshCw size={12} className="animate-spin text-indigo-600" />
+                    <span className="font-medium animate-pulse">
+                      Analyzing {metrics.decisions} decisions & {metrics.actions} commitments across meetings...
+                    </span>
+                  </div>
                 </div>
               )}
 
               <div ref={chatBottomRef} />
             </div>
 
-            {/* Quick Suggestion Prompt Chips */}
-            <div className="px-3 py-2 bg-slate-50/90 border-t border-slate-200 overflow-x-auto flex items-center gap-1.5 no-scrollbar">
-              {[
-                "What decisions were made about vector databases?",
-                "Show high-priority action items assigned to Sujal",
-                "Summarize PostgreSQL on EC2 vs RDS evolution",
-              ].map((sug, i) => (
-                <button
-                  key={i}
-                  onClick={() => handleSendQuery(sug)}
-                  disabled={isThinking}
-                  className="px-2.5 py-1 rounded-full bg-white hover:bg-indigo-50 text-slate-600 hover:text-indigo-700 border border-slate-200 text-[10px] font-medium whitespace-nowrap transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                >
-                  {sug}
-                </button>
-              ))}
-            </div>
+            {/* Quick Suggested Queries (shown when thread is fresh) */}
+            {activeSession && activeSession.messages.length <= 1 && (
+              <div className="p-3 border-t border-slate-200/80 bg-slate-50/70 shrink-0">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+                  <HelpCircle size={11} className="text-indigo-600" />
+                  <span>Suggested Analytics Queries:</span>
+                </p>
+                <div className="space-y-1.5">
+                  {SUGGESTED_ANALYTICS_QUERIES.map((q, qIdx) => (
+                    <button
+                      key={qIdx}
+                      onClick={() => handleSendQuery(q)}
+                      className="w-full text-left text-xs text-slate-700 hover:text-indigo-700 hover:bg-white p-2 rounded-xl border border-transparent hover:border-slate-200 transition-all flex items-center justify-between group cursor-pointer shadow-2xs hover:shadow-xs"
+                    >
+                      <span className="truncate pr-2">• {q}</span>
+                      <ArrowRight
+                        size={12}
+                        className="text-slate-400 group-hover:text-indigo-600 shrink-0 transition-transform group-hover:translate-x-0.5"
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Chat Input Bar */}
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendQuery();
-              }}
-              className="p-3 bg-white border-t border-slate-200 flex items-center gap-2"
-            >
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask about decisions, actions, or timeline evolution..."
-                disabled={isThinking}
-                className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-600 focus:bg-white text-slate-800 placeholder-slate-400 transition-all shadow-2xs"
-              />
-              <button
-                type="submit"
-                disabled={!chatInput.trim() || isThinking}
-                className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 disabled:opacity-40 transition-all shadow-xs cursor-pointer"
-                title="Send query to Copilot"
+            <div className="p-3 bg-white border-t border-slate-200 shrink-0">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendQuery();
+                }}
+                className="relative flex items-center bg-slate-50 border border-slate-200 rounded-xl focus-within:border-indigo-600 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100 transition-all shadow-2xs"
               >
-                <Send size={13} />
-              </button>
-            </form>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask about cross-meeting decisions, roadmap, commitments..."
+                  disabled={isThinking}
+                  className="w-full text-xs bg-transparent py-2.5 pl-3.5 pr-10 focus:outline-none text-slate-800 placeholder-slate-400"
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || isThinking}
+                  className="absolute right-1.5 w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center disabled:opacity-30 transition-all cursor-pointer shadow-2xs"
+                  title="Send query"
+                >
+                  <Send size={12} />
+                </button>
+              </form>
+              <div className="flex items-center justify-between mt-2 px-1 text-[10px] text-slate-400">
+                <span>Press Enter ↵ to send</span>
+                <span>Groq LLM • Cross-Meeting RAG</span>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -3,7 +3,7 @@ Phase 24 – Knowledge Graph API Endpoints
 
 Provides authenticated endpoints for querying knowledge entities,
 traversing organizational relationship subgraphs, syncing workspace knowledge,
-and interacting with the cross-meeting knowledge graph copilot.
+and interacting with the cross-meeting knowledge graph knowra.
 """
 
 from __future__ import annotations
@@ -633,7 +633,7 @@ GRAPH_STOP_WORDS = {
 @router.post(
     "/query",
     response_model=GraphChatResponse,
-    summary="Conversational knowledge graph Copilot query with entity citations",
+    summary="Conversational knowledge graph knowra query with entity citations",
 )
 def query_knowledge_graph(
     payload: GraphChatRequest,
@@ -856,7 +856,7 @@ def query_knowledge_graph(
 
     if api_key:
         system_instruction = (
-            "You are Knowra's Cross-Meeting Knowledge Graph Intelligence Copilot.\n"
+            "You are Knowra's Cross-Meeting Knowledge Graph Intelligence knowra.\n"
             "Your mission is to synthesize enterprise decisions, commitments, owners, and technical architecture "
             "from the provided organizational knowledge graph.\n\n"
             "CRITICAL RULES:\n"

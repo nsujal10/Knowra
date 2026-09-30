@@ -7,16 +7,21 @@ decision and action item retrieval, query decomposition, and conversational inte
 
 from __future__ import annotations
 
+import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+import httpx
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.actions.models import ActionItem
 from app.auth.service import AuthorizationService
+from app.core.config import settings
 from app.core.database import get_db
 from app.decisions.models import EnterpriseDecision
 from app.intelligence.cross_meeting.decomposer import QueryDecomposer
@@ -32,7 +37,20 @@ from app.models.meeting import Meeting
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user
 
+logger = structlog.get_logger(__name__)
+
 router = APIRouter()
+
+CROSS_MEETING_STOP_WORDS = {
+    "what", "is", "the", "are", "were", "was", "how", "why", "when", "where", "who",
+    "which", "tell", "me", "about", "show", "give", "list", "and", "or", "to", "in",
+    "for", "of", "a", "an", "at", "by", "from", "with", "on", "as", "any", "all",
+    "been", "being", "have", "has", "had", "do", "does", "did", "can", "could",
+    "should", "would", "we", "our", "you", "your", "they", "their", "it", "its",
+    "this", "that", "these", "those", "meeting", "meetings", "decision", "decisions",
+    "action", "actions", "item", "items", "timeline", "evolution", "please", "across",
+    "recent", "over", "time", "sync", "syncs", "update", "updates", "summarize",
+}
 
 
 # ─── Pydantic Schemas for Frontend Timeline ───────────────────────────────────
@@ -315,95 +333,228 @@ def query_cross_meeting_timeline(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> CrossMeetingChatResponse:
     """
-    Intelligent cross-meeting Q&A with citations to specific decisions, meetings, and dates.
+    Intelligent cross-meeting chronological Q&A with LLM reasoning and verifiable citations
+    to specific decisions, meetings, and dates.
     """
-    query_text = payload.query.strip().lower()
+    tenant_id = current_user.organization_id
 
-    # Fetch real decisions and actions
-    decisions = db.query(EnterpriseDecision).order_by(EnterpriseDecision.created_at.desc()).limit(50).all()
-    actions = db.query(ActionItem).order_by(ActionItem.created_at.desc()).limit(50).all()
-    meetings = {m.id: m for m in db.query(Meeting).limit(80).all()}
+    # 1. Meaningful Search Tokens Extraction
+    raw_tokens = re.findall(r"\b[a-zA-Z0-9_\-\.]{2,}\b", payload.query.lower())
+    meaningful_tokens = [t for t in raw_tokens if t not in CROSS_MEETING_STOP_WORDS]
+    tokens = meaningful_tokens if meaningful_tokens else raw_tokens
 
-    # Score / match relevant events
-    matched_decisions = [
-        d for d in decisions
-        if any(w in (d.title + " " + (d.description or "") + " " + (d.rationale or "")).lower() for w in query_text.split())
-    ]
-    matched_actions = [
-        a for a in actions
-        if any(w in (a.title + " " + (a.description or "") + " " + (a.owner_raw or "")).lower() for w in query_text.split())
-    ]
+    # 2. Fetch Real Enterprise Decisions, Action Items & Meetings
+    decisions = (
+        db.query(EnterpriseDecision)
+        .filter(EnterpriseDecision.tenant_id == tenant_id)
+        .order_by(EnterpriseDecision.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    actions = (
+        db.query(ActionItem)
+        .filter(ActionItem.tenant_id == tenant_id)
+        .order_by(ActionItem.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    meetings = {
+        m.id: m
+        for m in db.query(Meeting).filter(Meeting.tenant_id == tenant_id).limit(200).all()
+    }
 
+    # 3. Score Decisions and Actions
+    scored_decisions: List[Tuple[float, EnterpriseDecision]] = []
+    for d in decisions:
+        score = 0.0
+        d_text = f"{d.title} {d.description or ''} {d.rationale or ''} {d.decided_by_raw or ''}".lower()
+        m = meetings.get(d.meeting_id)
+        if m:
+            d_text += f" {m.title.lower()}"
+
+        for t in tokens:
+            if re.search(r"\b" + re.escape(t) + r"\b", d_text):
+                score += 3.0
+            elif t in d_text:
+                score += 1.0
+
+        if score > 0:
+            scored_decisions.append((score, d))
+
+    scored_decisions.sort(key=lambda x: x[0], reverse=True)
+
+    scored_actions: List[Tuple[float, ActionItem]] = []
+    for a in actions:
+        score = 0.0
+        a_text = f"{a.title} {a.description or ''} {a.owner_raw or ''}".lower()
+        m = meetings.get(a.meeting_id)
+        if m:
+            a_text += f" {m.title.lower()}"
+
+        for t in tokens:
+            if re.search(r"\b" + re.escape(t) + r"\b", a_text):
+                score += 3.0
+            elif t in a_text:
+                score += 1.0
+
+        if score > 0:
+            scored_actions.append((score, a))
+
+    scored_actions.sort(key=lambda x: x[0], reverse=True)
+
+    # If no specific matches, fall back to recent high-impact items
+    top_decisions = [d for _, d in scored_decisions[:6]] if scored_decisions else decisions[:6]
+    top_actions = [a for _, a in scored_actions[:6]] if scored_actions else actions[:6]
+
+    # 4. Build Context Blocks & Citations
     citations: List[CrossMeetingCitation] = []
-    response_parts: List[str] = []
+    context_blocks: List[str] = []
 
-    if matched_decisions:
-        response_parts.append("### Key Decisions Traced Across Meetings:\n")
-        for idx, d in enumerate(matched_decisions[:4], 1):
-            m = meetings.get(d.meeting_id)
-            m_title = m.title if m and m.title else "Architecture Sync"
-            m_date = (d.effective_date or d.created_at).strftime("%b %d, %Y") if d.created_at else "Recent"
-            response_parts.append(
-                f"{idx}. **{d.title}** ({m_title}, {m_date})\n"
-                f"   - **Context**: {d.description or 'Confirmed during executive sync'}\n"
-                f"   - **Rationale**: {d.rationale or 'Agreed by consensus'}\n"
-                f"   - **Status**: `{d.status}` | **Decided By**: {d.decided_by_raw or 'Executive Leadership'}\n"
-            )
-            citations.append(
-                CrossMeetingCitation(
-                    meeting_title=m_title,
-                    meeting_id=str(d.meeting_id),
-                    event_title=d.title,
-                    event_type="DECISION",
-                    occurred_at=m_date,
-                )
-            )
-
-    if matched_actions:
-        response_parts.append("\n### Action Commitments & Assigned Owners:\n")
-        for idx, a in enumerate(matched_actions[:4], 1):
-            m = meetings.get(a.meeting_id)
-            m_title = m.title if m and m.title else "Sprint Review"
-            m_date = (a.due_date or a.created_at).strftime("%b %d, %Y") if a.created_at else "Pending"
-            response_parts.append(
-                f"{idx}. **{a.title}** ({m_title})\n"
-                f"   - **Assignee**: {a.owner_raw or 'Engineering Team'}\n"
-                f"   - **Priority**: `{a.priority or 'HIGH'}` | **Status**: `{a.status}`\n"
-            )
-            citations.append(
-                CrossMeetingCitation(
-                    meeting_title=m_title,
-                    meeting_id=str(a.meeting_id),
-                    event_title=a.title,
-                    event_type="ACTION",
-                    occurred_at=m_date,
-                )
-            )
-
-    if not response_parts:
-        response_parts.append(
-            f"Across the **{len(meetings)} meetings**, **{len(decisions)} decisions**, and **{len(actions)} action items** analyzed in Knowra:\n\n"
-            f"- **Architecture & Infrastructure**: The team standardized on PostgreSQL on EC2, vector database partitioning with HNSW indexing, and AES-256 encrypted credential vaults.\n"
-            f"- **Integrations & Delivery**: Automated meeting intelligence briefings are configured via Resend REST API with OAuth 2.0 PKCE calendar connectors for Google and Outlook.\n"
-            f"- **Next Steps**: Active focus is centered on cross-meeting decision traceability and automated AI summaries for executive stakeholders."
+    for d in top_decisions:
+        m = meetings.get(d.meeting_id)
+        m_title = m.title if m and m.title else "Architecture Sync"
+        m_date = (d.effective_date or d.created_at).strftime("%b %d, %Y") if d.created_at else "Recent"
+        decider = d.decided_by_raw or "Executive Leadership"
+        context_blocks.append(
+            f"[DECISION] \"{d.title}\"\n"
+            f"  - Status: {d.status} | Impact: {d.impact_level or 'HIGH'}\n"
+            f"  - Meeting: \"{m_title}\" on {m_date}\n"
+            f"  - Decider: {decider}\n"
+            f"  - Description: {d.description or 'Confirmed during review'}\n"
+            f"  - Rationale: {d.rationale or 'Agreed by stakeholders'}"
         )
-        if decisions:
-            top_d = decisions[0]
-            m = meetings.get(top_d.meeting_id)
-            citations.append(
-                CrossMeetingCitation(
-                    meeting_title=m.title if m else "Architecture Sync",
-                    meeting_id=str(top_d.meeting_id),
-                    event_title=top_d.title,
-                    event_type="DECISION",
-                    occurred_at=top_d.created_at.strftime("%b %d, %Y") if top_d.created_at else "Recent",
-                )
+        citations.append(
+            CrossMeetingCitation(
+                meeting_title=m_title,
+                meeting_id=str(d.meeting_id),
+                event_title=d.title,
+                event_type="DECISION",
+                occurred_at=m_date,
             )
+        )
 
-    answer_text = "".join(response_parts)
+    for a in top_actions:
+        m = meetings.get(a.meeting_id)
+        m_title = m.title if m and m.title else "Project Review"
+        m_date = (a.due_date or a.created_at).strftime("%b %d, %Y") if a.created_at else "Pending"
+        owner = a.owner_raw or "Engineering Team"
+        context_blocks.append(
+            f"[ACTION ITEM] \"{a.title}\"\n"
+            f"  - Priority: {a.priority or 'MEDIUM'} | Status: {a.status}\n"
+            f"  - Meeting: \"{m_title}\" on {m_date}\n"
+            f"  - Owner: {owner}\n"
+            f"  - Details: {a.description or 'Tracked in sprint commitments'}"
+        )
+        citations.append(
+            CrossMeetingCitation(
+                meeting_title=m_title,
+                meeting_id=str(a.meeting_id),
+                event_title=a.title,
+                event_type="ACTION",
+                occurred_at=m_date,
+            )
+        )
+
+    # 5. Synthesize Answer using Groq LLM Gateway
+    api_key = (
+        settings.LLM_API_KEY
+        or os.getenv("LLM_API_KEY")
+        or getattr(settings, "GROQ_API_KEY", "")
+        or os.getenv("GROQ_API_KEY", "")
+    )
+    llm_answer: Optional[str] = None
+
+    if api_key:
+        system_instruction = (
+            "You are Knowra's Cross-Meeting Analytics & Timeline Intelligence Copilot.\n"
+            "Your mission is to synthesize cross-meeting trends, decision progressions, supersessions, "
+            "and action commitments from the provided chronological enterprise timeline.\n\n"
+            "CRITICAL RULES:\n"
+            "1. Directly answer the user's specific analytical or timeline inquiry.\n"
+            "2. Present clear chronological progression where applicable (dates, meeting names, decision evolution).\n"
+            "3. Highlight decisions, their statuses (`CONFIRMED`, `SUPERSEDED`, `OPEN`), deciders, and rationales.\n"
+            "4. Structure your response professionally using Markdown:\n"
+            "   - Start with an executive direct summary answering the prompt.\n"
+            "   - Use clean tables or structured bullet points for Decisions & Actions.\n"
+            "   - Explicitly cite the meeting origin and owner for each key point.\n"
+            "5. Do NOT dump unrelated decisions or default templates."
+        )
+
+        user_prompt = (
+            f"User Question: {payload.query}\n\n"
+            f"Chronological Timeline Context:\n"
+            + "\n\n".join(context_blocks[:10])
+        )
+
+        candidate_models = ["openai/gpt-oss-20b", "qwen/qwen3.8-27b"]
+        env_model = os.getenv("TIMELINE_LLM_MODEL") or os.getenv("GRAPH_LLM_MODEL")
+        if env_model and env_model in candidate_models:
+            candidate_models.remove(env_model)
+            candidate_models.insert(0, env_model)
+
+        for groq_model in candidate_models:
+            try:
+                with httpx.Client(timeout=20.0) as client:
+                    resp = client.post(
+                        "https://api.groq.com/openai/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": groq_model,
+                            "messages": [
+                                {"role": "system", "content": system_instruction},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": 0.15,
+                            "max_tokens": 500,
+                        },
+                    )
+                    if resp.status_code == 200:
+                        body = resp.json()
+                        content = body["choices"][0]["message"]["content"]
+                        if content and len(content.strip()) > 20:
+                            llm_answer = content.strip()
+                            break
+                    elif resp.status_code == 429:
+                        logger.info("Groq 429 rate limit on model, trying next candidate", model=groq_model)
+                        continue
+                    else:
+                        logger.warning("Groq API non-200 in timeline query", model=groq_model, status=resp.status_code)
+            except Exception as exc:
+                logger.warning("Groq API call exception in timeline query", model=groq_model, error=str(exc))
+
+    # 6. Fallback if LLM is unavailable
+    if not llm_answer:
+        resp_lines = [f"### Timeline & Cross-Meeting Intelligence for **\"{payload.query}\"**:\n"]
+        if top_decisions:
+            resp_lines.append("#### Traced Decisions Across Timeline:")
+            for d in top_decisions[:4]:
+                m = meetings.get(d.meeting_id)
+                m_title = m.title if m else "Architecture Sync"
+                m_date = (d.effective_date or d.created_at).strftime("%b %d, %Y") if d.created_at else "Recent"
+                resp_lines.append(
+                    f"- **{d.title}** ({m_title}, {m_date})\n"
+                    f"  - **Status**: `{d.status}` | **Decided By**: {d.decided_by_raw or 'Executive Leadership'}\n"
+                    f"  - **Context**: {d.description or d.rationale or 'Agreed by consensus'}"
+                )
+
+        if top_actions:
+            resp_lines.append("\n#### Connected Action Items & Owners:")
+            for a in top_actions[:4]:
+                m = meetings.get(a.meeting_id)
+                m_title = m.title if m else "Sprint Sync"
+                resp_lines.append(
+                    f"- **{a.title}** ({m_title})\n"
+                    f"  - **Owner**: {a.owner_raw or 'Engineering Team'} | **Status**: `{a.status}`"
+                )
+
+        llm_answer = "\n".join(resp_lines)
+
     return CrossMeetingChatResponse(
-        answer=answer_text,
-        citations=citations,
+        answer=llm_answer,
+        citations=citations[:8],
         events_analyzed=len(decisions) + len(actions),
     )
 

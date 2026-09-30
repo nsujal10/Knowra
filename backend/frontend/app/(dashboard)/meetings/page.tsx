@@ -490,35 +490,6 @@ export default function MeetingsPage() {
               {allMeetings.length} Total Meetings
             </span>
           }
-          actions={
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
-                title="Refresh meetings from server"
-              >
-                <RefreshCw size={13} className={isRefreshing ? "animate-spin" : ""} />
-                <span>Refresh</span>
-              </button>
-              <button
-                onClick={() => setIsLiveModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer"
-                title="Record or simulate live meeting stream"
-              >
-                <Radio size={13} className="text-rose-500 animate-pulse" />
-                <span>Live Meeting</span>
-              </button>
-              <button
-                onClick={() => setIsUploadModalOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer"
-                title="Upload meeting recording"
-              >
-                <Upload size={13} />
-                <span>Upload Recording</span>
-              </button>
-            </div>
-          }
         />
         
         {/* ================================================================= */}

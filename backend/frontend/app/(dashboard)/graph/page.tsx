@@ -1643,56 +1643,44 @@ export default function GraphPage() {
         {isCopilotOpen && (
           <div className="lg:col-span-5 xl:col-span-4 bg-white rounded-2xl border border-slate-200/90 shadow-xl overflow-hidden flex flex-col h-[660px] sticky top-20 animate-in fade-in slide-in-from-right-4 duration-200">
             {/* Copilot Header */}
-            <div className="p-3.5 bg-slate-900 border-b border-slate-800 text-white shrink-0">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-xs">
-                    <Sparkles size={15} />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-xs font-bold text-white tracking-tight truncate">
-                        Knowledge Copilot
-                      </h3>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                        Live
-                      </span>
-                    </div>
-                  </div>
+            <div className="px-4 py-3.5 border-b border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                  <Sparkles size={16} />
                 </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={handleNewSession}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-medium text-slate-200 hover:text-white transition-colors flex items-center gap-1 cursor-pointer border border-slate-700/70"
-                    title="Start a new chat thread"
-                  >
-                    <Plus size={11} />
-                    <span>New</span>
-                  </button>
-                  <button
-                    onClick={handleClearSessions}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer border border-transparent hover:border-slate-700/60"
-                    title="Reset conversation"
-                  >
-                    <RotateCcw size={12} />
-                  </button>
-                  <button
-                    onClick={() => setIsCopilotOpen(false)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Close Copilot"
-                  >
-                    <X size={14} />
-                  </button>
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-slate-900 leading-none">
+                    Graph Copilot
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-1 truncate">
+                    Reasoning across {metrics.total_nodes} entities & {metrics.total_edges} relations
+                  </p>
                 </div>
               </div>
 
-              {/* Sub-strip with reasoning count */}
-              <div className="mt-2.5 pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-                <span className="truncate">
-                  Reasoning across <span className="font-semibold text-slate-200">{metrics.total_nodes}</span> entities & <span className="font-semibold text-slate-200">{metrics.total_edges}</span> relations
-                </span>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  onClick={handleNewSession}
+                  className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-700 transition-colors flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="Start a new chat thread"
+                >
+                  <Plus size={13} />
+                  <span>New</span>
+                </button>
+                <button
+                  onClick={handleClearSessions}
+                  className="w-8 h-8 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-colors cursor-pointer shadow-2xs"
+                  title="Reset conversation"
+                >
+                  <RotateCcw size={13} />
+                </button>
+                <button
+                  onClick={() => setIsCopilotOpen(false)}
+                  className="w-8 h-8 rounded-lg border border-transparent hover:border-slate-200 hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition-colors cursor-pointer"
+                  title="Close Copilot"
+                >
+                  <X size={15} />
+                </button>
               </div>
             </div>
 

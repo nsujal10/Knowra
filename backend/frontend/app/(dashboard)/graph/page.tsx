@@ -50,8 +50,9 @@ import {
   CheckCircle2,
   Network,
   HelpCircle,
-  Clock,
   Compass,
+  ArrowRight,
+  Filter,
 } from "lucide-react";
 
 // ─── Visual Tokens & Type Configurations ──────────────────────────────────────
@@ -65,26 +66,17 @@ const NODE_TYPE_CONFIG: Record<
     badgeBg: string;
     icon: React.ReactNode;
     label: string;
-    description: string;
+    column: number;
   }
 > = {
-  person: {
-    color: "#2563eb",
-    bg: "#eff6ff",
-    border: "#bfdbfe",
-    badgeBg: "bg-blue-50 text-blue-700 border-blue-200",
-    icon: <Users size={12} />,
-    label: "Person",
-    description: "Meeting participants, project owners, and decision makers",
-  },
-  topic: {
-    color: "#7c3aed",
-    bg: "#f5f3ff",
-    border: "#ddd6fe",
-    badgeBg: "bg-purple-50 text-purple-700 border-purple-200",
-    icon: <Brain size={12} />,
-    label: "Topic",
-    description: "Technical domains, architectural patterns, and strategic subjects",
+  meeting: {
+    color: "#4f46e5",
+    bg: "#eef2ff",
+    border: "#c7d2fe",
+    badgeBg: "bg-indigo-50 text-indigo-700 border-indigo-200",
+    icon: <FileText size={12} />,
+    label: "Meeting",
+    column: 0,
   },
   decision: {
     color: "#d97706",
@@ -93,16 +85,7 @@ const NODE_TYPE_CONFIG: Record<
     badgeBg: "bg-amber-50 text-amber-700 border-amber-200",
     icon: <CheckSquare size={12} />,
     label: "Decision",
-    description: "Confirmed commitments, architectural choices, and policies",
-  },
-  meeting: {
-    color: "#4f46e5",
-    bg: "#eef2ff",
-    border: "#c7d2fe",
-    badgeBg: "bg-indigo-50 text-indigo-700 border-indigo-200",
-    icon: <FileText size={12} />,
-    label: "Meeting",
-    description: "Recorded conversations, syncs, executive reviews, and standups",
+    column: 1,
   },
   action: {
     color: "#059669",
@@ -111,7 +94,25 @@ const NODE_TYPE_CONFIG: Record<
     badgeBg: "bg-emerald-50 text-emerald-700 border-emerald-200",
     icon: <Zap size={12} />,
     label: "Action",
-    description: "Assigned engineering tasks, follow-ups, and deliverables",
+    column: 2,
+  },
+  person: {
+    color: "#2563eb",
+    bg: "#eff6ff",
+    border: "#bfdbfe",
+    badgeBg: "bg-blue-50 text-blue-700 border-blue-200",
+    icon: <Users size={12} />,
+    label: "Person",
+    column: 3,
+  },
+  topic: {
+    color: "#7c3aed",
+    bg: "#f5f3ff",
+    border: "#ddd6fe",
+    badgeBg: "bg-purple-50 text-purple-700 border-purple-200",
+    icon: <Brain size={12} />,
+    label: "Topic",
+    column: 3,
   },
   entity: {
     color: "#db2777",
@@ -120,11 +121,18 @@ const NODE_TYPE_CONFIG: Record<
     badgeBg: "bg-pink-50 text-pink-700 border-pink-200",
     icon: <GitBranch size={12} />,
     label: "Entity",
-    description: "External systems, databases, frameworks, and third-party tools",
+    column: 3,
   },
 };
 
 const NODE_TYPES_LIST = Object.keys(NODE_TYPE_CONFIG);
+
+const COLUMNS_DEF = [
+  { id: 0, label: "1. Meetings & Syncs", color: "#4f46e5", bg: "bg-indigo-50/70 border-indigo-200 text-indigo-800" },
+  { id: 1, label: "2. Confirmed Decisions", color: "#d97706", bg: "bg-amber-50/70 border-amber-200 text-amber-800" },
+  { id: 2, label: "3. Action Commitments", color: "#059669", bg: "bg-emerald-50/70 border-emerald-200 text-emerald-800" },
+  { id: 3, label: "4. Owners & Topics", color: "#2563eb", bg: "bg-blue-50/70 border-blue-200 text-blue-800" },
+];
 
 // ─── Custom ReactFlow Node Component ─────────────────────────────────────────
 
@@ -137,14 +145,15 @@ interface CustomNodeData {
 const CustomNode = React.memo(({ data }: { data: CustomNodeData }) => {
   const { rawNode, isSelected, isDimmed } = data;
   const config = NODE_TYPE_CONFIG[rawNode.type] ?? NODE_TYPE_CONFIG.entity;
+  const statusMeta = (rawNode.metadata?.status as string) || (rawNode.metadata?.priority as string);
 
   return (
     <div
       className={cn(
-        "group relative flex items-center gap-2.5 px-3 py-2 rounded-xl border bg-white shadow-2xs transition-all duration-200 cursor-pointer select-none",
+        "group relative flex flex-col justify-between w-[250px] p-3 rounded-xl border bg-white shadow-2xs transition-all duration-150 cursor-pointer select-none",
         isSelected
-          ? "ring-2 ring-indigo-500 shadow-md scale-105 z-20 border-indigo-500"
-          : "hover:scale-102 hover:shadow-xs z-10 border-slate-200",
+          ? "ring-2 ring-indigo-500 shadow-md scale-102 z-20 border-indigo-500"
+          : "hover:scale-101 hover:shadow-xs z-10 border-slate-200/90",
         isDimmed && "opacity-25 filter grayscale"
       )}
       style={{
@@ -152,42 +161,62 @@ const CustomNode = React.memo(({ data }: { data: CustomNodeData }) => {
         borderLeftColor: config.color,
       }}
     >
+      {/* Left Input Handle */}
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         className="opacity-0 w-2 h-2 pointer-events-none"
       />
 
-      <div
-        className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 text-white shadow-2xs"
-        style={{ backgroundColor: config.color }}
-      >
-        {config.icon}
-      </div>
-
-      <div className="flex flex-col min-w-0 max-w-[160px]">
-        <span
-          className="text-xs font-semibold truncate text-slate-800 tracking-tight"
-          title={rawNode.label}
-        >
-          {rawNode.label}
-        </span>
-        <div className="flex items-center gap-1.5 text-[10px] text-slate-500 font-medium">
-          <span className="capitalize">{config.label}</span>
-          {rawNode.mention_count !== undefined && rawNode.mention_count > 0 && (
-            <>
-              <span className="text-slate-300">•</span>
-              <span className="font-mono text-[9px] text-slate-400">
-                {rawNode.mention_count} links
-              </span>
-            </>
-          )}
+      {/* Header Row */}
+      <div className="flex items-center justify-between gap-1.5 mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <div
+            className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 text-white shadow-2xs text-[10px]"
+            style={{ backgroundColor: config.color }}
+          >
+            {config.icon}
+          </div>
+          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            {config.label}
+          </span>
         </div>
+
+        {statusMeta && (
+          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-md bg-slate-100 border border-slate-200 text-slate-600 truncate max-w-[85px]">
+            {statusMeta}
+          </span>
+        )}
       </div>
 
+      {/* Main Label */}
+      <p
+        className="text-xs font-semibold text-slate-900 leading-snug line-clamp-2"
+        title={rawNode.label}
+      >
+        {rawNode.label}
+      </p>
+
+      {/* Footer Meta Row */}
+      <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 pt-1.5 border-t border-slate-100">
+        <span className="truncate max-w-[130px]">
+          {rawNode.metadata?.assignee
+            ? `Owner: ${String(rawNode.metadata.assignee)}`
+            : rawNode.metadata?.decided_by
+            ? `By: ${String(rawNode.metadata.decided_by)}`
+            : String(rawNode.metadata?.date || "Workspace")}
+        </span>
+        {rawNode.mention_count !== undefined && (
+          <span className="font-mono text-indigo-600 font-medium shrink-0">
+            {rawNode.mention_count} links
+          </span>
+        )}
+      </div>
+
+      {/* Right Output Handle */}
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         className="opacity-0 w-2 h-2 pointer-events-none"
       />
     </div>
@@ -200,162 +229,132 @@ const nodeTypes = {
   customNode: CustomNode,
 };
 
-// ─── Radial / Clustered Flow Node Layout ──────────────────────────────────────
+// ─── Hierarchical Left-to-Right Column Layout Algorithm ──────────────────────
 
-function buildFlowNodes(
+function buildHierarchicalFlow(
   nodes: GraphNode[],
+  edges: GraphEdge[],
   selectedNodeId: string | null,
-  searchQuery: string
-): Node[] {
-  const typeGroups: Record<string, GraphNode[]> = {};
-  nodes.forEach((n) => {
-    typeGroups[n.type] = typeGroups[n.type] || [];
-    typeGroups[n.type].push(n);
-  });
-
-  const flowNodes: Node[] = [];
+  searchQuery: string,
+  selectedMeetingId: string
+): { flowNodes: Node[]; flowEdges: Edge[] } {
   const q = searchQuery.toLowerCase().trim();
 
-  // Tier 1: Meetings in inner circle (Center: 600, 420)
-  const meetings = typeGroups["meeting"] || [];
-  meetings.forEach((m, idx) => {
-    const angle = (idx / Math.max(1, meetings.length)) * 2 * Math.PI;
-    const radius = 220;
-    const isSelected = m.id === selectedNodeId;
-    const isDimmed = Boolean(q && !m.label.toLowerCase().includes(q));
-    flowNodes.push({
-      id: m.id,
-      position: {
-        x: 600 + radius * Math.cos(angle),
-        y: 420 + radius * Math.sin(angle),
-      },
-      data: { rawNode: m, isSelected, isDimmed },
-      type: "customNode",
+  // If a specific meeting is selected, filter nodes and edges in that lineage
+  let activeNodes = nodes;
+  if (selectedMeetingId !== "ALL") {
+    // Find all nodes connected to this meeting directly or 2-hop
+    const meetingIncidentEdges = edges.filter(
+      (e) => e.meeting_id === selectedMeetingId || e.source === selectedMeetingId || e.target === selectedMeetingId
+    );
+    const incidentNodeIds = new Set<string>([selectedMeetingId]);
+    meetingIncidentEdges.forEach((e) => {
+      incidentNodeIds.add(e.source);
+      incidentNodeIds.add(e.target);
+    });
+
+    // 2-hop expansion (actions connected to decisions)
+    edges.forEach((e) => {
+      if (incidentNodeIds.has(e.source) || incidentNodeIds.has(e.target)) {
+        incidentNodeIds.add(e.source);
+        incidentNodeIds.add(e.target);
+      }
+    });
+
+    activeNodes = nodes.filter((n) => incidentNodeIds.has(n.id));
+  }
+
+  // Partition nodes into 4 structured columns
+  const colGroups: Record<number, GraphNode[]> = { 0: [], 1: [], 2: [], 3: [] };
+  activeNodes.forEach((n) => {
+    const colIdx = NODE_TYPE_CONFIG[n.type]?.column ?? 3;
+    colGroups[colIdx].push(n);
+  });
+
+  const COLUMN_X = [50, 370, 690, 1010];
+  const flowNodes: Node[] = [];
+
+  // Determine which nodes match search query
+  const matchingIds = new Set(
+    q ? activeNodes.filter((n) => n.label.toLowerCase().includes(q)).map((n) => n.id) : []
+  );
+
+  // Position nodes within columns
+  [0, 1, 2, 3].forEach((colIdx) => {
+    const group = colGroups[colIdx];
+    const xPos = COLUMN_X[colIdx];
+
+    group.forEach((node, rowIdx) => {
+      const isSelected = node.id === selectedNodeId;
+      const isDimmed = Boolean(q && !matchingIds.has(node.id));
+
+      flowNodes.push({
+        id: node.id,
+        position: {
+          x: xPos,
+          y: 70 + rowIdx * 105,
+        },
+        data: { rawNode: node, isSelected, isDimmed },
+        type: "customNode",
+      });
     });
   });
 
-  // Tier 2: Decisions around meetings
-  const decisions = typeGroups["decision"] || [];
-  decisions.forEach((d, idx) => {
-    const angle = (idx / Math.max(1, decisions.length)) * 2 * Math.PI + 0.35;
-    const radius = 370;
-    const isSelected = d.id === selectedNodeId;
-    const isDimmed = Boolean(q && !d.label.toLowerCase().includes(q));
-    flowNodes.push({
-      id: d.id,
-      position: {
-        x: 600 + radius * Math.cos(angle),
-        y: 420 + radius * Math.sin(angle),
-      },
-      data: { rawNode: d, isSelected, isDimmed },
-      type: "customNode",
-    });
+  // Build clean, unidirectional left-to-right edges
+  const activeNodeIds = new Set(activeNodes.map((n) => n.id));
+  const nodeColMap = new Map<string, number>();
+  activeNodes.forEach((n) => {
+    nodeColMap.set(n.id, NODE_TYPE_CONFIG[n.type]?.column ?? 3);
   });
 
-  // Tier 3: Actions orbit
-  const actions = typeGroups["action"] || [];
-  actions.forEach((a, idx) => {
-    const angle = (idx / Math.max(1, actions.length)) * 2 * Math.PI + 0.65;
-    const radius = 510;
-    const isSelected = a.id === selectedNodeId;
-    const isDimmed = Boolean(q && !a.label.toLowerCase().includes(q));
-    flowNodes.push({
-      id: a.id,
-      position: {
-        x: 600 + radius * Math.cos(angle),
-        y: 420 + radius * Math.sin(angle),
-      },
-      data: { rawNode: a, isSelected, isDimmed },
-      type: "customNode",
-    });
-  });
+  const flowEdges: Edge[] = [];
+  const seenEdges = new Set<string>();
 
-  // Tier 4: Persons cluster
-  const persons = typeGroups["person"] || [];
-  persons.forEach((p, idx) => {
-    const angle = (idx / Math.max(1, persons.length)) * 2 * Math.PI + 0.95;
-    const radius = 650;
-    const isSelected = p.id === selectedNodeId;
-    const isDimmed = Boolean(q && !p.label.toLowerCase().includes(q));
-    flowNodes.push({
-      id: p.id,
-      position: {
-        x: 600 + radius * Math.cos(angle),
-        y: 420 + radius * Math.sin(angle),
-      },
-      data: { rawNode: p, isSelected, isDimmed },
-      type: "customNode",
-    });
-  });
+  edges.forEach((e) => {
+    if (!activeNodeIds.has(e.source) || !activeNodeIds.has(e.target)) return;
 
-  // Tier 5: Topics outer ring
-  const topics = typeGroups["topic"] || [];
-  topics.forEach((t, idx) => {
-    const angle = (idx / Math.max(1, topics.length)) * 2 * Math.PI + 1.25;
-    const radius = 780;
-    const isSelected = t.id === selectedNodeId;
-    const isDimmed = Boolean(q && !t.label.toLowerCase().includes(q));
-    flowNodes.push({
-      id: t.id,
-      position: {
-        x: 600 + radius * Math.cos(angle),
-        y: 420 + radius * Math.sin(angle),
-      },
-      data: { rawNode: t, isSelected, isDimmed },
-      type: "customNode",
-    });
-  });
+    let src = e.source;
+    let tgt = e.target;
+    const colSrc = nodeColMap.get(src) ?? 0;
+    const colTgt = nodeColMap.get(tgt) ?? 0;
 
-  // Tier 6: Other entities
-  const entities = typeGroups["entity"] || [];
-  entities.forEach((e, idx) => {
-    const angle = (idx / Math.max(1, entities.length)) * 2 * Math.PI + 1.55;
-    const radius = 900;
-    const isSelected = e.id === selectedNodeId;
-    const isDimmed = Boolean(q && !e.label.toLowerCase().includes(q));
-    flowNodes.push({
-      id: e.id,
-      position: {
-        x: 600 + radius * Math.cos(angle),
-        y: 420 + radius * Math.sin(angle),
-      },
-      data: { rawNode: e, isSelected, isDimmed },
-      type: "customNode",
-    });
-  });
+    // Direct all edges Left ➔ Right
+    if (colSrc > colTgt) {
+      src = e.target;
+      tgt = e.source;
+    }
 
-  return flowNodes;
-}
+    const edgeKey = `${src}__${tgt}`;
+    if (seenEdges.has(edgeKey)) return;
+    seenEdges.add(edgeKey);
 
-function buildFlowEdges(
-  edges: GraphEdge[],
-  selectedNodeId: string | null
-): Edge[] {
-  return edges.map((e) => {
     const isConnected =
       Boolean(selectedNodeId) &&
-      (e.source === selectedNodeId || e.target === selectedNodeId);
+      (src === selectedNodeId || tgt === selectedNodeId);
 
-    return {
+    flowEdges.push({
       id: e.id,
-      source: e.source,
-      target: e.target,
+      source: src,
+      target: tgt,
+      type: "smoothstep",
       label: e.label?.replace(/_/g, " "),
       style: {
         stroke: isConnected ? "#4f46e5" : "#cbd5e1",
-        strokeWidth: isConnected ? 2 : 1,
+        strokeWidth: isConnected ? 2.5 : 1.2,
       },
       labelStyle: {
         fill: isConnected ? "#4338ca" : "#64748b",
         fontSize: 9,
-        fontWeight: isConnected ? 600 : 500,
+        fontWeight: isConnected ? 700 : 500,
       },
       animated: isConnected,
-    };
+    });
   });
+
+  return { flowNodes, flowEdges };
 }
 
-// ─── Copilot Chat Storage & Interfaces ───────────────────────────────────────
+// ─── Copilot Chat Interfaces & Storage ───────────────────────────────────────
 
 interface GraphChatMessage {
   id: string;
@@ -377,14 +376,14 @@ const STORAGE_KEY = "knowra_graph_copilot_sessions_v1";
 const DEFAULT_GRAPH_SESSIONS: GraphChatSession[] = [
   {
     id: "session-default",
-    title: "Knowledge Graph Neural RAG",
+    title: "Knowledge Graph Lineage Copilot",
     updatedAt: "Just now",
     messages: [
       {
         id: "msg-welcome",
         role: "assistant",
         content:
-          "Welcome to the **Knowledge Graph Intelligence Copilot**.\n\nI have indexed all participants, decisions, action items, and topic clusters across your workspace meetings. Ask me about organizational relationships, architectural choices, or click on any citation pill to jump straight to that entity in the graph.",
+          "Welcome to the **Knowledge Graph Intelligence Copilot**.\n\nYour organizational knowledge is laid out in a clean **Left-to-Right Lineage Flow** (Meetings ➔ Decisions ➔ Actions ➔ Owners & Topics).\n\nAsk me any question about architecture decisions, commitments, or click a citation pill to inspect that entity.",
         timestamp: "Just now",
       },
     ],
@@ -398,7 +397,7 @@ const SUGGESTED_QUERIES = [
   "Summarize active engineering commitments across recent syncs",
 ];
 
-// ─── Canvas Subcomponent (for useReactFlow hook access) ──────────────────────
+// ─── Canvas Subcomponent (useReactFlow hook access) ──────────────────────────
 
 function GraphCanvas({
   nodes,
@@ -424,6 +423,21 @@ function GraphCanvas({
 
   return (
     <div className="relative w-full h-[660px] bg-slate-50/70 rounded-2xl overflow-hidden border border-slate-200/90 shadow-2xs">
+      {/* Visual Column Headers Banner */}
+      <div className="absolute top-0 left-0 right-0 z-10 grid grid-cols-4 gap-2 px-6 py-2.5 bg-white/90 backdrop-blur-xs border-b border-slate-200/80 pointer-events-none">
+        {COLUMNS_DEF.map((col) => (
+          <div key={col.id} className="flex items-center gap-1.5">
+            <span
+              className="w-2 h-2 rounded-full shrink-0"
+              style={{ backgroundColor: col.color }}
+            />
+            <span className="text-xs font-bold text-slate-700 tracking-tight">
+              {col.label}
+            </span>
+          </div>
+        ))}
+      </div>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -433,7 +447,7 @@ function GraphCanvas({
         fitView
         attributionPosition="bottom-left"
         minZoom={0.15}
-        maxZoom={2.2}
+        maxZoom={2.0}
       >
         <Background
           variant={BackgroundVariant.Dots}
@@ -458,7 +472,7 @@ function GraphCanvas({
 
       {/* Selected Node Floating Inspector */}
       {selectedNode && (
-        <div className="absolute top-4 left-4 z-20 w-80 animate-in fade-in slide-in-from-left-2 duration-150 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col max-h-[calc(100%-32px)]">
+        <div className="absolute top-14 left-4 z-20 w-80 animate-in fade-in slide-in-from-left-2 duration-150 bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden flex flex-col max-h-[calc(100%-80px)]">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50/70">
             <div className="flex items-center gap-2 min-w-0">
               <span
@@ -573,6 +587,7 @@ export default function GraphPage() {
   const [activeTypes, setActiveTypes] = useState<Set<string>>(
     new Set(NODE_TYPES_LIST)
   );
+  const [selectedMeetingId, setSelectedMeetingId] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -643,28 +658,26 @@ export default function GraphPage() {
     }
   }, [activeSession?.messages, isThinking, isCopilotOpen]);
 
-  // Handle Filtering
+  // List of distinct meetings for meeting selector dropdown
+  const meetingOptions = useMemo(() => {
+    return (data?.nodes ?? []).filter((n) => n.type === "meeting");
+  }, [data?.nodes]);
+
+  // Filtered nodes by type
   const filteredNodes = useMemo(() => {
     return (data?.nodes ?? []).filter((n) => activeTypes.has(n.type));
   }, [data?.nodes, activeTypes]);
 
-  const filteredNodeIds = useMemo(() => {
-    return new Set(filteredNodes.map((n) => n.id));
-  }, [filteredNodes]);
-
-  const filteredEdges = useMemo(() => {
-    return (data?.edges ?? []).filter(
-      (e) => filteredNodeIds.has(e.source) && filteredNodeIds.has(e.target)
+  // Hierarchical Flow calculation
+  const { flowNodes, flowEdges } = useMemo(() => {
+    return buildHierarchicalFlow(
+      filteredNodes,
+      data?.edges ?? [],
+      selectedNode?.id ?? null,
+      searchQuery,
+      selectedMeetingId
     );
-  }, [data?.edges, filteredNodeIds]);
-
-  const flowNodes = useMemo(() => {
-    return buildFlowNodes(filteredNodes, selectedNode?.id ?? null, searchQuery);
-  }, [filteredNodes, selectedNode?.id, searchQuery]);
-
-  const flowEdges = useMemo(() => {
-    return buildFlowEdges(filteredEdges, selectedNode?.id ?? null);
-  }, [filteredEdges, selectedNode?.id]);
+  }, [filteredNodes, data?.edges, selectedNode?.id, searchQuery, selectedMeetingId]);
 
   // Toggle Type Filter
   const toggleType = (type: string) => {
@@ -813,7 +826,7 @@ export default function GraphPage() {
   // Metrics extraction
   const metrics: GraphMetrics = data?.metrics ?? {
     total_nodes: filteredNodes.length,
-    total_edges: filteredEdges.length,
+    total_edges: data?.edges?.length ?? 0,
     active_communities: (data?.nodes ?? []).filter((n) => n.type === "meeting").length || 1,
     density: 0.038,
     type_counts: {},
@@ -824,14 +837,14 @@ export default function GraphPage() {
       {/* ── 1. ENTERPRISE PAGE HEADER ──────────────────────────────────────── */}
       <PageHeader
         title="Cross-Meeting Knowledge Graph"
-        subtitle="Interactive neural network of participants, topics, decisions, and action items discovered across conversations."
+        subtitle="Structured lineage flow connecting conversations, decisions, commitments, and team members."
         icon={GitBranch}
         statusDot={true}
         badge={
           <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1.5 shadow-2xs">
             <Network size={12} />
             <span>
-              {filteredNodes.length} Entities • {filteredEdges.length} Relations
+              {filteredNodes.length} Entities • {data?.edges?.length ?? 0} Relations
             </span>
           </span>
         }
@@ -931,7 +944,7 @@ export default function GraphPage() {
             </div>
           </div>
           <p className="text-[11px] text-slate-400 mt-1">
-            Evidence-backed links & provenance
+            Horizontal provenance & decision paths
           </p>
         </div>
 
@@ -959,9 +972,9 @@ export default function GraphPage() {
         {/* Network Density */}
         <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs p-4 flex flex-col justify-between hover:border-slate-300 transition-all">
           <div className="flex items-center justify-between text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            <span>Graph Centrality</span>
+            <span>Lineage Density</span>
             <span className="text-[10px] font-mono bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded border border-purple-200">
-              Density
+              Coverage
             </span>
           </div>
           <div className="flex items-baseline justify-between mt-3">
@@ -978,45 +991,27 @@ export default function GraphPage() {
         </div>
       </div>
 
-      {/* ── 3. FILTER & SEARCH CONTROL BAR ─────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-3.5 space-y-3">
+      {/* ── 3. FILTER & SCOPE CONTROL BAR ─────────────────────────────────── */}
+      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 space-y-3.5">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-          {/* Entity Type Filter Pills */}
-          <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
-            <span className="text-[11px] font-semibold text-slate-400 mr-1">
-              Filter By:
+          {/* Meeting Focus Selector */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 shrink-0">
+              <Filter size={12} />
+              <span>Scope:</span>
             </span>
-            {NODE_TYPES_LIST.map((type) => {
-              const config = NODE_TYPE_CONFIG[type];
-              const active = activeTypes.has(type);
-              const count = (data?.nodes ?? []).filter((n) => n.type === type).length;
-
-              return (
-                <button
-                  key={type}
-                  onClick={() => toggleType(type)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer",
-                    active
-                      ? `${config.badgeBg} shadow-2xs`
-                      : "bg-slate-50 border-slate-200 text-slate-400 opacity-60 hover:opacity-100"
-                  )}
-                >
-                  {config.icon}
-                  <span>{config.label}</span>
-                  <span className="text-[10px] font-mono px-1 py-0.2 rounded-full bg-white/70 border border-slate-200/60 ml-0.5">
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-
-            <button
-              onClick={selectAllTypes}
-              className="text-[11px] font-semibold text-slate-400 hover:text-indigo-600 px-2 py-1 transition-colors cursor-pointer"
+            <select
+              value={selectedMeetingId}
+              onChange={(e) => setSelectedMeetingId(e.target.value)}
+              className="h-9 px-3 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 font-semibold focus:outline-hidden focus:border-indigo-600 cursor-pointer shadow-2xs w-full sm:w-72 truncate"
             >
-              Reset
-            </button>
+              <option value="ALL">🌐 All Meetings Lineage Flow</option>
+              {meetingOptions.map((m) => (
+                <option key={m.id} value={m.id}>
+                  📋 {m.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Search Node Input */}
@@ -1027,7 +1022,7 @@ export default function GraphPage() {
             />
             <input
               type="text"
-              placeholder="Highlight entity in graph..."
+              placeholder="Filter node in flow..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full h-9 pl-9 pr-8 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-hidden focus:border-indigo-600 focus:bg-white transition-all shadow-2xs"
@@ -1042,11 +1037,49 @@ export default function GraphPage() {
             )}
           </div>
         </div>
+
+        {/* Entity Type Filter Pills */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-slate-100">
+          <span className="text-[11px] font-semibold text-slate-400 mr-1">
+            Display Columns:
+          </span>
+          {NODE_TYPES_LIST.map((type) => {
+            const config = NODE_TYPE_CONFIG[type];
+            const active = activeTypes.has(type);
+            const count = (data?.nodes ?? []).filter((n) => n.type === type).length;
+
+            return (
+              <button
+                key={type}
+                onClick={() => toggleType(type)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-semibold border transition-all cursor-pointer",
+                  active
+                    ? `${config.badgeBg} shadow-2xs`
+                    : "bg-slate-50 border-slate-200 text-slate-400 opacity-60 hover:opacity-100"
+                )}
+              >
+                {config.icon}
+                <span>{config.label}</span>
+                <span className="text-[10px] font-mono px-1 py-0.2 rounded-full bg-white/70 border border-slate-200/60 ml-0.5">
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+
+          <button
+            onClick={selectAllTypes}
+            className="text-[11px] font-semibold text-slate-400 hover:text-indigo-600 px-2 py-1 transition-colors cursor-pointer ml-auto"
+          >
+            Reset Filters
+          </button>
+        </div>
       </div>
 
-      {/* ── 4. MAIN SPLIT PANE: GRAPH CANVAS + GPT COPILOT DRAWER ───────────── */}
+      {/* ── 4. MAIN SPLIT PANE: HIERARCHICAL CANVAS + GPT COPILOT DRAWER ────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Pane: ReactFlow Canvas */}
+        {/* Left Pane: Hierarchical Flow Canvas */}
         <div
           className={cn(
             "transition-all duration-200",
@@ -1057,21 +1090,24 @@ export default function GraphPage() {
             <div className="flex flex-col items-center justify-center h-[660px] gap-2 border border-slate-200 rounded-2xl bg-white shadow-2xs">
               <Spinner size={32} />
               <p className="text-xs text-slate-500 font-medium">
-                Loading cross-meeting knowledge graph...
+                Loading hierarchical knowledge flow...
               </p>
             </div>
-          ) : filteredNodes.length === 0 ? (
+          ) : flowNodes.length === 0 ? (
             <div className="flex items-center justify-center h-[660px] border border-slate-200 rounded-2xl bg-white shadow-2xs">
               <EmptyState
                 icon={<GitBranch />}
-                title="No Graph Nodes Available"
-                description="Click 'Sync Graph' above to parse your meeting transcripts and extract organizational entities."
+                title="No Graph Nodes in Selected Scope"
+                description="Try selecting 'All Meetings' in the scope selector above or click 'Sync Graph'."
                 action={
                   <button
-                    onClick={() => syncMutation.mutate()}
+                    onClick={() => {
+                      setSelectedMeetingId("ALL");
+                      selectAllTypes();
+                    }}
                     className="mt-2 px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700 cursor-pointer shadow-xs"
                   >
-                    Sync Knowledge Graph Now
+                    Reset Scope to All Meetings
                   </button>
                 }
               />
@@ -1235,7 +1271,7 @@ export default function GraphPage() {
                   </div>
                   <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-xs p-3 text-xs text-slate-500 flex items-center gap-2 shadow-2xs">
                     <Spinner size={12} />
-                    <span>Traversing cross-meeting paths...</span>
+                    <span>Traversing lineage paths...</span>
                   </div>
                 </div>
               )}

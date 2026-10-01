@@ -19,6 +19,7 @@ import {
 import { useRouter } from "next/navigation";
 import { api, getWebSocketUrl } from "@/lib/api/client";
 import { useSession } from "@/lib/auth/session";
+import { toast } from "@/components/ui/toast";
 
 export interface LiveMeetingModalProps {
   isOpen: boolean;
@@ -383,7 +384,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
     } catch (err) {
       console.error("Failed to start live meeting:", err);
       setIsStarting(false);
-      alert("Could not start live meeting session. Please ensure backend is running.");
+      toast.error("Could not start live meeting session. Please ensure backend is running.");
     }
   };
 

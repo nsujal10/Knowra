@@ -23,6 +23,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { SSOButtons } from "@/components/auth/SSOButtons";
+import { toast } from "@/components/ui/toast";
 
 // ─── Validation Schemas ───────────────────────────────────────────────────────
 const ALLOWED_DOMAIN = "softude.com";
@@ -683,7 +684,7 @@ export function AuthScreen({ initialTab = "signin" }: AuthScreenProps) {
                     href="#"
                     onClick={(e) => {
                       e.preventDefault();
-                      alert("Password reset instructions have been dispatched if the account exists.");
+                      toast.info("Password reset instructions have been dispatched if the account exists.");
                     }}
                     style={{ fontSize: 11.5, color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
                   >

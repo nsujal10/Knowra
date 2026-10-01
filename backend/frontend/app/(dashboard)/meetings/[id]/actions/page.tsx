@@ -22,6 +22,7 @@ import {
   Quote,
   Flame,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 export default function MeetingActionsPage() {
   const params = useParams();
@@ -56,27 +57,34 @@ export default function MeetingActionsPage() {
       const previousData = queryClient.getQueryData<EnterpriseActionsResponse>(currentQueryKey);
 
       if (previousData) {
+        const itemToUpdate = previousData.items.find((i) => i.id === actionId);
+        const willBeCompleted = itemToUpdate?.status !== "COMPLETED";
+
         queryClient.setQueryData<EnterpriseActionsResponse>(currentQueryKey, {
           ...previousData,
           items: previousData.items.map((item) =>
             item.id === actionId
               ? {
                   ...item,
-                  status: item.status === "COMPLETED" ? "OPEN" : "COMPLETED",
-                  completed_at: item.status === "COMPLETED" ? null : new Date().toISOString(),
+                  status: willBeCompleted ? "COMPLETED" : "OPEN",
+                  completed_at: willBeCompleted ? new Date().toISOString() : null,
                 }
               : item
           ),
           metrics: {
             ...previousData.metrics,
             completed_count:
-              previousData.metrics.completed_count +
-              (previousData.items.find((i) => i.id === actionId)?.status === "COMPLETED" ? -1 : 1),
+              previousData.metrics.completed_count + (willBeCompleted ? 1 : -1),
             pending_count:
-              previousData.metrics.pending_count +
-              (previousData.items.find((i) => i.id === actionId)?.status === "COMPLETED" ? 1 : -1),
+              previousData.metrics.pending_count + (willBeCompleted ? -1 : 1),
           },
         });
+
+        if (willBeCompleted) {
+          toast.success("Deliverable marked as completed");
+        } else {
+          toast.info("Deliverable moved to pending");
+        }
       }
       return { previousData, currentQueryKey };
     },
@@ -84,6 +92,7 @@ export default function MeetingActionsPage() {
       if (context?.previousData) {
         queryClient.setQueryData(context.currentQueryKey, context.previousData);
       }
+      toast.error("Could not update deliverable status");
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.actions.byMeeting(rawMeetingId) });

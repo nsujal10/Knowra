@@ -14,6 +14,7 @@ import {
   type CalendarMeetingItem,
 } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
+import { toast } from "@/components/ui/toast";
 import { cn, relativeTime } from "@/lib/utils";
 import {
   Layers,
@@ -332,7 +333,7 @@ export default function IntegrationsPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarStatus() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
-      alert(data?.message || "Calendars successfully synchronized!");
+      toast.success(data?.message || "Calendars successfully synchronized!");
     },
   });
 
@@ -373,7 +374,7 @@ export default function IntegrationsPage() {
     mutationFn: (id: string) => api.post<{ detail: string }>(INTEGRATIONS.test(id), {}),
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
-      alert(res?.detail || "Test ping successfully dispatched! Check Delivery Logs tab.");
+      toast.success(res?.detail || "Test ping successfully dispatched!");
     },
   });
 
@@ -421,7 +422,7 @@ export default function IntegrationsPage() {
     const cleanEmail = chosenEmail.trim();
 
     if (!cleanEmail || !cleanEmail.includes("@")) {
-      alert("Please provide a valid email address to connect.");
+      toast.error("Please provide a valid email address to connect.");
       return;
     }
 
@@ -572,13 +573,13 @@ export default function IntegrationsPage() {
     <div className="space-y-6 max-w-[1600px] mx-auto pb-16 animate-fade-in font-sans">
       {/* ── 1. ENTERPRISE HEADER ────────────────────────────────────────────── */}
       <PageHeader
-        title="Enterprise Connectors & Ecosystem"
+        title="Integrations"
         subtitle="Manage calendar synchronization, meeting auto-join bots, team notifications, and live email recaps."
         icon={Layers}
         statusDot={true}
         badge={
           <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            {activeCount} Connectors Active • Realtime Calendar Sync
+            {activeCount} active · Realtime calendar sync
           </span>
         }
         actions={
@@ -1885,7 +1886,7 @@ export default function IntegrationsPage() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(JSON.stringify(viewingPayload, null, 2));
-                  alert("Payload copied to clipboard!");
+                  toast.success("Payload copied to clipboard");
                 }}
                 className="px-3 py-1 bg-white border border-slate-200 rounded text-xs font-medium text-slate-700 hover:bg-slate-100"
               >

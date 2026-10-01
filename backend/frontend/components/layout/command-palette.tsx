@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
@@ -124,9 +125,14 @@ const STATIC_NAV_ITEMS: NavItem[] = [
 
 export function CommandPalette({ isOpen, onClose, onOpenUpload }: CommandPaletteProps) {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Auto focus input when opened
   useEffect(() => {
@@ -270,10 +276,10 @@ export function CommandPalette({ isOpen, onClose, onOpenUpload }: CommandPalette
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-start justify-center pt-20 px-4 bg-slate-950/60 backdrop-blur-sm animate-fade-in">
       <div
         className="fixed inset-0"
         onClick={onClose}
@@ -399,6 +405,7 @@ export function CommandPalette({ isOpen, onClose, onOpenUpload }: CommandPalette
           <span className="font-medium text-slate-500">Knowra Enterprise Search</span>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

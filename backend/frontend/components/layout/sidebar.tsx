@@ -11,19 +11,16 @@ import {
   Video,
   CheckSquare,
   ListTodo,
-  AlertTriangle,
   Folder,
   Plus,
   Layers,
   GitBranch,
   BarChart3,
   ShieldCheck,
-  PlusCircle,
   ChevronRight,
   ChevronLeft,
   ChevronDown,
   LogOut,
-  Languages,
 } from "lucide-react";
 import { useWorkspaceFolders } from "@/hooks/useWorkspaceFolders";
 import { CreateFolderModal } from "@/components/meetings/CreateFolderModal";
@@ -41,7 +38,6 @@ const PRIMARY_NAV_ITEMS: NavItem[] = [
   { label: "Meetings",      href: "/meetings",     icon: Video },
   { label: "Decisions",     href: "/decisions",    icon: CheckSquare },
   { label: "Actions",       href: "/actions",      icon: ListTodo },
-  { label: "Risks",         href: "/evaluation",   icon: AlertTriangle },
   { label: "Folders",       href: "/folders",      icon: Folder, hasPlus: true },
   { label: "Integrations",  href: "/integrations", icon: Layers },
 ];
@@ -105,24 +101,14 @@ export function Sidebar() {
         </Link>
 
         {!collapsed ? (
-          <div className="flex items-center gap-1 text-slate-400">
-            <button
-              type="button"
-              className="flex items-center gap-1 text-xs font-medium hover:text-white px-1.5 py-1 rounded hover:bg-white/[0.08] transition-colors cursor-pointer"
-              title="Language"
-            >
-              <Languages size={13} />
-              <span className="text-[11px] font-semibold">EN</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setCollapsed(true)}
-              className="p-1.5 hover:text-white transition-colors cursor-pointer rounded hover:bg-white/[0.08] text-slate-400"
-              title="Collapse sidebar"
-            >
-              <ChevronLeft size={16} />
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setCollapsed(true)}
+            className="p-1.5 hover:text-white transition-colors cursor-pointer rounded hover:bg-white/[0.08] text-slate-400"
+            title="Collapse sidebar"
+          >
+            <ChevronLeft size={16} />
+          </button>
         ) : (
           <button
             type="button"
@@ -288,19 +274,7 @@ export function Sidebar() {
           </div>
         )}
 
-        {/* Add to Live Meeting Action */}
-        {!collapsed && (
-          <div className="pt-2">
-            <button
-              type="button"
-              onClick={() => alert("Knowra AI joining live meeting…")}
-              className="w-full flex items-center justify-center gap-2 h-9 text-xs font-medium text-white border border-white/15 hover:border-white/30 hover:bg-white/[0.07] rounded-md transition-all cursor-pointer shadow-2xs"
-            >
-              <PlusCircle size={15} className="text-[#a594fd] shrink-0" />
-              <span>Add to live meeting</span>
-            </button>
-          </div>
-        )}
+
       </nav>
 
       {/* ── BOTTOM: PINNED USER PROFILE ────────────────────────────────────── */}

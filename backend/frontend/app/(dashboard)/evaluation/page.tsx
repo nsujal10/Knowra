@@ -34,6 +34,7 @@ import {
 import { formatMetric, formatCost, metricColor, formatDate, cn } from "@/lib/utils";
 import { CheckCircle2, XCircle, AlertCircle, Zap, DollarSign, Clock, ShieldCheck, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { toast } from "@/components/ui/toast";
 
 const TABS = ["Overview", "Runs", "Traces", "Costs"] as const;
 type Tab = (typeof TABS)[number];
@@ -75,52 +76,56 @@ export default function EvaluationPage() {
     refetchCosts();
     refetchRuns();
     refetchTraces();
+    toast.success("AI evaluation telemetry refreshed");
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pb-16 animate-fade-in">
-      {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
-      <PageHeader
-        title="AI Quality & Governance"
-        subtitle="Continuous faithfulness benchmarking, context precision verification, token cost telemetry, and safety guardrails."
-        icon={ShieldCheck}
-        statusDot={true}
-        badge={
-          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-            {quality ? `${quality.passed_runs}/${quality.total_runs} Evals Passed` : "Continuous RBAC"}
-          </span>
-        }
-        actions={
-          <button
-            onClick={handleRefreshAll}
-            disabled={isFetchingQuality}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
-            title="Refresh AI evaluation metrics"
-          >
-            <RefreshCw size={13} className={isFetchingQuality ? "animate-spin" : ""} />
-            <span>Sync Telemetry</span>
-          </button>
-        }
-      />
+    <div className="w-full min-w-0 flex-1 overflow-x-hidden">
+      <div className="w-full max-w-[1600px] mx-auto flex flex-col gap-5 pb-16">
+        {/* ── ENTERPRISE PAGE HEADER ─────────────────────────────────────────── */}
+        <PageHeader
+          title="Evaluation"
+          subtitle="Continuous faithfulness benchmarking, context precision verification, and safety telemetry."
+          icon={ShieldCheck}
+          statusDot={true}
+          badge={
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              {quality ? `${quality.passed_runs}/${quality.total_runs} Evals Passed` : "Continuous RBAC"}
+            </span>
+          }
+          actions={
+            <button
+              onClick={handleRefreshAll}
+              disabled={isFetchingQuality}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-50 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              title="Refresh AI evaluation metrics"
+            >
+              <RefreshCw size={13} className={isFetchingQuality ? "animate-spin" : ""} />
+              <span>Sync Telemetry</span>
+            </button>
+          }
+        />
 
-      {/* Tabs */}
-      <div className="flex gap-1 border-b border-[var(--border)] pb-0">
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={cn(
-              "px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-all",
-              activeTab === tab
-                ? "border-[var(--primary)] text-[var(--primary)]"
-                : "border-transparent text-[var(--muted-strong)] hover:text-[var(--foreground)]"
-            )}
-            id={`eval-tab-${tab.toLowerCase()}`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+        {/* Tabs */}
+        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-xs w-fit">
+          {TABS.map((tab) => {
+            const active = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`cursor-pointer transition-all px-3.5 py-1.5 rounded-lg text-xs font-semibold ${
+                  active
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
+                }`}
+                id={`eval-tab-${tab.toLowerCase()}`}
+              >
+                {tab}
+              </button>
+            );
+          })}
+        </div>
 
       {activeTab === "Overview" && quality && (
         <div className="space-y-5">
@@ -344,6 +349,7 @@ export default function EvaluationPage() {
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

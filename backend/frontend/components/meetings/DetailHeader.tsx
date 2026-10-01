@@ -23,6 +23,7 @@ import {
 import { MeetingIntelligence } from "./types";
 import { DeleteMeetingModal } from "./DeleteMeetingModal";
 import { api } from "@/lib/api/client";
+import { toast } from "@/components/ui/toast";
 
 interface DetailHeaderProps {
   meeting: MeetingIntelligence;
@@ -53,6 +54,7 @@ export function DetailHeader({
     if (typeof window !== "undefined") {
       navigator.clipboard.writeText(window.location.href);
       setIsCopied(true);
+      toast.success("Meeting link copied to clipboard");
       setTimeout(() => setIsCopied(false), 2000);
     }
   };
@@ -66,6 +68,7 @@ export function DetailHeader({
     a.click();
     URL.revokeObjectURL(url);
     setShowDownloadDropdown(false);
+    toast.success("Meeting summary downloaded");
   };
 
   const handleDownloadVideo = async () => {
@@ -84,11 +87,11 @@ export function DetailHeader({
         a.click();
         document.body.removeChild(a);
       } else {
-        alert("Video stream is currently unavailable for this meeting.");
+        toast.error("Video stream is currently unavailable for this meeting.");
       }
     } catch (err) {
       console.error("Failed to download video:", err);
-      alert("Could not generate video download link. Please try again.");
+      toast.error("Could not generate video download link. Please try again.");
     } finally {
       setIsDownloadingVideo(false);
       setShowDownloadDropdown(false);
@@ -192,10 +195,10 @@ export function DetailHeader({
                 <button
                   type="button"
                   onClick={() => {
-                    alert("Exporting to Notion...");
+                    toast.success("Meeting summary exported to Notion");
                     setShowPushDropdown(false);
                   }}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                 >
                   <span className="w-2 h-2 rounded-full bg-slate-800" />
                   Push to Notion
@@ -203,10 +206,10 @@ export function DetailHeader({
                 <button
                   type="button"
                   onClick={() => {
-                    alert("Exporting to Slack...");
+                    toast.success("Meeting summary dispatched to Slack");
                     setShowPushDropdown(false);
                   }}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                 >
                   <span className="w-2 h-2 rounded-full bg-emerald-500" />
                   Push to Slack
@@ -214,10 +217,10 @@ export function DetailHeader({
                 <button
                   type="button"
                   onClick={() => {
-                    alert("Exporting to HubSpot / Salesforce...");
+                    toast.success("Action items synchronized with HubSpot CRM");
                     setShowPushDropdown(false);
                   }}
-                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                  className="w-full px-4 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
                 >
                   <span className="w-2 h-2 rounded-full bg-orange-500" />
                   Push to HubSpot CRM

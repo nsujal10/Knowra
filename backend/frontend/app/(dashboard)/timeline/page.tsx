@@ -8,6 +8,7 @@ import { CROSS_MEETING } from "@/lib/api/endpoints";
 import { queryKeys } from "@/lib/query/keys";
 import { type TimelineEvent } from "@/lib/types";
 import { PageHeader } from "@/components/ui/page-header";
+import { toast } from "@/components/ui/toast";
 import { cn, formatDate, relativeTime, speakerColor } from "@/lib/utils";
 import {
   BarChart3,
@@ -497,7 +498,7 @@ export default function TimelinePage() {
       ),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.timeline.decisions() });
-      alert(data?.message || "Cross-meeting timeline synchronized successfully!");
+      toast.success(data?.message || "Cross-meeting timeline synchronized successfully!");
     },
   });
 
@@ -702,13 +703,13 @@ export default function TimelinePage() {
     <div className="space-y-6 max-w-[1700px] mx-auto pb-16 animate-fade-in font-sans">
       {/* ── 1. ENTERPRISE PAGE HEADER ───────────────────────────────────────── */}
       <PageHeader
-        title="Timeline & Cross-Meeting Analytics"
+        title="Timeline"
         subtitle="Chronological audit trail of decisions, commitments, and topic evolution across all workspace meetings."
         icon={BarChart3}
         statusDot={true}
         badge={
           <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-            {events.length} Historical Events • Cross-Meeting Graph Active
+            {events.length} Historical Events
           </span>
         }
         actions={

@@ -1317,8 +1317,8 @@ export default function GraphPage() {
     <div className="space-y-6 pb-12 animate-in fade-in duration-300">
       {/* ── 1. ENTERPRISE PAGE HEADER ──────────────────────────────────────── */}
       <PageHeader
-        title="Cross-Meeting Knowledge Graph"
-        subtitle="Structured lineage flow connecting conversations, decisions, commitments, and team members."
+        title="Knowledge Graph"
+        subtitle="Visual lineage connecting conversations, confirmed decisions, action items, and key stakeholders."
         icon={GitBranch}
         statusDot={true}
         badge={

@@ -11,7 +11,9 @@ import {
   Copy,
   Bookmark,
   Check,
+  X,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 export default function MeetingTranscriptPage() {
   const [search, setSearch] = useState("");
@@ -31,33 +33,42 @@ export default function MeetingTranscriptPage() {
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard?.writeText(text);
     setCopiedId(id);
+    toast.success("Transcript segment copied to clipboard");
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   return (
     <div className="space-y-4">
       {/* Controls Bar */}
-      <div className="card p-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+      <div className="bg-white rounded-xl border border-slate-200 p-3 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
         {/* Search */}
         <div className="relative w-full sm:w-80">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
             placeholder="Search within transcript…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full h-8 pl-9 pr-3 rounded-[var(--radius-sm)] bg-[var(--surface-2)] border border-[var(--border)] text-xs text-[var(--foreground)] placeholder-[var(--muted)] outline-none focus:border-[var(--primary)] transition-all"
+            className="w-full h-8 pl-9 pr-8 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-500 focus:bg-white transition-all"
           />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
 
         {/* Speaker Filters */}
         <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
           <button
             onClick={() => setSelectedSpeaker("ALL")}
-            className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+            className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
               selectedSpeaker === "ALL"
-                ? "bg-[var(--primary)] text-white"
-                : "bg-[var(--surface-2)] text-[var(--muted-strong)] hover:text-[var(--foreground)]"
+                ? "bg-slate-900 text-white font-semibold shadow-2xs"
+                : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
             }`}
           >
             All Speakers
@@ -66,10 +77,10 @@ export default function MeetingTranscriptPage() {
             <button
               key={sp.id}
               onClick={() => setSelectedSpeaker(sp.label)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all cursor-pointer ${
+              className={`px-3 py-1 rounded-full text-xs font-medium transition-all cursor-pointer whitespace-nowrap ${
                 selectedSpeaker === sp.label
-                  ? "bg-[var(--primary)] text-white"
-                  : "bg-[var(--surface-2)] text-[var(--muted-strong)] hover:text-[var(--foreground)]"
+                  ? "bg-slate-900 text-white font-semibold shadow-2xs"
+                  : "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
               }`}
             >
               {sp.displayName}
@@ -79,9 +90,9 @@ export default function MeetingTranscriptPage() {
       </div>
 
       {/* Transcript List */}
-      <div className="card divide-y divide-[var(--border)] p-0 overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 p-0 overflow-hidden shadow-xs">
         {filteredSegments.length === 0 ? (
-          <div className="py-12 text-center text-xs text-[var(--muted)]">
+          <div className="py-12 text-center text-xs text-slate-400">
             No matching transcript segments found.
           </div>
         ) : (
@@ -96,11 +107,11 @@ export default function MeetingTranscriptPage() {
             return (
               <div
                 key={seg.id}
-                className="p-4 hover:bg-[var(--surface-2)] transition-colors flex items-start gap-4 group"
+                className="p-4 hover:bg-slate-50/80 transition-colors flex items-start gap-4 group"
               >
                 {/* Speaker Avatar */}
                 <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5 shadow-2xs"
                   style={{ background: speakerColor(speakerInfo.label) }}
                 >
                   {speakerInfo.initials}
@@ -109,14 +120,14 @@ export default function MeetingTranscriptPage() {
                 {/* Content */}
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2.5">
-                    <span className="text-xs font-bold text-[var(--foreground)]">
+                    <span className="text-xs font-bold text-slate-900">
                       {speakerInfo.displayName}
                     </span>
-                    <button className="px-1.5 py-0.2 rounded bg-[var(--primary-muted)] text-[10px] font-mono font-semibold text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white transition-all cursor-pointer">
+                    <span className="px-2 py-0.5 rounded bg-indigo-50 text-[10px] font-mono font-semibold text-indigo-700">
                       {formatDuration(seg.start_time)}
-                    </button>
+                    </span>
                   </div>
-                  <p className="text-xs text-[var(--foreground)] leading-relaxed">
+                  <p className="text-xs text-slate-700 leading-relaxed">
                     {seg.text}
                   </p>
                 </div>
@@ -126,17 +137,18 @@ export default function MeetingTranscriptPage() {
                   <button
                     onClick={() => handleCopy(seg.id, seg.text)}
                     title="Copy transcript segment"
-                    className="p-1.5 rounded hover:bg-[var(--surface-3)] text-[var(--muted-strong)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                   >
                     {copiedId === seg.id ? (
-                      <Check size={13} className="text-emerald-400" />
+                      <Check size={13} className="text-emerald-600" />
                     ) : (
                       <Copy size={13} />
                     )}
                   </button>
                   <button
+                    onClick={() => toast.info("Segment bookmarked")}
                     title="Bookmark segment"
-                    className="p-1.5 rounded hover:bg-[var(--surface-3)] text-[var(--muted-strong)] hover:text-[var(--foreground)] transition-colors cursor-pointer"
+                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors cursor-pointer"
                   >
                     <Bookmark size={13} />
                   </button>

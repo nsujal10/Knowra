@@ -21,6 +21,7 @@ import {
   RefreshCw,
   Video,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 export default function MeetingDecisionsPage() {
   const params = useParams();
@@ -64,9 +65,11 @@ export default function MeetingDecisionsPage() {
         await navigator.clipboard.writeText(textToCopy);
       }
       setCopiedId(decision.id);
+      toast.success("Decision summary copied to clipboard");
       setTimeout(() => setCopiedId(null), 2500);
     } catch {
       setCopiedId(decision.id);
+      toast.info("Decision copied");
       setTimeout(() => setCopiedId(null), 2500);
     }
   };

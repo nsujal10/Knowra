@@ -6,6 +6,7 @@ from app.models.enums import ArtifactType
 from app.models.transcription_run import TranscriptionRun
 from app.models.processing_job import ProcessingJob
 from app.ai.transcription.factory import get_transcription_provider
+from app.core.config import settings
 from app.ai.transcription.schemas import TranscriptionOptions
 from app.services.transcription_service import TranscriptionService
 from app.storage.minio import get_storage_client
@@ -104,7 +105,7 @@ def execute_transcription_task(self, job_id: str, tenant_id: str, media_id: str)
             raise ValueError("Neither canonical NORMALIZED_AUDIO nor raw media found.")
         
         # Execute Transcription via Provider Abstraction
-        provider = get_transcription_provider()
+        provider = get_transcription_provider(model="whisper-large-v3-turbo")
         default_lang = getattr(settings, "DEFAULT_ASR_LANGUAGE", "hinglish")
         options = TranscriptionOptions(word_timestamps=True, beam_size=5, language=default_lang)
         result = provider.transcribe(local_audio_path, options)

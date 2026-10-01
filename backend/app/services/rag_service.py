@@ -227,6 +227,7 @@ CRITICAL OPERATIONAL RULES:
 3. If the user asks about something not discussed or absent from the transcript, you MUST explicitly state: "This was not discussed in this meeting."
 4. Always cite specific moments using exact timestamp bracket tags like [MM:SS] (e.g. [0:00], [3:20], [6:03]) so users can click to seek the recording.
 5. Be concise, professional, clear, and direct. When summarizing, highlight concrete decisions, owners, and key discussion points.
+6. FORMATTING RULE: NEVER use the asterisk symbol (*) or double asterisks (**) anywhere in your response. Do not use asterisks for bullets or bolding. Use standard bullet dots (•), numbers (1., 2.), dashes (-), or plain text.
 """
 
         user_content = f"Meeting Context:\n{context_str}\n\nUser Question: {query}"
@@ -271,6 +272,12 @@ CRITICAL OPERATIONAL RULES:
         # Grounded Deterministic Fallback if LLM request failed or no key
         if not assistant_text:
             assistant_text = self._generate_grounded_fallback(query, meeting_title, context_str)
+
+        # Sanitize any asterisk symbols completely so responses are clean
+        if assistant_text:
+            import re
+            assistant_text = re.sub(r'(?m)^(\s*)\*\s+', r'\1• ', assistant_text)
+            assistant_text = assistant_text.replace("*", "")
 
         # Extract structured citations from response and context
         citations = self._extract_citations(assistant_text, timeline_anchors, context_str)

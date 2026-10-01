@@ -1,0 +1,55 @@
+1
+00:00:05,000 --> 00:00:31,000
+Sujal Nage: Good morning everyone, welcome to the Knowra Enterprise Architecture & Product Sync. Today our primary agenda is finalizing the direct transcript ingestion pipeline, validating our hybrid RAG retrieval speed, and reviewing compliance policies for customer meeting transcripts. Alison, would you like to kick off with the product priorities?
+
+2
+00:00:32,000 --> 00:01:04,000
+Alison Barker: Thanks Sujal. From the product perspective, enterprise clients have been requesting direct text transcript ingestion without forcing a video or audio upload. Teams that already export transcripts from Zoom, Teams, or Google Meet want instant meeting summaries, action items, and decision logs within seconds rather than waiting for heavy audio models to transcribe.
+
+3
+00:01:05,000 --> 00:01:37,000
+Eliab Sisay: That makes complete sense. From an infrastructure standpoint, processing a text transcript bypasses the FFmpeg audio extraction and Whisper GPU inference phases completely. We can ingest a 45-minute transcript, parse speakers and timestamps, run our Groq-accelerated LLM intelligence extraction, and embed the chunks into our vector database in under four seconds.
+
+4
+00:01:38,000 --> 00:02:03,000
+Kelcey Hawthorne: From the security and compliance angle, we need to ensure that raw transcript imports adhere to our multi-tenant boundary isolation. Every imported transcript segment and resulting knowledge chunk must be scoped strictly by tenant_id, and encrypted at rest in our MinIO object store.
+
+5
+00:02:04,000 --> 00:02:24,000
+Sujal Nage: Exactly right, Kelcey. The tenant context middleware automatically stamps the tenant UUID on every database transaction, so no user from one organization can ever retrieve or search transcripts belonging to another organization.
+
+6
+00:02:25,000 --> 00:02:34,000
+Alison Barker: What about speaker identification when the imported file doesn't have explicit speaker names?
+
+7
+00:02:35,000 --> 00:03:07,000
+Eliab Sisay: The new transcript parser handles three distinct formats: first, structured dialogue with timestamps; second, conversational dialogue with speaker names preceding a colon; and third, raw unformatted paragraphs where our system dynamically clusters dialogue turns and attributes them sequentially to speakers.
+
+8
+00:03:08,000 --> 00:03:24,000
+Kelcey Hawthorne: That provides exceptional flexibility. Let's make sure we also log audit events whenever an administrator downloads or exports an ingested meeting transcript.
+
+9
+00:03:25,000 --> 00:03:37,000
+Sujal Nage: Agreed. Let's formalize our decisions and action items before we wrap up today's sync.
+
+10
+00:03:38,000 --> 00:03:51,000
+Alison Barker: Decision one: We are officially ratifying direct transcript imports for .txt, .srt, and .vtt file formats across all enterprise tiers.
+
+11
+00:03:52,000 --> 00:04:09,000
+Eliab Sisay: Decision two: Bypassing the audio pipeline for text imports is approved, and we will trigger inline hybrid RAG embeddings immediately upon upload.
+
+12
+00:04:10,000 --> 00:04:44,000
+Sujal Nage: Perfect. Here are the action items: First, Eliab Sisay will verify the MinIO presigned storage bucket policies and latency metrics by Friday. Second, Kelcey Hawthorne will draft the SOC2 data isolation documentation for text transcript retention by next Tuesday. Third, Alison Barker will update our customer onboarding guide to include sample transcript templates for clients.
+
+13
+00:04:45,000 --> 00:04:54,000
+Alison Barker: Sounds great. I will have the client templates ready by tomorrow afternoon.
+
+14
+00:04:55,000 --> 00:05:05,000
+Sujal Nage: Thank you everyone for your time. Let's reconvene on Thursday for the deployment verification. Meeting adjourned.

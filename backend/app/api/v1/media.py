@@ -209,12 +209,14 @@ def get_media_play_url(
 ):
     """
     Retrieve a secure temporary presigned URL for media playback.
-    Supports specific meeting UUIDs, sample/demo meeting IDs, and falls back to
-    the most recent valid meeting recording.
+    Returns the media URL only if the meeting has an associated uploaded media asset.
+    For live meetings or meetings without uploaded media, returns playUrl=None.
     """
     media = None
+    is_valid_uuid = False
     try:
         uid = UUID(str(meeting_id).strip())
+        is_valid_uuid = True
         media = (
             db.query(MediaAsset)
             .filter(MediaAsset.meeting_id == uid, MediaAsset.storage_key.isnot(None))
@@ -224,8 +226,12 @@ def get_media_play_url(
     except Exception:
         pass
 
-    # Fall back to the latest valid uploaded media asset for sample/demo views
-    if not media:
+    # For real meeting UUIDs without media (e.g. live meetings), do not return any uploaded video
+    if is_valid_uuid and not media:
+        return {"playUrl": None}
+
+    # Only fall back for sample-meeting-id if demo media is desired
+    if not media and not is_valid_uuid and meeting_id == "sample-meeting-id":
         media = (
             db.query(MediaAsset)
             .filter(MediaAsset.storage_key.isnot(None))
@@ -241,13 +247,10 @@ def get_media_play_url(
                 expires=timedelta(hours=2),
             )
             return {"playUrl": play_url}
-        except Exception as e:
+        except Exception:
             pass
 
-    # Reliable public demo MP4 fallback
-    return {
-        "playUrl": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
-    }
+    return {"playUrl": None}
 
 
 @router.get("/meetings/{meeting_id}/media/download")

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from uuid import UUID
+from datetime import datetime
 from typing import Optional
 from app.core.database import get_db
 from app.security.tenant import TenantContext, get_tenant_context
@@ -35,6 +36,11 @@ def _enrich_meeting(meeting: Meeting, media: Optional[MediaAsset]) -> MeetingRes
         elif media_status_str in [MediaStatus.CREATED.value, MediaStatus.UPLOAD_PENDING.value]:
             status_str = "PENDING"
 
+    is_transcript = bool(
+        media and media.filename and any(media.filename.lower().endswith(ext) for ext in [".txt", ".srt", ".vtt"])
+    )
+    source_val = "TRANSCRIPT_IMPORT" if is_transcript else ("UPLOAD" if media else "ZOOM")
+
     return MeetingResponse(
         id=meeting.id,
         title=meeting.title,
@@ -43,7 +49,7 @@ def _enrich_meeting(meeting: Meeting, media: Optional[MediaAsset]) -> MeetingRes
         created_at=meeting.created_at,
         media_filename=media_filename,
         media_status=media_status_str,
-        source="UPLOAD" if media else "ZOOM",
+        source=source_val,
     )
 
 @router.get("", response_model=MeetingListResponse)
@@ -103,6 +109,75 @@ def create_meeting(data: MeetingCreate, db: Session = Depends(get_db), tenant_ct
         created_at=meeting.created_at,
         source="UPLOAD"
     )
+
+@router.post("/import-transcript", response_model=MeetingResponse, status_code=status.HTTP_201_CREATED)
+async def import_transcript_file(
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    meeting_date: Optional[str] = Form(None),
+    language: Optional[str] = Form("en"),
+    db: Session = Depends(get_db),
+    tenant_ctx: TenantContext = Depends(get_tenant_context),
+):
+    """
+    Directly import an existing .txt, .srt, or .vtt transcript file.
+    Bypasses Whisper speech-to-text, parses speakers & timestamps,
+    and runs full AI intelligence extraction and RAG indexing.
+    """
+    filename = file.filename or "transcript.txt"
+    lower_fn = filename.lower()
+    if not any(lower_fn.endswith(ext) for ext in [".txt", ".srt", ".vtt"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported transcript format. Allowed formats: .txt, .srt, .vtt",
+        )
+
+    try:
+        content_bytes = await file.read()
+        content_text = content_bytes.decode("utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to read transcript file: {str(e)}",
+        )
+
+    parsed_date = None
+    if meeting_date:
+        try:
+            parsed_date = datetime.fromisoformat(meeting_date.replace("Z", "+00:00"))
+        except Exception:
+            pass
+
+    from app.services.transcript_import_service import TranscriptImportService
+
+    importer = TranscriptImportService(
+        db=db,
+        tenant_id=tenant_ctx.tenant_id,
+        user_id=tenant_ctx.user_id,
+    )
+
+    try:
+        meeting = importer.import_from_text(
+            filename=filename,
+            content=content_text,
+            title=title,
+            meeting_date=parsed_date,
+            language=language or "en",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Failed to process transcript: {str(e)}",
+        )
+
+    media = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.meeting_id == meeting.id, MediaAsset.tenant_id == tenant_ctx.tenant_id)
+        .order_by(MediaAsset.created_at.desc())
+        .first()
+    )
+
+    return _enrich_meeting(meeting, media)
 
 @router.get("/{meeting_id}", response_model=MeetingResponse)
 def get_meeting(

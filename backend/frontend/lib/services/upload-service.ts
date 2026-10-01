@@ -361,4 +361,78 @@ export class UploadService {
       mediaId
     };
   }
+
+  /**
+   * Direct transcript import (.txt, .srt, .vtt)
+   * Bypasses heavy video/audio upload & Whisper GPU pipeline,
+   * directly structures transcript segments, extracts intelligence & indexes into RAG.
+   */
+  public static async importTranscript(
+    file: File,
+    title?: string,
+    meetingDate?: string,
+    language: string = "en",
+    signal?: AbortSignal,
+    onProgress?: (progress: UploadProgress) => void
+  ): Promise<{ meetingId: string; title: string }> {
+    onProgress?.({
+      percentage: 15,
+      uploadedBytes: Math.round(file.size * 0.15),
+      totalBytes: file.size,
+      currentChunk: 1,
+      totalChunks: 1,
+      statusText: "Uploading and validating transcript document..."
+    });
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (title && title.trim()) {
+      formData.append("title", title.trim());
+    }
+    if (meetingDate && meetingDate.trim()) {
+      formData.append("meeting_date", meetingDate.trim());
+    }
+    formData.append("language", language || "en");
+
+    onProgress?.({
+      percentage: 45,
+      uploadedBytes: Math.round(file.size * 0.45),
+      totalBytes: file.size,
+      currentChunk: 1,
+      totalChunks: 1,
+      statusText: "Parsing dialogue cues, speakers, and timeline..."
+    });
+
+    const res = await api.post<{
+      id: string;
+      title: string;
+      status: string;
+    }>("/meetings/import-transcript", formData, { signal });
+
+    onProgress?.({
+      percentage: 85,
+      uploadedBytes: Math.round(file.size * 0.85),
+      totalBytes: file.size,
+      currentChunk: 1,
+      totalChunks: 1,
+      statusText: "Generating intelligence summary, action items & decisions..."
+    });
+
+    // Short delay to let user perceive the pipeline completion
+    await new Promise((resolve) => setTimeout(resolve, 350));
+
+    onProgress?.({
+      percentage: 100,
+      uploadedBytes: file.size,
+      totalBytes: file.size,
+      currentChunk: 1,
+      totalChunks: 1,
+      statusText: "Transcript import & intelligence extraction complete!"
+    });
+
+    return {
+      meetingId: res.id,
+      title: res.title
+    };
+  }
 }

@@ -4,6 +4,8 @@ from minio.error import S3Error
 from minio.commonconfig import CopySource
 from datetime import timedelta
 from typing import List, Dict, Optional
+import socket
+import time
 import urllib3
 import json
 import structlog
@@ -13,6 +15,11 @@ logger = structlog.get_logger(__name__)
 
 class MinIOStorage(ObjectStorage):
     def __init__(self, endpoint: str, access_key: str, secret_key: str, secure: bool = False):
+        self.endpoint = endpoint
+        self.secure = secure
+        self._last_probe_time: float = 0.0
+        self._is_online: bool = False
+
         # Aggressive sub-second timeouts caused upload finalize/hang failures
         # under load (complete_multipart / head_object / fget_object).
         http_client = urllib3.PoolManager(
@@ -28,14 +35,40 @@ class MinIOStorage(ObjectStorage):
         self.client = Minio(endpoint, access_key=access_key, secret_key=secret_key, secure=secure, http_client=http_client)
         self._ensure_buckets(["knowra-raw", "knowra-derived", "knowra-quarantine"])
 
+    def is_available(self) -> bool:
+        """Fast TCP probe (0.2s) to verify if the object storage port is listening.
+        Caches offline state for 20s to prevent blocking HTTP request threads with urllib3 connection retries."""
+        now = time.time()
+        if not self._is_online and (now - self._last_probe_time < 20.0):
+            return False
+
+        self._last_probe_time = now
+        try:
+            parts = self.endpoint.split(":")
+            host = parts[0]
+            port = int(parts[1]) if len(parts) > 1 else (443 if self.secure else 9000)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(0.2)
+            res = sock.connect_ex((host, port))
+            sock.close()
+            self._is_online = (res == 0)
+        except Exception:
+            self._is_online = False
+
+        return self._is_online
+
     def _ensure_buckets(self, buckets: List[str]):
+        if not self.is_available():
+            logger.info("Object storage is currently offline or unreachable; operating in database-first mode", endpoint=self.endpoint)
+            return
+
         for bucket in buckets:
             try:
                 if not self.client.bucket_exists(bucket):
                     self.client.make_bucket(bucket)
                     logger.info("Bucket created", bucket=bucket)
             except Exception as e:
-                logger.warning("Bucket check/creation failed or storage offline", error=str(e))
+                logger.warning("Bucket check/creation failed", error=str(e))
                 break
 
     def initialize_multipart_upload(self, bucket: str, key: str, content_type: str) -> str:
@@ -99,6 +132,8 @@ class MinIOStorage(ObjectStorage):
             return False
 
     def head_object(self, bucket: str, key: str) -> Optional[Dict[str, any]]:
+        if not self.is_available():
+            return None
         try:
             obj = self.client.stat_object(bucket, key)
             return {"size": obj.size, "content_type": obj.content_type, "etag": obj.etag}
@@ -108,6 +143,8 @@ class MinIOStorage(ObjectStorage):
             raise
 
     def move_object(self, source_bucket: str, source_key: str, dest_bucket: str, dest_key: str) -> bool:
+        if not self.is_available():
+            return False
         try:
             self.client.copy_object(dest_bucket, dest_key, CopySource(source_bucket, source_key))
             self.client.remove_object(source_bucket, source_key)
@@ -117,6 +154,9 @@ class MinIOStorage(ObjectStorage):
             return False
 
     def download_file(self, bucket: str, key: str, file_path: str) -> bool:
+        if not self.is_available():
+            logger.warning("Object storage is offline, skipping file download", bucket=bucket, key=key)
+            return False
         try:
             self.client.fget_object(bucket, key, file_path)
             return True
@@ -125,6 +165,9 @@ class MinIOStorage(ObjectStorage):
             return False
 
     def upload_file(self, bucket: str, key: str, file_path: str, content_type: str) -> bool:
+        if not self.is_available():
+            logger.info("Object storage is offline, skipping S3 upload (data preserved in database)", bucket=bucket, key=key)
+            return False
         try:
             self.client.fput_object(bucket, key, file_path, content_type=content_type)
             return True

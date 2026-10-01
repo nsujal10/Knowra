@@ -62,6 +62,10 @@ class IntelligenceStorageService:
         s3_key = self.get_intelligence_s3_key(meeting_id, run_id)
         log = logger.bind(tenant_id=self.tenant_id, meeting_id=str(meeting_id), run_id=str(run_id))
 
+        if hasattr(self.storage, "is_available") and not self.storage.is_available():
+            log.info("Object storage is offline; skipping JSON artifact upload (data safely stored in database)", s3_key=s3_key)
+            return s3_key
+
         with tempfile.TemporaryDirectory(prefix=f"knowra_intel_{run_id}_") as tmpdir:
             local_path = os.path.join(tmpdir, "intelligence.json")
             with open(local_path, "w", encoding="utf-8") as f:

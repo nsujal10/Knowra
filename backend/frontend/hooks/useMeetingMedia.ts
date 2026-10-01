@@ -4,11 +4,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api/client";
 
 export interface MediaPlayResponse {
-  playUrl: string;
+  playUrl: string | null;
 }
-
-const DEFAULT_DEMO_VIDEO =
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
 
 /**
  * useMeetingMedia - Hook to fetch presigned media playback URL for a meeting.
@@ -27,7 +24,7 @@ export function useMeetingMedia(meetingId: string | undefined | null) {
     isError,
     error,
     refetch,
-  } = useQuery<MediaPlayResponse>({
+  } = useQuery<MediaPlayResponse | null>({
     queryKey,
     queryFn: async () => {
       try {
@@ -37,18 +34,18 @@ export function useMeetingMedia(meetingId: string | undefined | null) {
         if (response?.playUrl) {
           return response;
         }
-        return { playUrl: DEFAULT_DEMO_VIDEO };
+        return { playUrl: null };
       } catch (err) {
-        // Fallback demo video so the video player is always functioning
-        return { playUrl: DEFAULT_DEMO_VIDEO };
+        return { playUrl: null };
       }
     },
     staleTime: 1000 * 60 * 30, // 30 mins caching for presigned URLs
-    retry: 1,
+    retry: 0,
   });
 
   return {
-    playUrl: data?.playUrl || DEFAULT_DEMO_VIDEO,
+    playUrl: data?.playUrl || null,
+    hasMedia: Boolean(data?.playUrl),
     isLoading,
     isError,
     error,

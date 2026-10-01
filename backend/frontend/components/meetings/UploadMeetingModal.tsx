@@ -17,6 +17,7 @@ import {
 import Link from "next/link";
 import { UploadService, UploadProgress } from "@/lib/services/upload-service";
 
+
 // ============================================================================
 // COMPONENT PROPS
 // ============================================================================
@@ -132,6 +133,7 @@ export function UploadMeetingModal({
     }
   };
 
+
   // Drag and drop handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -164,21 +166,37 @@ export function UploadMeetingModal({
     abortControllerRef.current = controller;
 
     try {
-      const result = await UploadService.uploadMeetingMedia(
-        file,
-        {
-          title: title.trim() || file.name,
-          meetingDate: meetingDate || undefined
-        },
-        {
-          signal: controller.signal,
-          onProgress: (prog) => {
-            setProgress(prog);
-          }
-        }
-      );
+      const isTranscript = Boolean(file.name.match(/\.(txt|srt|vtt)$/i) || file.type === "text/plain");
+      let resultMeetingId: string;
 
-      setCreatedMeetingId(result.meetingId);
+      if (isTranscript) {
+        const result = await UploadService.importTranscript(
+          file,
+          title.trim() || undefined,
+          meetingDate || undefined,
+          "en",
+          controller.signal,
+          (prog: UploadProgress) => setProgress(prog)
+        );
+        resultMeetingId = result.meetingId;
+      } else {
+        const result = await UploadService.uploadMeetingMedia(
+          file,
+          {
+            title: title.trim() || file.name,
+            meetingDate: meetingDate || undefined
+          },
+          {
+            signal: controller.signal,
+            onProgress: (prog) => {
+              setProgress(prog);
+            }
+          }
+        );
+        resultMeetingId = result.meetingId;
+      }
+
+      setCreatedMeetingId(resultMeetingId);
       setStep("SUCCESS");
     } catch (err: unknown) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -205,7 +223,8 @@ export function UploadMeetingModal({
 
   if (!isOpen) return null;
 
-  const isVideo = file?.type.startsWith("video/") || file?.name.match(/\.(mp4|mov|mkv|webm)$/i);
+  const isTranscript = Boolean(file?.name.match(/\.(txt|srt|vtt)$/i) || file?.type === "text/plain");
+  const isVideo = !isTranscript && (file?.type.startsWith("video/") || Boolean(file?.name.match(/\.(mp4|mov|mkv|webm)$/i)));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/45 backdrop-blur-xs animate-in fade-in duration-200">
@@ -220,10 +239,10 @@ export function UploadMeetingModal({
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white">
           <div>
             <h2 id="upload-modal-title" className="text-base font-semibold text-slate-900">
-              Upload Meeting Recording
+              Upload Meeting Media or Transcript
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Direct-to-storage presigned upload with automatic AI speech processing
+              Import audio/video recordings or existing text transcripts (.txt, .srt, .vtt)
             </p>
           </div>
           <button
@@ -247,7 +266,7 @@ export function UploadMeetingModal({
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-10 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 ${
+              className={`border-2 border-dashed rounded-xl p-9 flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 ${
                 isDragging
                   ? "border-indigo-500 bg-indigo-50/50"
                   : "border-slate-300 bg-slate-50 hover:bg-slate-100/70 hover:border-indigo-400"
@@ -256,7 +275,7 @@ export function UploadMeetingModal({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.mp3,.wav,.m4a"
+                accept="video/*,audio/*,.mp4,.mov,.mkv,.webm,.mp3,.wav,.m4a,.txt,.srt,.vtt"
                 onChange={onFileInputChange}
                 className="hidden"
               />
@@ -266,11 +285,11 @@ export function UploadMeetingModal({
               </div>
 
               <p className="text-sm font-semibold text-slate-800">
-                Drag and drop your recording here, or{" "}
+                Drag and drop your recording or transcript file here, or{" "}
                 <span className="text-indigo-600 underline">browse</span>
               </p>
               <p className="text-xs text-slate-500 mt-1 max-w-sm">
-                Supported formats: MP4, MOV, MKV, WEBM, MP3, WAV, M4A (Up to 2GB)
+                Supported formats: MP4, MOV, WEBM, MP3, WAV, or Transcripts (.TXT, .SRT, .VTT)
               </p>
             </div>
           )}
@@ -283,8 +302,12 @@ export function UploadMeetingModal({
               {/* Selected File Card */}
               <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-md bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                    {isVideo ? (
+                  <div className={`w-10 h-10 rounded-md flex items-center justify-center shrink-0 ${
+                    isTranscript ? "bg-emerald-100 text-emerald-700" : "bg-indigo-100 text-indigo-700"
+                  }`}>
+                    {isTranscript ? (
+                      <FileText className="w-5 h-5" />
+                    ) : isVideo ? (
                       <FileVideo className="w-5 h-5" />
                     ) : (
                       <FileAudio className="w-5 h-5" />
@@ -295,7 +318,7 @@ export function UploadMeetingModal({
                       {file.name}
                     </p>
                     <p className="text-[11px] text-slate-500 mt-0.5">
-                      {formatBytes(file.size)} • {file.type || "media"}
+                      {formatBytes(file.size)} • {isTranscript ? "Direct Transcript Import (Instant AI)" : (file.type || "media")}
                     </p>
                   </div>
                 </div>
@@ -359,9 +382,13 @@ export function UploadMeetingModal({
                 <button
                   type="button"
                   onClick={handleStartUpload}
-                  className="px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-xs transition-colors flex items-center gap-2"
+                  className={`px-5 py-2 text-sm font-medium text-white rounded-lg shadow-xs transition-colors flex items-center gap-2 cursor-pointer ${
+                    isTranscript
+                      ? "bg-emerald-600 hover:bg-emerald-700"
+                      : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
                 >
-                  <span>Start Upload</span>
+                  <span>{isTranscript ? "Import & Analyze Transcript" : "Start Upload"}</span>
                 </button>
               </div>
             </div>
@@ -405,7 +432,7 @@ export function UploadMeetingModal({
                 <button
                   type="button"
                   onClick={handleClose}
-                  className="px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200"
+                  className="px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200 cursor-pointer"
                 >
                   Cancel Upload
                 </button>
@@ -424,12 +451,12 @@ export function UploadMeetingModal({
 
               <div>
                 <h3 className="text-base font-semibold text-slate-900">
-                  Upload Complete!
+                  {isTranscript ? "Transcript Imported & Analyzed!" : "Upload Complete!"}
                 </h3>
                 <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
-                  Your meeting media was uploaded directly to secure object storage.
-                  The backend intelligence pipeline has been triggered for Whisper transcription,
-                  speaker diarization, and LLM structured extraction.
+                  {isTranscript
+                    ? "Your transcript has been parsed into structured dialogue, indexed for Search Copilot (RAG), and analyzed for summaries, action items, and decisions."
+                    : "Your meeting media was uploaded directly to secure object storage. The backend intelligence pipeline has been triggered for Whisper transcription, speaker diarization, and LLM structured extraction."}
                 </p>
               </div>
 

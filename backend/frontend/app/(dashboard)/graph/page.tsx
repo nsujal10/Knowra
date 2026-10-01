@@ -541,11 +541,11 @@ function formatGraphInlineMarkdown(text: string): React.ReactNode[] {
 
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
+      parts.push(text.slice(lastIndex, match.index).replace(/\*/g, ""));
     }
     const token = match[0];
     if (token.startsWith("**") && token.endsWith("**")) {
-      const inner = token.slice(2, -2).trim();
+      const inner = token.slice(2, -2).replace(/\*/g, "").trim();
       if (inner) {
         parts.push(
           <strong key={`${match.index}-b`} className="font-semibold text-slate-900">
@@ -578,12 +578,12 @@ function formatGraphInlineMarkdown(text: string): React.ReactNode[] {
         </span>
       );
     } else if (token.startsWith("*") && token.endsWith("*")) {
-      const inner = token.slice(1, -1).trim();
+      const inner = token.slice(1, -1).replace(/\*/g, "").trim();
       if (inner) {
         parts.push(
-          <em key={`${match.index}-i`} className="italic text-slate-700">
+          <span key={`${match.index}-i`} className="text-slate-800 font-medium">
             {inner}
-          </em>
+          </span>
         );
       }
     }
@@ -591,10 +591,10 @@ function formatGraphInlineMarkdown(text: string): React.ReactNode[] {
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
+    parts.push(text.slice(lastIndex).replace(/\*/g, ""));
   }
 
-  return parts.length > 0 ? parts : [text];
+  return parts.length > 0 ? parts : [text.replace(/\*/g, "")];
 }
 
 function FormattedGraphMessage({ content }: { content: string }) {

@@ -31,7 +31,7 @@ export interface MeetingIntelligence {
   title: string;
   date: string;
   timeRange: string;
-  source: 'Zoom' | 'Teams' | 'Google Meet' | 'Upload';
+  source: 'Zoom' | 'Teams' | 'Google Meet' | 'Upload' | 'Imported Transcript' | 'TRANSCRIPT_IMPORT';
   participants: string[];
   metrics: {
     report: Metric;

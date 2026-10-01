@@ -689,7 +689,7 @@ function MeetingRow({ meeting }: { meeting: Meeting }) {
 
   return (
     <Link
-      href={`/meetings/${meeting.id}/recap`}
+      href={`/meetings/${meeting.id}`}
       className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/50 transition-colors group"
     >
       <div className="w-9 h-9 rounded-lg bg-indigo-50 flex items-center justify-center shrink-0 ring-1 ring-indigo-100/60">

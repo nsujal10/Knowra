@@ -23,7 +23,8 @@ import {
   Download,
   Trash2,
   Loader2,
-  Radio
+  Radio,
+  FileText
 } from "lucide-react";
 import { format, parseISO, startOfWeek, endOfWeek } from "date-fns";
 import { UploadMeetingModal } from "@/components/meetings/UploadMeetingModal";
@@ -32,12 +33,13 @@ import { DeleteMeetingModal } from "@/components/meetings/DeleteMeetingModal";
 import { MeetingThumbnail } from "@/components/meetings/MeetingThumbnail";
 import { PageHeader } from "@/components/ui/page-header";
 import { api } from "@/lib/api/client";
+import { useWorkspaceFolders } from "@/hooks/useWorkspaceFolders";
 
 // ============================================================================
 // 1. DOMAIN MODELS & TYPES
 // ============================================================================
 
-export type MeetingSource = "ZOOM" | "TEAMS" | "GOOGLE_MEET" | "UPLOAD";
+export type MeetingSource = "ZOOM" | "TEAMS" | "GOOGLE_MEET" | "UPLOAD" | "TRANSCRIPT_IMPORT";
 export type ProcessingStatus = "COMPLETED" | "PROCESSING" | "FAILED" | "PENDING";
 
 export interface MeetingFolder {
@@ -140,7 +142,7 @@ function transformApiMeeting(m: ApiMeeting): MockMeeting {
     folder: { id: "f-uploads", name: "Uploaded Meetings" },
     owner: { id: m.owner_id, name: "Host (You)", email: "host@knowra.ai", initials: "YO" },
     thumbnailGradient: grad,
-    thumbnailFaceInitial: m.source === "UPLOAD" || m.media_filename ? "🎬" : "👩‍💼",
+    thumbnailFaceInitial: m.source === "TRANSCRIPT_IMPORT" ? "📄" : (m.source === "UPLOAD" || m.media_filename ? "🎬" : "👩‍💼"),
     weekGroupKey: weekKey
   };
 }
@@ -298,6 +300,18 @@ function SourceBadge({ source }: { source: MeetingSource }) {
       </div>
     );
   }
+  if (source === "TRANSCRIPT_IMPORT") {
+    return (
+      <div
+        className="w-5 h-5 rounded-full bg-white shadow-sm flex items-center justify-center p-0.5 border border-slate-100"
+        title="Imported Transcript (.txt, .srt, .vtt)"
+      >
+        <div className="w-3.5 h-3.5 bg-emerald-600 rounded-sm flex items-center justify-center text-white">
+          <FileText className="w-2.5 h-2.5 text-white" />
+        </div>
+      </div>
+    );
+  }
   return (
     <div
       className="w-5 h-5 rounded-full bg-white shadow-sm flex items-center justify-center p-0.5 border border-slate-100"
@@ -327,6 +341,7 @@ export default function MeetingsPage() {
   const [deletingMeetingId, setDeletingMeetingId] = useState<string | null>(null);
   const [meetingToDelete, setMeetingToDelete] = useState<MockMeeting | null>(null);
   const [deletedMeetingIds, setDeletedMeetingIds] = useState<Set<string>>(new Set());
+  const { folders, addMeetingToFolder } = useWorkspaceFolders();
 
   // Close 3-dot menu on outside click
   useEffect(() => {
@@ -812,13 +827,15 @@ export default function MeetingsPage() {
 
                         {/* Col 4: Folders */}
                         <div className="flex items-center min-w-0">
-                          <div
+                          <Link
+                            href="/folders"
+                            onClick={(e) => e.stopPropagation()}
                             className="bg-slate-100 hover:bg-slate-200/70 text-slate-600 border border-slate-200 px-2.5 py-1 rounded-md text-xs font-medium w-max max-w-full flex items-center gap-1.5 truncate transition-colors cursor-pointer"
-                            title={`Folder: ${meeting.folder.name}`}
+                            title={`Folder: ${meeting.folder.name} (View in Workspace Folders)`}
                           >
                             <FolderIcon className="w-3 h-3 text-slate-400 shrink-0" />
                             <span className="truncate">{meeting.folder.name}</span>
-                          </div>
+                          </Link>
                         </div>
 
                         {/* Col 5: Owner & Menu */}
@@ -846,12 +863,48 @@ export default function MeetingsPage() {
                               <MoreHorizontal className="w-4 h-4" />
                             </button>
 
-                            {/* 3-Dot Dropdown Menu (Download & Delete) */}
+                            {/* 3-Dot Dropdown Menu (Add to Folder, Download, Delete) */}
                             {openMenuMeetingId === meeting.id && (
                               <div
-                                className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95"
+                                className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95"
                                 onClick={(e) => e.stopPropagation()}
                               >
+                                {/* Add to Folder options */}
+                                {folders.length > 0 && (
+                                  <>
+                                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                      Add to Folder
+                                    </div>
+                                    <div className="max-h-36 overflow-y-auto px-1 space-y-0.5">
+                                      {folders.map((f) => (
+                                        <button
+                                          key={f.id}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            addMeetingToFolder(f.id, {
+                                              id: meeting.id,
+                                              title: meeting.title,
+                                              date: format(parseISO(meeting.scheduledStartTime), "MMM d, yyyy"),
+                                              duration: "25m",
+                                              status: meeting.status as any,
+                                            });
+                                            setOpenMenuMeetingId(null);
+                                          }}
+                                          className="w-full px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                                        >
+                                          <span
+                                            className="w-2 h-2 rounded-full shrink-0"
+                                            style={{ backgroundColor: f.color }}
+                                          />
+                                          <span className="truncate">{f.name}</span>
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <div className="my-1 border-t border-slate-100" />
+                                  </>
+                                )}
+
                                 <button
                                   type="button"
                                   disabled={downloadingMeetingId === meeting.id}

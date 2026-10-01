@@ -46,7 +46,7 @@ export interface MeetingIntelligence {
   title: string;
   date: string;
   timeRange: string;
-  source: "Zoom" | "Teams" | "Google Meet" | "Upload";
+  source: "Zoom" | "Teams" | "Google Meet" | "Upload" | "Imported Transcript" | "TRANSCRIPT_IMPORT";
   participants: string[];
   metrics: {
     report: Metric;
@@ -184,12 +184,24 @@ export default function MeetingDetailPage() {
             timeRangeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
           } catch {}
 
+          const isTranscript = res.source === "TRANSCRIPT_IMPORT" || Boolean(res.media_filename?.match(/\.(txt|srt|vtt)$/i));
+          const isUploaded = !isTranscript && (res.source === "UPLOAD" || Boolean(res.media_filename));
+          const mappedSource = isTranscript
+            ? "Imported Transcript"
+            : isUploaded
+            ? "Upload"
+            : res.source === "GOOGLE_MEET"
+            ? "Google Meet"
+            : res.source === "TEAMS"
+            ? "Teams"
+            : "Zoom";
+
           setMeetingData((prev) => ({
             ...prev,
             title: res.title,
             date: dateStr,
             timeRange: timeRangeStr,
-            source: (res.source === "GOOGLE_MEET" ? "Google Meet" : res.source === "TEAMS" ? "Teams" : "Zoom") as any
+            source: mappedSource as any
           }));
 
           // Dynamically populate actual meeting participants from transcript
@@ -286,6 +298,7 @@ export default function MeetingDetailPage() {
               onSeek={handleSeek}
               onTogglePlay={handleTogglePlay}
               meetingId={meetingId}
+              isUploaded={meetingData.source === "Upload"}
               onOpenChat={() => setIsChatOpen(true)}
             />
           </div>

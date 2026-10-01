@@ -18,6 +18,83 @@ const SUGGESTIONS = [
   "Search Copilot overview",
 ];
 
+function renderCleanContent(text: string, isUser: boolean): React.ReactNode {
+  if (!text) return null;
+  if (isUser) {
+    return text.replace(/\*/g, "");
+  }
+
+  const lines = text.split("\n");
+
+  return (
+    <div className="space-y-1">
+      {lines.map((rawLine, idx) => {
+        let isBullet = false;
+        let indentLevel = 0;
+        let line = rawLine;
+
+        // Check if line starts with asterisk bullet or dash or bullet point
+        const bulletMatch = line.match(/^(\s*)([\*\-•])\s+(.*)$/);
+        if (bulletMatch) {
+          isBullet = true;
+          indentLevel = Math.floor(bulletMatch[1].length / 2);
+          line = bulletMatch[3];
+        }
+
+        // Inline formatting: parse **bold** into <strong>, and strip ANY remaining '*'
+        const parts: React.ReactNode[] = [];
+        const boldRegex = /\*\*(.*?)\*\*/g;
+        let lastIndex = 0;
+        let match: RegExpExecArray | null;
+
+        while ((match = boldRegex.exec(line)) !== null) {
+          if (match.index > lastIndex) {
+            parts.push(line.slice(lastIndex, match.index).replace(/\*/g, ""));
+          }
+          const boldText = match[1].replace(/\*/g, "").trim();
+          if (boldText) {
+            parts.push(
+              <strong key={`${idx}-${match.index}`} className="font-semibold text-slate-900">
+                {boldText}
+              </strong>
+            );
+          }
+          lastIndex = boldRegex.lastIndex;
+        }
+
+        if (lastIndex < line.length) {
+          parts.push(line.slice(lastIndex).replace(/\*/g, ""));
+        }
+
+        if (!line.trim() && !isBullet) {
+          return <div key={idx} className="h-1.5" />;
+        }
+
+        if (isBullet) {
+          return (
+            <div
+              key={idx}
+              className="flex items-start gap-2"
+              style={{ paddingLeft: `${indentLevel * 12}px` }}
+            >
+              <span className="text-indigo-500 font-bold select-none shrink-0">•</span>
+              <div className="flex-1 leading-relaxed">
+                {parts.length > 0 ? parts : line.replace(/\*/g, "")}
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div key={idx} className="leading-relaxed">
+            {parts.length > 0 ? parts : line.replace(/\*/g, "")}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AskKnowraPanel({
   meetingId,
   meetingTitle,
@@ -122,12 +199,12 @@ export function AskKnowraPanel({
                 }`}
               >
                 <div
-                  className="whitespace-pre-wrap select-text leading-relaxed font-normal"
+                  className="select-text leading-relaxed font-normal"
                   style={{
                     color: msg.role === "user" ? "#ffffff" : "#0f172a",
                   }}
                 >
-                  {msg.content}
+                  {renderCleanContent(msg.content, msg.role === "user")}
                 </div>
               </div>
 

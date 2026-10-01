@@ -21,9 +21,12 @@ import {
   PlusCircle,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   LogOut,
   Languages,
 } from "lucide-react";
+import { useWorkspaceFolders } from "@/hooks/useWorkspaceFolders";
+import { CreateFolderModal } from "@/components/meetings/CreateFolderModal";
 
 export interface NavItem {
   label: string;
@@ -53,6 +56,9 @@ const SECONDARY_NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [foldersExpanded, setFoldersExpanded] = useState(true);
+  const { folders, addFolder } = useWorkspaceFolders();
   const pathname = usePathname();
   const { session, logout } = useSession();
 
@@ -74,6 +80,7 @@ export function Sidebar() {
   };
 
   return (
+    <>
     <aside
       className={cn(
         "fixed left-0 top-0 h-screen z-50 flex flex-col justify-between font-sans select-none",
@@ -91,7 +98,7 @@ export function Sidebar() {
           </div>
 
           {!collapsed && (
-            <span className="font-bold text-white text-[15px] tracking-tight truncate leading-none">
+            <span className="font-bold text-base md:text-[17px] tracking-tight text-white truncate leading-tight">
               Knowra
             </span>
           )}
@@ -135,34 +142,113 @@ export function Sidebar() {
           {PRIMARY_NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const active = isLinkActive(item.href);
+            const isFolders = item.href === "/folders";
 
             return (
-              <Link
-                key={item.label}
-                href={item.href}
-                title={collapsed ? item.label : undefined}
-                className={cn(
-                  "flex items-center gap-3 px-3 h-9 text-[13px] font-medium transition-all group rounded-md w-full",
-                  collapsed && "justify-center px-0",
-                  active
-                    ? "bg-[#4c47cc] text-white shadow-xs font-semibold"
-                    : "text-slate-300 hover:text-white hover:bg-white/[0.06]"
-                )}
-              >
-                <Icon
-                  size={16}
+              <React.Fragment key={item.label}>
+                <div
                   className={cn(
-                    "shrink-0 transition-colors",
-                    active ? "text-white" : "text-slate-400 group-hover:text-white"
+                    "flex items-center gap-2 px-3 h-9 text-[13px] font-medium transition-all group rounded-md w-full",
+                    collapsed && "justify-center px-0",
+                    active
+                      ? "bg-[#4c47cc] text-white shadow-xs font-semibold"
+                      : "text-slate-300 hover:text-white hover:bg-white/[0.06]"
                   )}
-                />
-                {!collapsed && (
-                  <span className="truncate flex-1 leading-none">{item.label}</span>
+                >
+                  {/* Left Icon: Dropdown Chevron for Folders when expanded */}
+                  {isFolders && !collapsed ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setFoldersExpanded((prev) => !prev);
+                      }}
+                      className="p-1 -ml-1 rounded hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
+                      title={foldersExpanded ? "Collapse folders dropdown" : "Expand folders dropdown"}
+                    >
+                      {foldersExpanded ? (
+                        <ChevronDown size={14} strokeWidth={2.5} className="text-slate-200" />
+                      ) : (
+                        <ChevronRight size={14} strokeWidth={2.5} className="text-slate-200" />
+                      )}
+                    </button>
+                  ) : (
+                    <Icon
+                      size={16}
+                      className={cn(
+                        "shrink-0 transition-colors",
+                        active ? "text-white" : "text-slate-400 group-hover:text-white"
+                      )}
+                    />
+                  )}
+
+                  {/* Main Link Text */}
+                  {!collapsed && (
+                    <Link
+                      href={item.href}
+                      onClick={() => {
+                        if (isFolders) setFoldersExpanded(true);
+                      }}
+                      className="truncate flex-1 leading-none text-inherit hover:text-inherit"
+                    >
+                      {item.label}
+                    </Link>
+                  )}
+
+                  {/* Plus Icon Action on Right */}
+                  {!collapsed && item.hasPlus && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setCreateFolderOpen(true);
+                      }}
+                      className="p-1 -mr-1 rounded hover:bg-white/[0.15] text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0 ml-auto"
+                      title="Create New Folder"
+                    >
+                      <Plus size={13} strokeWidth={2.5} />
+                    </button>
+                  )}
+                </div>
+
+                {/* Sub-list of workspace folders when expanded */}
+                {!collapsed && isFolders && foldersExpanded && (
+                  <div className="pl-6 pr-1 py-1 space-y-0.5 animate-in fade-in duration-150">
+                    {folders.length === 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setCreateFolderOpen(true)}
+                        className="w-full flex items-center gap-2 px-2 py-1 rounded text-[11px] text-slate-400 hover:text-indigo-300 hover:bg-white/[0.04] transition-colors cursor-pointer"
+                      >
+                        <Plus size={11} />
+                        <span>Create first folder</span>
+                      </button>
+                    ) : (
+                      folders.map((f) => (
+                        <Link
+                          key={f.id}
+                          href="/folders"
+                          className="flex items-center justify-between px-2 py-1 rounded text-xs text-slate-400 hover:text-white hover:bg-white/[0.04] transition-colors group/sub"
+                          title={f.name}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: f.color }}
+                            />
+                            <span className="truncate text-[11px] font-medium">{f.name}</span>
+                          </div>
+                          <span className="text-[10px] text-slate-500 font-mono group-hover/sub:text-slate-300">
+                            {f.meetingCount}
+                          </span>
+                        </Link>
+                      ))
+                    )}
+                  </div>
                 )}
-                {!collapsed && item.hasPlus && (
-                  <Plus size={13} className="text-slate-400 group-hover:text-white shrink-0 ml-auto" />
-                )}
-              </Link>
+              </React.Fragment>
             );
           })}
         </div>
@@ -271,5 +357,12 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+
+    <CreateFolderModal
+      isOpen={createFolderOpen}
+      onClose={() => setCreateFolderOpen(false)}
+      onCreated={(newF) => addFolder(newF)}
+    />
+    </>
   );
 }

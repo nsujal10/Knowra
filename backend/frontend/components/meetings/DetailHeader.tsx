@@ -291,8 +291,12 @@ export function DetailHeader({
           </div>
 
           <div className="flex items-center gap-1.5 font-medium">
-            <Video className="w-3.5 h-3.5 text-slate-400" />
-            <span>{meeting.source}</span>
+            {meeting.source === "TRANSCRIPT_IMPORT" || meeting.source === "Imported Transcript" ? (
+              <FileText className="w-3.5 h-3.5 text-emerald-600" />
+            ) : (
+              <Video className="w-3.5 h-3.5 text-slate-400" />
+            )}
+            <span>{meeting.source === "TRANSCRIPT_IMPORT" ? "Imported Transcript" : meeting.source}</span>
           </div>
 
           {/* Interactive Participants Pill */}

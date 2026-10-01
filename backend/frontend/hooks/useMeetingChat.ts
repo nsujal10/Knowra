@@ -159,6 +159,15 @@ function generateDynamicFallback(
   };
 }
 
+export function stripAsterisks(text: string): string {
+  if (!text) return "";
+  // Convert lines starting with bullet asterisks to clean bullet dot
+  let cleaned = text.replace(/^(\s*)\*\s+/gm, "$1• ");
+  // Remove all other asterisk symbols
+  cleaned = cleaned.replace(/\*/g, "");
+  return cleaned;
+}
+
 // Meeting-scoped in-memory cache to persist chat across drawer toggles and tab navigation
 const chatHistoryMemoryCache: Record<string, ChatMessage[]> = {};
 
@@ -172,8 +181,12 @@ function loadMeetingMessages(meetingId: string, meetingTitle: string): ChatMessa
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          chatHistoryMemoryCache[meetingId] = parsed;
-          return parsed;
+          const sanitized = parsed.map((m: ChatMessage) => ({
+            ...m,
+            content: stripAsterisks(m.content),
+          }));
+          chatHistoryMemoryCache[meetingId] = sanitized;
+          return sanitized;
         }
       }
     } catch {
@@ -277,7 +290,7 @@ export function useMeetingChat({ meetingId, meetingTitle }: UseMeetingChatOption
           const assistantMessage: ChatMessage = {
             id: `a-${Date.now()}`,
             role: "assistant",
-            content: response.content || "This was not discussed in this meeting.",
+            content: stripAsterisks(response.content || "This was not discussed in this meeting."),
             citations: response.citations || [],
           };
           setMessages((prev) => [...prev, assistantMessage]);
@@ -289,7 +302,7 @@ export function useMeetingChat({ meetingId, meetingTitle }: UseMeetingChatOption
           const assistantMessage: ChatMessage = {
             id: `a-${Date.now()}`,
             role: "assistant",
-            content: dynamicResult.content,
+            content: stripAsterisks(dynamicResult.content),
             citations: dynamicResult.citations,
           };
           setMessages((prev) => [...prev, assistantMessage]);

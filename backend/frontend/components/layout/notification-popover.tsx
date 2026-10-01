@@ -65,7 +65,7 @@ const INITIAL_NOTIFICATIONS: NotificationItem[] = [
   },
 ];
 
-export function NotificationPopover() {
+export function NotificationPopover({ variant = "light" }: { variant?: "light" | "dark" } = {}) {
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
   const [activeFilter, setActiveFilter] = useState<"all" | "unread">("all");
@@ -119,9 +119,13 @@ export function NotificationPopover() {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className={`relative p-2 rounded-lg transition-colors cursor-pointer ${
-          isOpen
-            ? "bg-slate-100 text-slate-900"
-            : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          variant === "dark"
+            ? isOpen
+              ? "bg-white/15 text-white"
+              : "text-slate-300 hover:bg-white/10 hover:text-white"
+            : isOpen
+              ? "bg-slate-100 text-slate-900"
+              : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         }`}
         aria-label="Enterprise Notifications"
         id="topbar-notifications-btn"

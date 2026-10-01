@@ -33,6 +33,7 @@ interface MediaSidebarProps {
   videoUrl?: string;
   meetingId?: string;
   onOpenChat?: () => void;
+  isUploaded?: boolean;
 }
 
 export interface VideoHighlight {
@@ -45,9 +46,6 @@ export interface VideoHighlight {
   speaker: string;
   quote?: string;
 }
-
-const DEFAULT_DEMO_VIDEO =
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
 
 function formatDurationStr(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -137,6 +135,7 @@ export function MediaSidebar({
   videoUrl: explicitVideoUrl,
   meetingId,
   onOpenChat,
+  isUploaded,
 }: MediaSidebarProps) {
   const [activeTab, setActiveTab] = useState<"Chapters" | "Highlights" | "Speakers">("Chapters");
   const [highlightFilter, setHighlightFilter] = useState<
@@ -309,7 +308,14 @@ export function MediaSidebar({
 
   // Fetch actual media playback URL from MinIO backend if not explicitly provided
   const { playUrl: fetchedPlayUrl, isLoading } = useMeetingMedia(meetingId);
-  const activeVideoUrl = explicitVideoUrl || fetchedPlayUrl || DEFAULT_DEMO_VIDEO;
+  const activeVideoUrl = explicitVideoUrl || fetchedPlayUrl;
+
+  // Decide whether to show the video player section:
+  // Render video player ONLY for uploaded video meetings with valid video streams.
+  // For live video meetings (Google Meet, Zoom, Teams, live recording), hide this section completely.
+  const showVideoPlayer = isUploaded !== undefined
+    ? (isUploaded && Boolean(activeVideoUrl))
+    : Boolean(activeVideoUrl);
 
   // Synchronize HTML5 video element currentTime when parent seek updates
   useEffect(() => {
@@ -345,42 +351,44 @@ export function MediaSidebar({
 
   return (
     <aside className="w-full lg:w-[420px] shrink-0 lg:sticky lg:top-6 lg:h-[calc(100vh-80px)] flex flex-col lg:border-l border-slate-200 lg:pl-6 pb-6 select-none">
-      {/* ── 1. HTML5 VIDEO PLAYER (REAL STREAM VIA MINIO PRESIGNED URL) ── */}
-      <div className="w-full aspect-video bg-[#11131a] rounded-xl overflow-hidden shadow-lg relative shrink-0">
-        {isLoading ? (
-          /* Loading skeleton matching video aspect ratio */
-          <div className="w-full h-full bg-[#11131a] animate-pulse flex flex-col items-center justify-center gap-2">
-            <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
-            <span className="text-xs text-slate-400 font-medium tracking-wide">
-              Loading video stream...
-            </span>
-          </div>
-        ) : (
-          /* Native HTML5 Video Player */
-          <video
-            ref={videoRef}
-            src={activeVideoUrl}
-            controls
-            playsInline
-            preload="metadata"
-            className="w-full h-full object-contain bg-black"
-            onTimeUpdate={() => {
-              if (videoRef.current) {
-                onSeek(videoRef.current.currentTime);
-              }
-            }}
-            onPlay={() => {
-              if (!isPlaying) onTogglePlay();
-            }}
-            onPause={() => {
-              if (isPlaying) onTogglePlay();
-            }}
-          />
-        )}
-      </div>
+      {/* ── 1. HTML5 VIDEO PLAYER (RENDER ONLY FOR UPLOADED VIDEO) ── */}
+      {showVideoPlayer && (
+        <div className="w-full aspect-video bg-[#11131a] rounded-xl overflow-hidden shadow-lg relative shrink-0 mb-4">
+          {isLoading ? (
+            /* Loading skeleton matching video aspect ratio */
+            <div className="w-full h-full bg-[#11131a] animate-pulse flex flex-col items-center justify-center gap-2">
+              <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+              <span className="text-xs text-slate-400 font-medium tracking-wide">
+                Loading video stream...
+              </span>
+            </div>
+          ) : activeVideoUrl ? (
+            /* Native HTML5 Video Player */
+            <video
+              ref={videoRef}
+              src={activeVideoUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="w-full h-full object-contain bg-black"
+              onTimeUpdate={() => {
+                if (videoRef.current) {
+                  onSeek(videoRef.current.currentTime);
+                }
+              }}
+              onPlay={() => {
+                if (!isPlaying) onTogglePlay();
+              }}
+              onPause={() => {
+                if (isPlaying) onTogglePlay();
+              }}
+            />
+          ) : null}
+        </div>
+      )}
 
       {/* ── 2. PILL-BASED TABS (CHAPTERS, HIGHLIGHTS, SPEAKERS) ────────────── */}
-      <div className="flex items-center gap-2 pt-4 pb-2 shrink-0">
+      <div className={`flex items-center gap-2 ${showVideoPlayer ? "pt-0" : "pt-1"} pb-2 shrink-0`}>
         {(["Chapters", "Highlights", "Speakers"] as const).map((tab) => {
           const isActive = activeTab === tab;
           return (

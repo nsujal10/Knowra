@@ -117,7 +117,10 @@ export async function apiRequest<T = unknown>(
   const { skipAuth = false, _isRetry = false, ...fetchOptions } = options;
 
   const headers = new Headers(fetchOptions.headers);
-  headers.set("Content-Type", "application/json");
+  const isFormData = typeof FormData !== "undefined" && fetchOptions.body instanceof FormData;
+  if (!isFormData) {
+    headers.set("Content-Type", "application/json");
+  }
 
   if (!skipAuth) {
     const token = tokenStore.getAccessToken();
@@ -176,9 +179,10 @@ export const api = {
     return apiRequest<T>(path, { method: "GET", ...opts });
   },
   post<T>(path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
     return apiRequest<T>(path, {
       method: "POST",
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: isFormData ? (body as FormData) : body !== undefined ? JSON.stringify(body) : undefined,
       ...opts,
     });
   },

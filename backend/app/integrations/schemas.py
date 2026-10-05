@@ -140,10 +140,10 @@ class CalendarToggleBotRequest(BaseModel):
 
 
 class JiraConnectRequest(BaseModel):
-    instance_url: str = Field(..., description="Atlassian instance domain, e.g. softude.atlassian.net")
     email: str = Field(..., description="Atlassian account email")
-    api_token: str = Field(..., description="Atlassian API token")
-    project_key: Optional[str] = Field("KNOWRA", description="Default Jira project key")
+    instance_url: Optional[str] = Field(default="", description="Atlassian instance domain, e.g. softude.atlassian.net")
+    api_token: Optional[str] = Field(default="", description="Atlassian API token")
+    project_key: Optional[str] = Field(default="KNOWRA", description="Default Jira project key")
 
 
 class JiraCreateIssueRequest(BaseModel):

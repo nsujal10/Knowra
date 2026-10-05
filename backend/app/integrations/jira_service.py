@@ -281,9 +281,11 @@ class JiraIntegrationService:
             "is_connected": True,
             "instance_url": creds.get("instance_url"),
             "email": creds.get("email"),
+            "account_email": creds.get("email"),
             "project_key": creds.get("project_key") or item.channel_or_project_id or "KNOWRA",
             "display_name": meta.get("display_name") or creds.get("email"),
             "connected_at": meta.get("connected_at"),
+            "last_synced_at": item.updated_at.isoformat() if item and item.updated_at else None,
         }
 
     def fetch_issues(

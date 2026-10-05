@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     SLACK_CLIENT_SECRET: str = ""
     SLACK_SIGNING_SECRET: str = ""
 
+    # Atlassian Jira Settings
+    JIRA_CLIENT_ID: str = ""
+    JIRA_CLIENT_SECRET: str = ""
+    JIRA_INSTANCE_URL: str = "https://softude.atlassian.net"
+    JIRA_API_TOKEN: str = ""
+    JIRA_DEFAULT_PROJECT_KEY: str = "KNOWRA"
+
     # Single Sign-On (SSO) Configurations
 
     # Meeting Baas Bot Settings

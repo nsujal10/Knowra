@@ -99,6 +99,7 @@ export const INTEGRATIONS = {
   zoomAuthUrl: () => "/integrations/zoom/auth-url",
   outlookAuthUrl: () => "/integrations/outlook/auth-url",
   outlookSync: () => "/integrations/outlook/sync",
+  jiraConfigStatus: () => "/integrations/jira/config-status",
   jiraConnect: () => "/integrations/jira/connect",
   jiraStatus: () => "/integrations/jira/status",
   jiraProjects: () => "/integrations/jira/projects",

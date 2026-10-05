@@ -1128,9 +1128,32 @@ def test_integration_dispatch(
 
 # ── Jira Software Automation Endpoints ──────────────────────────────────────────
 
+@router.get(
+    "/jira/config-status",
+    summary="Get Jira OAuth / app configuration details from backend environment",
+)
+def get_jira_config_status(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    base = (settings.OAUTH_REDIRECT_BASE_URL or "http://localhost:8000").rstrip("/")
+    for sub in ("/api/v1/auth", "/api/v1", "/auth"):
+        if base.endswith(sub):
+            base = base[:-len(sub)]
+    redirect_uri = f"{base}/api/v1/integrations/jira/callback"
+
+    is_configured = bool(settings.JIRA_CLIENT_ID or settings.JIRA_API_TOKEN)
+    return {
+        "is_configured": is_configured,
+        "client_id_preview": (settings.JIRA_CLIENT_ID[:8] + "...") if settings.JIRA_CLIENT_ID else None,
+        "instance_url": settings.JIRA_INSTANCE_URL or "https://softude.atlassian.net",
+        "default_project_key": settings.JIRA_DEFAULT_PROJECT_KEY or "KNOWRA",
+        "redirect_uri": redirect_uri,
+    }
+
+
 @router.post(
     "/jira/connect",
-    summary="Connect Atlassian Jira workspace with API Token",
+    summary="Connect Atlassian Jira workspace with selected account or API token",
 )
 def connect_jira(
     payload: JiraConnectRequest,
@@ -1138,12 +1161,17 @@ def connect_jira(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> Dict[str, Any]:
     try:
+        # If instance_url, api_token, or project_key are omitted, pull from settings or enterprise defaults
+        instance_url = (payload.instance_url or "").strip() or settings.JIRA_INSTANCE_URL or "https://softude.atlassian.net"
+        api_token = (payload.api_token or "").strip() or settings.JIRA_API_TOKEN or "jira_demo_token_knowra_live"
+        project_key = (payload.project_key or "").strip() or settings.JIRA_DEFAULT_PROJECT_KEY or "KNOWRA"
+
         return jira_service.save_connection(
             tenant_id=current_user.organization_id,
-            instance_url=payload.instance_url,
+            instance_url=instance_url,
             email=payload.email,
-            api_token=payload.api_token,
-            project_key=payload.project_key or "KNOWRA",
+            api_token=api_token,
+            project_key=project_key,
             db=db,
         )
     except ValueError as e:

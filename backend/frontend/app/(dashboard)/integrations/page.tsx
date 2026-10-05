@@ -194,7 +194,7 @@ const ALL_CONNECTORS: ConnectorItem[] = [
   },
 ];
 
-type TopTab = "your-integrations" | "workspace" | "resend" | "logs";
+type TopTab = "apps" | "webhooks" | "audit";
 
 export default function IntegrationsPage() {
   const queryClient = useQueryClient();
@@ -205,7 +205,7 @@ export default function IntegrationsPage() {
   const userName = session?.user?.full_name || "Sujal Nage";
 
   // Top Tab State
-  const [currentTopTab, setCurrentTopTab] = useState<TopTab>("your-integrations");
+  const [currentTopTab, setCurrentTopTab] = useState<TopTab>("apps");
 
   // Selected Connector in Read AI style split-pane
   const [selectedConnectorId, setSelectedConnectorId] = useState<string>("google-calendar");
@@ -804,62 +804,48 @@ export default function IntegrationsPage() {
         <div className="border-b border-slate-200 bg-slate-50/50 px-4 pt-2 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 overflow-x-auto">
             <button
-              onClick={() => setCurrentTopTab("your-integrations")}
+              onClick={() => setCurrentTopTab("apps")}
               className={cn(
                 "px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 -mb-px transition-all cursor-pointer flex items-center gap-2",
-                currentTopTab === "your-integrations"
+                currentTopTab === "apps"
                   ? "border-indigo-600 text-indigo-600 bg-white rounded-t-lg shadow-2xs font-bold"
                   : "border-transparent text-slate-600 hover:text-slate-900"
               )}
             >
-              <span>Your Integrations</span>
+              <Layers size={14} className={currentTopTab === "apps" ? "text-indigo-600" : "text-slate-400"} />
+              <span>Connected Apps</span>
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700">
                 {ALL_CONNECTORS.length}
               </span>
             </button>
 
             <button
-              onClick={() => setCurrentTopTab("workspace")}
+              onClick={() => setCurrentTopTab("webhooks")}
               className={cn(
                 "px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 -mb-px transition-all cursor-pointer flex items-center gap-2",
-                currentTopTab === "workspace"
+                currentTopTab === "webhooks"
                   ? "border-indigo-600 text-indigo-600 bg-white rounded-t-lg shadow-2xs font-bold"
                   : "border-transparent text-slate-600 hover:text-slate-900"
               )}
             >
-              <span>Workspace</span>
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                Team
+              <Code2 size={14} className={currentTopTab === "webhooks" ? "text-indigo-600" : "text-slate-400"} />
+              <span>Webhooks &amp; API</span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono">
+                {integrations.filter((i) => i.provider === "WEBHOOK" || i.webhook_url).length}
               </span>
             </button>
 
             <button
-              onClick={() => setCurrentTopTab("resend")}
+              onClick={() => setCurrentTopTab("audit")}
               className={cn(
                 "px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 -mb-px transition-all cursor-pointer flex items-center gap-2",
-                currentTopTab === "resend"
+                currentTopTab === "audit"
                   ? "border-indigo-600 text-indigo-600 bg-white rounded-t-lg shadow-2xs font-bold"
                   : "border-transparent text-slate-600 hover:text-slate-900"
               )}
             >
-              <Mail size={13} className="text-indigo-600" />
-              <span>Resend Dispatcher</span>
-              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 font-bold">
-                LIVE
-              </span>
-            </button>
-
-            <button
-              onClick={() => setCurrentTopTab("logs")}
-              className={cn(
-                "px-5 py-3 text-xs sm:text-sm font-semibold border-b-2 -mb-px transition-all cursor-pointer flex items-center gap-2",
-                currentTopTab === "logs"
-                  ? "border-indigo-600 text-indigo-600 bg-white rounded-t-lg shadow-2xs font-bold"
-                  : "border-transparent text-slate-600 hover:text-slate-900"
-              )}
-            >
-              <Code2 size={13} />
-              <span>Delivery Logs</span>
+              <Shield size={14} className={currentTopTab === "audit" ? "text-indigo-600" : "text-slate-400"} />
+              <span>Audit Log</span>
               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600">
                 {eventsHistory.length}
               </span>
@@ -886,9 +872,9 @@ export default function IntegrationsPage() {
         </div>
 
         {/* ═════════════════════════════════════════════════════════════════════ */}
-        {/* TAB 1: YOUR INTEGRATIONS (READ AI SPLIT-PANE UI)                      */}
+        {/* TAB 1: CONNECTED APPS & CATALOG (READ AI SPLIT-PANE UI)               */}
         {/* ═════════════════════════════════════════════════════════════════════ */}
-        {currentTopTab === "your-integrations" && (
+        {currentTopTab === "apps" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
             {/* ── LEFT PANE: CONNECTOR CATALOG & CATEGORIES (4 COLS) ─────────── */}
             <div className="lg:col-span-4 xl:col-span-4 border-r border-slate-200 p-4 space-y-4 bg-slate-50/30">
@@ -1301,114 +1287,246 @@ export default function IntegrationsPage() {
                   </div>
 
                   {/* ── 4. UPCOMING CALENDAR SCHEDULE ── */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Calendar size={14} className="text-indigo-600" />
-                        <h4 className="text-xs font-bold text-slate-900">
-                          Upcoming Calendar Schedule
-                        </h4>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
-                          {calendarEvents.length} Meetings
+                  {/* ── 4. CONDITIONAL: CALENDAR SCHEDULE ── */}
+                  {selectedConnector.category === "calendar" && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Calendar size={14} className="text-indigo-600" />
+                          <h4 className="text-xs font-bold text-slate-900">
+                            Upcoming Calendar Schedule
+                          </h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                            {calendarEvents.length} Meetings
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-400">
+                          Primary Calendar Feed
                         </span>
                       </div>
-                      <span className="text-[11px] text-slate-400">
-                        Primary Calendar Feed
-                      </span>
-                    </div>
 
-                    <div className="border border-slate-200/90 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
-                      {calendarEvents.length === 0 ? (
-                        <div className="py-12 px-4 text-center space-y-3">
-                          <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-200/60 shadow-2xs">
-                            <Calendar size={18} />
+                      <div className="border border-slate-200/90 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
+                        {calendarEvents.length === 0 ? (
+                          <div className="py-12 px-4 text-center space-y-3">
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-200/60 shadow-2xs">
+                              <Calendar size={18} />
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold text-slate-800">
+                                No upcoming meetings found on your calendar
+                              </p>
+                              <p className="text-[11px] text-slate-500 max-w-sm mx-auto mt-0.5">
+                                Your {selectedConnector.name} is connected and synced. Real meetings created in {selectedConnector.name} will automatically appear here.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                refetchCalendarEvents();
+                                syncCalendarsMutation.mutate();
+                              }}
+                              disabled={syncCalendarsMutation.isPending}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+                            >
+                              <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
+                              <span>Check for New Events</span>
+                            </button>
                           </div>
-                          <div>
-                            <p className="text-xs font-semibold text-slate-800">
-                              No upcoming meetings found on your calendar
-                            </p>
-                            <p className="text-[11px] text-slate-500 max-w-sm mx-auto mt-0.5">
-                              Your {selectedConnector.name} is connected and synced. Real meetings created in {selectedConnector.name} will automatically appear here.
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              refetchCalendarEvents();
-                              syncCalendarsMutation.mutate();
-                            }}
-                            disabled={syncCalendarsMutation.isPending}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
-                          >
-                            <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
-                            <span>Check for New Events</span>
-                          </button>
-                        </div>
-                      ) : (
-                        calendarEvents.map((evt) => (
-                          <div key={evt.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
-                            <div className="flex items-start gap-3 min-w-0">
-                              <div className="w-16 text-center shrink-0">
-                                <span className="block text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50/80 rounded py-0.5 border border-indigo-100/60">
-                                  {evt.start_time.split(",")[0] || "Today"}
-                                </span>
-                                <span className="block text-[10px] text-slate-500 font-medium mt-1">
-                                  {evt.start_time.split(",")[1] || evt.start_time}
-                                </span>
+                        ) : (
+                          calendarEvents.map((evt) => (
+                            <div key={evt.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                              <div className="flex items-start gap-3 min-w-0">
+                                <div className="w-16 text-center shrink-0">
+                                  <span className="block text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50/80 rounded py-0.5 border border-indigo-100/60">
+                                    {evt.start_time.split(",")[0] || "Today"}
+                                  </span>
+                                  <span className="block text-[10px] text-slate-500 font-medium mt-1">
+                                    {evt.start_time.split(",")[1] || evt.start_time}
+                                  </span>
+                                </div>
+
+                                <div className="min-w-0">
+                                  <h5 className="text-xs font-semibold text-slate-900 truncate">
+                                    {evt.title}
+                                  </h5>
+                                  <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
+                                    {evt.meeting_link && (
+                                      <a
+                                        href={evt.meeting_link}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="font-mono text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 truncate max-w-xs"
+                                      >
+                                        <span>{evt.meeting_link.replace("https://", "")}</span>
+                                        <ExternalLink size={10} />
+                                      </a>
+                                    )}
+                                    <span>&bull;</span>
+                                    <span>{evt.attendees.length} Attendees</span>
+                                  </div>
+                                </div>
                               </div>
 
-                              <div className="min-w-0">
-                                <h5 className="text-xs font-semibold text-slate-900 truncate">
-                                  {evt.title}
-                                </h5>
-                                <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
-                                  {evt.meeting_link && (
-                                    <a
-                                      href={evt.meeting_link}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className="font-mono text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 truncate max-w-xs"
-                                    >
-                                      <span>{evt.meeting_link.replace("https://", "")}</span>
-                                      <ExternalLink size={10} />
-                                    </a>
+                              {/* Right Action: Clean Auto-join Status Switch */}
+                              <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                                <button
+                                  onClick={() =>
+                                    toggleBotMutation.mutate({
+                                      meetingId: evt.id,
+                                      autoJoin: !evt.auto_join,
+                                    })
+                                  }
+                                  className={cn(
+                                    "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs",
+                                    evt.auto_join
+                                      ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 border border-emerald-200/80"
+                                      : "bg-slate-100 text-slate-600 hover:bg-slate-200/80 border border-slate-200"
                                   )}
-                                  <span>&bull;</span>
-                                  <span>{evt.attendees.length} Attendees</span>
+                                >
+                                  <span
+                                    className={cn(
+                                      "w-1.5 h-1.5 rounded-full",
+                                      evt.auto_join ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                                    )}
+                                  />
+                                  <span>{evt.auto_join ? "Auto-join Active" : "Auto-join Off"}</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4B. CONDITIONAL: RESEND EMAIL DISPATCHER ── */}
+                  {selectedConnector.provider === "RESEND" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Mail size={14} className="text-indigo-600" />
+                          <h4 className="text-xs font-bold text-slate-900">
+                            Executive Email Dispatcher &amp; Live Test
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                          LIVE API
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        {/* Dispatch Form (5 cols) */}
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Recipient Email Address
+                            </label>
+                            <input
+                              type="email"
+                              value={resendRecipient}
+                              onChange={(e) => setResendRecipient(e.target.value)}
+                              placeholder="delivered@resend.dev"
+                              className="w-full h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all font-mono"
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              In Resend test sandbox, use <code>delivered@resend.dev</code>.
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Meeting Subject / Title
+                            </label>
+                            <input
+                              type="text"
+                              value={resendSubject}
+                              onChange={(e) => setResendSubject(e.target.value)}
+                              className="w-full h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
+                            />
+                          </div>
+
+                          {resendStatusMsg && (
+                            <div
+                              className={cn(
+                                "p-2.5 rounded-lg text-xs border",
+                                resendStatusMsg.type === "success"
+                                  ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                                  : "bg-rose-50 border-rose-200 text-rose-800"
+                              )}
+                            >
+                              <div className="flex items-center gap-1.5 font-semibold text-[11px]">
+                                {resendStatusMsg.type === "success" ? <CheckCircle2 size={12} className="text-emerald-600" /> : <AlertCircle size={12} />}
+                                <span>{resendStatusMsg.text}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={() =>
+                              resendTestMutation.mutate({
+                                api_key: resendApiKey,
+                                to_email: resendRecipient,
+                                meeting_title: resendSubject,
+                              })
+                            }
+                            disabled={resendTestMutation.isPending}
+                            className="w-full h-9 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {resendTestMutation.isPending ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )}
+                            <span>
+                              {resendTestMutation.isPending ? "Sending via Resend API..." : "Send Live Test Email"}
+                            </span>
+                          </button>
+                        </div>
+
+                        {/* Preview Box (7 cols) */}
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                              <Eye size={12} className="text-indigo-600" />
+                              <span>Live HTML Email Preview</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">From: onboarding@resend.dev</span>
+                          </div>
+
+                          <div className="p-3 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
+                            <div className="bg-white rounded-lg border border-slate-200/80 shadow-2xs overflow-hidden">
+                              <div className="bg-[#181640] p-3 text-white">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                  <span className="text-[9px] uppercase tracking-wider font-bold text-indigo-300 bg-white/10 px-1.5 py-0.5 rounded">
+                                    Knowra Intelligence
+                                  </span>
+                                  <span className="text-[10px] text-slate-300">&bull; AI Recap</span>
+                                </div>
+                                <h5 className="text-xs font-bold text-white">{resendSubject}</h5>
+                              </div>
+
+                              <div className="p-3 space-y-2 text-xs">
+                                <div className="bg-slate-50 border-l-2 border-indigo-600 p-2 rounded-r">
+                                  <p className="font-semibold text-slate-800 text-[10px]">Executive Summary</p>
+                                  <p className="text-slate-600 text-[10px] mt-0.5 leading-relaxed">
+                                    Leadership ratified vector index partitioning, reviewed connector metrics, and verified zero-hallucination compliance.
+                                  </p>
+                                </div>
+
+                                <div>
+                                  <p className="font-semibold text-slate-800 text-[10px]">Key Decisions</p>
+                                  <ul className="list-disc pl-3 text-slate-600 text-[10px] space-y-0.5 mt-0.5">
+                                    <li>Automated Resend email recaps enabled by default.</li>
+                                    <li>PostgreSQL 16 & pgvector approved for enterprise tenants.</li>
+                                  </ul>
                                 </div>
                               </div>
                             </div>
-
-                            {/* Right Action: Clean Auto-join Status Switch */}
-                            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
-                              <button
-                                onClick={() =>
-                                  toggleBotMutation.mutate({
-                                    meetingId: evt.id,
-                                    autoJoin: !evt.auto_join,
-                                  })
-                                }
-                                className={cn(
-                                  "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs",
-                                  evt.auto_join
-                                    ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 border border-emerald-200/80"
-                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200/80 border border-slate-200"
-                                )}
-                              >
-                                <span
-                                  className={cn(
-                                    "w-1.5 h-1.5 rounded-full",
-                                    evt.auto_join ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
-                                  )}
-                                />
-                                <span>{evt.auto_join ? "Auto-join Active" : "Auto-join Off"}</span>
-                              </button>
-                            </div>
                           </div>
-                        ))
-                      )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
 
@@ -1430,243 +1548,118 @@ export default function IntegrationsPage() {
         )}
 
         {/* ═════════════════════════════════════════════════════════════════════ */}
-        {/* TAB 2: WORKSPACE CONNECTORS (TEAM INTEGRATIONS)                       */}
+        {/* TAB 2: WEBHOOKS & API (ENTERPRISE DEVELOPER PORTAL)                   */}
         {/* ═════════════════════════════════════════════════════════════════════ */}
-        {currentTopTab === "workspace" && (
+        {currentTopTab === "webhooks" && (
           <div className="p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Workspace Integrations Directory</h3>
-                <p className="text-xs text-slate-500">Shared webhooks and bots broadcasting to organization-wide channels.</p>
+                <h3 className="text-sm font-bold text-slate-900">Enterprise Webhooks &amp; Custom Endpoints</h3>
+                <p className="text-xs text-slate-500">Real-time HTTP callbacks broadcasting meeting intelligence signed with HMAC-SHA256.</p>
               </div>
               <button
-                onClick={() => setIsAddModalOpen(true)}
+                onClick={() => {
+                  setModalProvider("WEBHOOK");
+                  setIsAddModalOpen(true);
+                }}
                 className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Plus size={13} />
-                <span>Add Webhook or Bot</span>
+                <span>Register Webhook</span>
               </button>
             </div>
 
-            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
-              {integrations.map((item) => (
-                <div key={item.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-xl shrink-0">
-                      {item.provider === "SLACK" ? "💬" : item.provider === "TEAMS" ? "🟣" : item.provider === "JIRA" ? "🔵" : "🔗"}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h4 className="text-xs font-bold text-slate-900">{item.name}</h4>
-                        <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-slate-100 text-slate-700">
-                          {item.provider}
-                        </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Active
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">
-                        {item.webhook_url || item.channel_or_project_id || "Active dispatch"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => testIntegrationMutation.mutate(item.id)}
-                      disabled={testIntegrationMutation.isPending}
-                      className="px-3 py-1 rounded-md border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center gap-1 shadow-2xs cursor-pointer"
-                    >
-                      <Zap size={12} />
-                      <span>Test Ping</span>
-                    </button>
-                    <button
-                      onClick={() => deleteIntegrationMutation.mutate(item.id)}
-                      className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
-                      title="Remove integration"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
+            {integrations.filter((i) => i.provider === "WEBHOOK" || i.webhook_url).length === 0 ? (
+              <div className="py-14 px-4 text-center space-y-3 border border-slate-200 rounded-xl bg-white shadow-2xs">
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-200/60 shadow-2xs">
+                  <Code2 size={18} />
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ═════════════════════════════════════════════════════════════════════ */}
-        {/* TAB 3: RESEND EMAIL DISPATCHER                                        */}
-        {/* ═════════════════════════════════════════════════════════════════════ */}
-        {currentTopTab === "resend" && (
-          <div className="p-6 space-y-6">
-            <div className="bg-gradient-to-r from-[#181640] via-[#242154] to-[#312e81] rounded-2xl p-6 text-white shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xl">✉️</span>
-                  <span className="font-bold text-base tracking-tight text-white">Resend Email Engine</span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-400/30">
-                    LIVE API CONNECTED
-                  </span>
-                </div>
-                <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
-                  Automatically dispatch beautifully structured, AI-synthesized meeting recaps, decisions, and action items directly to executive attendees via Resend REST API.
-                </p>
-              </div>
-
-              <div className="bg-white/10 backdrop-blur-xs p-3 rounded-xl border border-white/10 shrink-0 text-right">
-                <div className="text-[10px] text-slate-300 uppercase tracking-wider font-semibold">Resend API Key</div>
-                <div className="font-mono text-xs text-white mt-0.5 flex items-center gap-1.5 justify-end">
-                  <span>{resendApiKey ? `${resendApiKey.slice(0, 6)}••••••••${resendApiKey.slice(-4)}` : "Configured via ENV"}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-              {/* Form (5 cols) */}
-              <div className="md:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-2xs p-5 space-y-4">
-                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sliders size={14} className="text-indigo-600" />
-                  <span>Send Live Test Recap</span>
-                </h4>
-
                 <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Recipient Email Address
-                  </label>
-                  <input
-                    type="email"
-                    value={resendRecipient}
-                    onChange={(e) => setResendRecipient(e.target.value)}
-                    placeholder="delivered@resend.dev"
-                    className="w-full h-9 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all font-mono"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Tip: In Resend sandbox, send to <code>delivered@resend.dev</code> or your verified account email.
+                  <p className="text-xs font-semibold text-slate-800">
+                    No custom webhooks configured
+                  </p>
+                  <p className="text-[11px] text-slate-500 max-w-sm mx-auto mt-0.5">
+                    Register an HTTPS endpoint to receive live JSON payloads whenever meetings finish processing, decisions are ratified, or action items are created.
                   </p>
                 </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Meeting Subject / Title
-                  </label>
-                  <input
-                    type="text"
-                    value={resendSubject}
-                    onChange={(e) => setResendSubject(e.target.value)}
-                    className="w-full h-9 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="text-xs font-semibold text-slate-700 block mb-1">
-                    Sender Account
-                  </label>
-                  <input
-                    type="text"
-                    disabled
-                    value="Knowra AI <onboarding@resend.dev>"
-                    className="w-full h-9 px-3 text-xs bg-slate-100 border border-slate-200 rounded-lg text-slate-500 font-mono"
-                  />
-                </div>
-
-                {resendStatusMsg && (
-                  <div
-                    className={cn(
-                      "p-3 rounded-lg text-xs border animate-fade-in",
-                      resendStatusMsg.type === "success"
-                        ? "bg-emerald-50 border-emerald-200 text-emerald-800"
-                        : "bg-rose-50 border-rose-200 text-rose-800"
-                    )}
-                  >
-                    <div className="flex items-center gap-1.5 font-bold">
-                      {resendStatusMsg.type === "success" ? <CheckCircle2 size={14} className="text-emerald-600" /> : <AlertCircle size={14} />}
-                      <span>{resendStatusMsg.text}</span>
-                    </div>
-                    {resendStatusMsg.id && (
-                      <p className="text-[11px] font-mono mt-1 text-emerald-700">
-                        Resend Message ID: <strong>{resendStatusMsg.id}</strong>
-                      </p>
-                    )}
-                  </div>
-                )}
-
                 <button
-                  onClick={() =>
-                    resendTestMutation.mutate({
-                      api_key: resendApiKey,
-                      to_email: resendRecipient,
-                      meeting_title: resendSubject,
-                    })
-                  }
-                  disabled={resendTestMutation.isPending}
-                  className="w-full h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  type="button"
+                  onClick={() => {
+                    setModalProvider("WEBHOOK");
+                    setIsAddModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium shadow-2xs transition-colors cursor-pointer"
                 >
-                  {resendTestMutation.isPending ? (
-                    <RefreshCw size={14} className="animate-spin" />
-                  ) : (
-                    <Send size={14} />
-                  )}
-                  <span>
-                    {resendTestMutation.isPending ? "Sending via Resend API..." : "Send Live Test Email Now"}
-                  </span>
+                  <Plus size={12} />
+                  <span>Create Webhook Endpoint</span>
                 </button>
               </div>
-
-              {/* Live Preview (7 cols) */}
-              <div className="md:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-                <div className="p-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-700 flex items-center gap-1.5">
-                    <Eye size={13} className="text-indigo-600" />
-                    <span>Live HTML Email Preview</span>
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">From: onboarding@resend.dev</span>
-                </div>
-
-                <div className="p-4 bg-slate-50/40 flex-1 overflow-y-auto max-h-[420px]">
-                  <div className="bg-white rounded-xl border border-slate-200/80 shadow-2xs overflow-hidden max-w-lg mx-auto">
-                    <div className="bg-[#181640] p-4 text-white">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[9px] uppercase tracking-wider font-bold text-indigo-300 bg-white/10 px-2 py-0.5 rounded">
-                          Knowra Intelligence
-                        </span>
-                        <span className="text-[10px] text-slate-300">&bull; AI Recap</span>
+            ) : (
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden bg-white shadow-2xs">
+                {integrations
+                  .filter((i) => i.provider === "WEBHOOK" || i.webhook_url)
+                  .map((item) => (
+                    <div key={item.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-indigo-50/80 border border-indigo-100 text-indigo-700 flex items-center justify-center text-lg shrink-0">
+                          <Code2 size={18} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-slate-900">{item.name}</h4>
+                            <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-slate-100 text-slate-700">
+                              HMAC-SHA256
+                            </span>
+                            <span className="text-[10px] font-semibold px-2 py-0.2 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Active
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-mono mt-0.5">
+                            {item.webhook_url || item.channel_or_project_id || "https://your-api.com/webhook"}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                            {(item.events_subscribed?.length ? item.events_subscribed : ["MEETING_PROCESSED"]).map((ev) => (
+                              <span key={ev} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200/60">
+                                {ev}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <h4 className="text-base font-bold text-white">{resendSubject}</h4>
-                      <p className="text-[11px] text-slate-300 mt-1">Delivered to attendee &bull; Auto-synced via Resend</p>
+
+                      <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+                        <button
+                          onClick={() => testIntegrationMutation.mutate(item.id)}
+                          disabled={testIntegrationMutation.isPending}
+                          className="px-3 py-1 rounded-md border border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center gap-1 shadow-2xs cursor-pointer"
+                        >
+                          <Zap size={12} />
+                          <span>Test Ping</span>
+                        </button>
+                        <button
+                          onClick={() => deleteIntegrationMutation.mutate(item.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
+                          title="Remove webhook"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
                     </div>
-
-                    <div className="p-4 space-y-3 text-xs">
-                      <div className="bg-slate-50 border-l-2 border-indigo-600 p-2.5 rounded-r">
-                        <p className="font-semibold text-slate-800 text-[11px]">Executive Summary</p>
-                        <p className="text-slate-600 text-[11px] mt-0.5 leading-relaxed">
-                          Leadership ratified vector index partitioning, reviewed enterprise connector metrics, and verified zero-hallucination compliance.
-                        </p>
-                      </div>
-
-                      <div>
-                        <p className="font-semibold text-slate-800 text-[11px]">Key Decisions</p>
-                        <ul className="list-disc pl-4 text-slate-600 text-[11px] space-y-0.5 mt-0.5">
-                          <li>PostgreSQL 16 & pgvector approved for enterprise tenants.</li>
-                          <li>Automated Resend email recaps enabled by default.</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  ))}
               </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* ═════════════════════════════════════════════════════════════════════ */}
-        {/* TAB 4: DELIVERY AUDIT LOGS                                            */}
+        {/* TAB 3: ENTERPRISE AUDIT LOG & EVENT STREAM                            */}
         {/* ═════════════════════════════════════════════════════════════════════ */}
-        {currentTopTab === "logs" && (
+        {currentTopTab === "audit" && (
           <div className="p-6 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">Delivery Stream & Audit Trail</h3>
-                <p className="text-xs text-slate-500">Immutable log of outbound events, HTTP status codes, and payloads.</p>
+                <h3 className="text-sm font-bold text-slate-900">Enterprise Audit Log &amp; Event Stream</h3>
+                <p className="text-xs text-slate-500">Immutable log of outbound events, HTTP status codes, and cryptographic delivery signatures.</p>
               </div>
               <button
                 onClick={() => refetchEvents()}
@@ -1676,6 +1669,7 @@ export default function IntegrationsPage() {
                 <span>Refresh Logs</span>
               </button>
             </div>
+
 
             <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-2xs">
               <table className="w-full text-left text-xs">

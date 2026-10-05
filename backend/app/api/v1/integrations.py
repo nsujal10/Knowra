@@ -1242,7 +1242,7 @@ def connect_linear(
 
         if not api_key:
             raise ValueError(
-                "Linear Personal API Key is required. Please paste your key (starts with lin_api_...) or click 'Connect Demo Sandbox' to test immediately."
+                "Linear API Key is required. Please set LINEAR_API_KEY in your .env or provide your Linear Personal API Key."
             )
 
         return linear_service.save_connection(

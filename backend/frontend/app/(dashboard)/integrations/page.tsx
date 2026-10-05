@@ -57,7 +57,7 @@ interface ConnectorItem {
   id: string;
   provider: string;
   name: string;
-  category: "calendar" | "email" | "tracker" | "docs" | "custom";
+  category: "calendar" | "email" | "tracker" | "custom";
   categoryLabel: string;
   iconBg: string;
   iconSvg: string;
@@ -196,38 +196,6 @@ const ALL_CONNECTORS: ConnectorItem[] = [
       "Linear API requests are encrypted and authenticated via scoped personal or team API tokens.",
     tags: ["Tracker", "Fast Issues"],
     docUrl: "https://linear.app",
-  },
-  {
-    id: "notion",
-    provider: "NOTION",
-    name: "Notion Workspace Wiki",
-    category: "docs",
-    categoryLabel: "Knowledge & Docs",
-    iconBg: "bg-slate-100 text-slate-800 border-slate-200",
-    iconSvg: "📝",
-    subtitle: "Auto-publish executive briefs, action matrices, and meeting transcripts to Notion.",
-    description:
-      "Seamlessly synchronize structured meeting databases, action item trackers, and AI synthesis directly into team Notion workspaces with linked database relations.",
-    policyNotice:
-      "Notion API integration connects via scoped internal integration tokens with AES-256 encrypted credential storage.",
-    tags: ["Knowledge Base", "Team Wiki", "Databases"],
-    docUrl: "https://notion.so",
-  },
-  {
-    id: "confluence",
-    provider: "CONFLUENCE",
-    name: "Confluence Enterprise Wiki",
-    category: "docs",
-    categoryLabel: "Knowledge & Docs",
-    iconBg: "bg-sky-50 text-sky-700 border-sky-200",
-    iconSvg: "📑",
-    subtitle: "Publish meeting decision records and architectural RFCs into Confluence spaces.",
-    description:
-      "Automatically generate formatted Confluence pages with executive recaps, architectural ADRs, and speaker summaries inside dedicated team spaces.",
-    policyNotice:
-      "Atlassian Confluence REST API authorization adheres to Atlassian Cloud Security and Tenant boundary policies.",
-    tags: ["Knowledge Base", "Enterprise Wiki", "ADRs"],
-    docUrl: "https://atlassian.com/software/confluence",
   },
 ];
 
@@ -775,22 +743,6 @@ export default function IntegrationsPage() {
           },
         }
       );
-    } else if (authConnector.provider === "NOTION") {
-      createIntegrationMutation.mutate({
-        provider: "NOTION",
-        name: "Notion Workspace Wiki",
-        channel_or_project_id: "Meeting Notes & Wiki",
-        credentials_secret: "secret_notion_knowra_db",
-      });
-      setIsOAuthModalOpen(false);
-    } else if (authConnector.provider === "CONFLUENCE") {
-      createIntegrationMutation.mutate({
-        provider: "CONFLUENCE",
-        name: "Confluence Enterprise Wiki",
-        channel_or_project_id: "Architecture Spaces",
-        credentials_secret: "confluence_api_knowra",
-      });
-      setIsOAuthModalOpen(false);
     } else {
       createIntegrationMutation.mutate({
         provider: authConnector.provider,
@@ -822,12 +774,6 @@ export default function IntegrationsPage() {
     }
     if (item.provider === "LINEAR") {
       return `Synced: ${integ?.channel_or_project_id || "ENG-Cycle"} (Linear)`;
-    }
-    if (item.provider === "NOTION") {
-      return `Synced: ${integ?.channel_or_project_id || "Meeting Notes & Wiki"}`;
-    }
-    if (item.provider === "CONFLUENCE") {
-      return `Synced: ${integ?.channel_or_project_id || "Architecture Spaces"}`;
     }
     return `Synced: ${integ?.channel_or_project_id || userEmail}`;
   };
@@ -2187,121 +2133,6 @@ export default function IntegrationsPage() {
                       </div>
                     </div>
                   )}
-
-                  {/* ── 4E. CONDITIONAL: KNOWLEDGE & DOCS (NOTION & CONFLUENCE) ── */}
-                  {selectedConnector.category === "docs" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <FileText size={14} className="text-slate-800" />
-                          <h4 className="text-xs font-bold text-slate-900">
-                            {selectedConnector.name} &amp; Workspace Wiki Auto-Publish
-                          </h4>
-                        </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                          AUTO-PUBLISH
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
-                          <div>
-                            <label className="text-xs font-semibold text-slate-700 block mb-1">
-                              Target Database / Workspace Space
-                            </label>
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
-                              <span>{selectedConnector.provider === "NOTION" ? "Meeting Notes & Wiki" : "Architecture & RFC Spaces"}</span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Completed meeting intelligence documents are automatically published to this destination.
-                            </p>
-                          </div>
-
-                          <div className="space-y-2 pt-1">
-                            <label className="text-xs font-semibold text-slate-700 block">
-                              Generated Document Structure
-                            </label>
-                            <div className="space-y-1.5 text-[11px] text-slate-600">
-                              <div className="flex items-center gap-1.5">
-                                <Check size={12} className="text-emerald-600" />
-                                <span>Executive Briefing &amp; Background</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <Check size={12} className="text-emerald-600" />
-                                <span>Ratified Decisions &amp; Voting Matrix</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <Check size={12} className="text-emerald-600" />
-                                <span>Prioritized Action Items Table</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <Check size={12} className="text-emerald-600" />
-                                <span>Diarized Speaker Transcript</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <button
-                            onClick={() => {
-                              const found = integrations.find((i) => i.provider === selectedConnector.provider);
-                              if (found) testIntegrationMutation.mutate(found.id);
-                              else toast.info(`Exporting latest meeting intelligence to ${selectedConnector.name}...`);
-                            }}
-                            disabled={testIntegrationMutation.isPending}
-                            className="w-full h-9 rounded-lg bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {testIntegrationMutation.isPending ? (
-                              <RefreshCw size={12} className="animate-spin" />
-                            ) : (
-                              <Zap size={12} />
-                            )}
-                            <span>Export Latest Meeting to {selectedConnector.provider === "NOTION" ? "Notion" : "Confluence"}</span>
-                          </button>
-                        </div>
-
-                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
-                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
-                              <Eye size={12} className="text-slate-800" />
-                              <span>Published Document Preview</span>
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
-                              {selectedConnector.provider === "NOTION" ? "Notion Page" : "Confluence Space"}
-                            </span>
-                          </div>
-
-                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
-                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2.5 shadow-2xs">
-                              <div className="flex items-center gap-2">
-                                <span className="text-lg">📄</span>
-                                <div>
-                                  <h5 className="text-xs font-bold text-slate-900">
-                                    Strategic Architecture Review &bull; Executive Brief
-                                  </h5>
-                                  <p className="text-[10px] text-slate-400">Created by Knowra AI Assistant &bull; Today</p>
-                                </div>
-                              </div>
-
-                              <div className="space-y-1.5 text-[11px] text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
-                                <p className="font-semibold text-slate-900 text-xs">Summary Callout</p>
-                                <p className="text-slate-600 leading-relaxed text-[10px]">
-                                  Engineering ratified vector partitioning schemas, established multi-tenant tenant isolation boundaries, and approved automated notetaker bots.
-                                </p>
-                              </div>
-
-                              <div className="space-y-1 text-[10px]">
-                                <p className="font-bold text-slate-800 uppercase tracking-wider text-[9px]">Decision Record:</p>
-                                <div className="flex items-center gap-1.5 text-slate-600">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                                  <span>ADR-041: PostgreSQL 16 &amp; pgvector approved for enterprise tenants</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -2937,10 +2768,6 @@ export default function IntegrationsPage() {
                   <option value="SLACK">Slack</option>
                   <option value="LINEAR">Linear</option>
                   <option value="JIRA">Jira</option>
-                  <option value="NOTION">Notion</option>
-                  <option value="CONFLUENCE">Confluence</option>
-                  <option value="HUBSPOT">HubSpot</option>
-                  <option value="SALESFORCE">Salesforce</option>
                   <option value="TEAMS">Microsoft Teams</option>
                   <option value="WEBHOOK">Custom Webhook</option>
                 </select>

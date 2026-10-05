@@ -21,12 +21,17 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.events.dispatcher import EventDispatcher
 from app.models.meeting import Meeting
 from app.integrations.crypto import SecretEncryptionService
+from app.integrations.google_calendar_service import google_calendar_service
+from app.integrations.zoom_service import zoom_service
+from app.integrations.outlook_service import outlook_service
 from app.integrations.models import Integration, IntegrationEvent
 from app.integrations.schemas import (
     IntegrationCreate,
@@ -44,7 +49,10 @@ from app.integrations.schemas import (
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user
 
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -554,11 +562,228 @@ def disconnect_calendar(
 
 
 @router.get(
+    "/google-calendar/auth-url",
+    summary="Get Google OAuth 2.0 authorization URL for Google Calendar sync",
+)
+def get_google_calendar_auth_url(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    redirect_uri = google_calendar_service.get_redirect_uri()
+    is_configured = google_calendar_service.is_configured
+    auth_url = ""
+    if is_configured:
+        auth_url = google_calendar_service.get_authorization_url(
+            tenant_id=str(current_user.organization_id),
+            redirect_uri=redirect_uri,
+        )
+    return {
+        "is_configured": is_configured,
+        "auth_url": auth_url,
+        "redirect_uri": redirect_uri,
+        "client_id_preview": settings.GOOGLE_CLIENT_ID[:12] + "..." if settings.GOOGLE_CLIENT_ID else None,
+    }
+
+
+@router.get(
+    "/google-calendar/callback",
+    summary="Google OAuth 2.0 redirect callback endpoint",
+)
+async def google_calendar_callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    frontend_url = settings.FRONTEND_URL or "http://localhost:3000"
+    if error or not code:
+        return RedirectResponse(url=f"{frontend_url}/integrations?error={error or 'cancelled'}")
+
+    tenant_id = None
+    try:
+        state_obj = json.loads(state) if state else {}
+        tenant_id = state_obj.get("tenant_id")
+    except Exception:
+        pass
+
+    redirect_uri = google_calendar_service.get_redirect_uri()
+    try:
+        token_info = await google_calendar_service.exchange_code(code, redirect_uri)
+        user_info = token_info.get("user_info", {})
+        account_email = user_info.get("email") or "connected-user@gmail.com"
+
+        google_calendar_service.save_connection(
+            db=db,
+            tenant_id=tenant_id or "default",
+            account_email=account_email,
+            token_data=token_info["token_data"],
+        )
+        return RedirectResponse(url=f"{frontend_url}/integrations?connected=GOOGLE_CALENDAR&email={account_email}")
+    except Exception as ex:
+        return RedirectResponse(url=f"{frontend_url}/integrations?error={str(ex)}")
+
+
+@router.get(
+    "/zoom/auth-url",
+    summary="Get Zoom OAuth 2.0 authorization URL",
+)
+def get_zoom_auth_url(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    redirect_uri = zoom_service.get_redirect_uri()
+    is_configured = zoom_service.is_configured()
+    auth_url = ""
+    if is_configured:
+        state_data = json.dumps({"tenant_id": str(current_user.organization_id)})
+        auth_url = zoom_service.get_auth_url(state=state_data)
+    return {
+        "is_configured": is_configured,
+        "auth_url": auth_url,
+        "redirect_uri": redirect_uri,
+        "client_id_preview": settings.ZOOM_CLIENT_ID[:8] + "..." if settings.ZOOM_CLIENT_ID else None,
+    }
+
+
+@router.get(
+    "/zoom/callback",
+    summary="Zoom OAuth 2.0 redirect callback endpoint",
+)
+def zoom_callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    frontend_url = settings.FRONTEND_APP_URL or settings.FRONTEND_URL or "http://localhost:3000"
+    if error or not code:
+        return RedirectResponse(url=f"{frontend_url}/integrations?error={error or 'zoom_access_denied'}")
+
+    tenant_id = None
+    try:
+        if state:
+            state_obj = json.loads(state)
+            tenant_id = state_obj.get("tenant_id")
+    except Exception:
+        pass
+
+    try:
+        tokens = zoom_service.exchange_code(code)
+        access_token = tokens.get("access_token", "")
+        profile = zoom_service.get_user_profile(access_token) if access_token else {}
+        item = zoom_service.save_connection(
+            db=db,
+            tenant_id=tenant_id or "default",
+            token_data=tokens,
+            user_profile=profile,
+        )
+        email = item.channel_or_project_id or "zoom_user"
+        return RedirectResponse(url=f"{frontend_url}/integrations?connected=ZOOM&email={email}")
+    except Exception as ex:
+        logger.error(f"Zoom OAuth callback error: {ex}")
+        return RedirectResponse(url=f"{frontend_url}/integrations?error=zoom_auth_failed")
+
+
+@router.get(
+    "/outlook/auth-url",
+    summary="Get Microsoft OAuth 2.0 authorization URL for Outlook Calendar",
+)
+def get_outlook_auth_url(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    redirect_uri = outlook_service.get_redirect_uri()
+    is_configured = outlook_service.is_configured()
+    auth_url = ""
+    if is_configured:
+        auth_url = outlook_service.get_authorization_url(
+            tenant_id=str(current_user.organization_id),
+            redirect_uri=redirect_uri,
+        )
+    return {
+        "is_configured": is_configured,
+        "auth_url": auth_url,
+        "redirect_uri": redirect_uri,
+        "client_id_preview": settings.MICROSOFT_CLIENT_ID[:8] + "..." if settings.MICROSOFT_CLIENT_ID else None,
+    }
+
+
+@router.get(
+    "/outlook/callback",
+    summary="Microsoft OAuth 2.0 redirect callback endpoint for Outlook Calendar",
+)
+def outlook_callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    error_description: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    frontend_url = settings.FRONTEND_APP_URL or settings.FRONTEND_URL or "http://localhost:3000"
+    if error or not code:
+        err_msg = error_description or error or "microsoft_access_denied"
+        return RedirectResponse(url=f"{frontend_url}/integrations?error={err_msg}")
+
+    tenant_id = None
+    try:
+        if state:
+            state_obj = json.loads(state)
+            tenant_id = state_obj.get("tenant_id")
+    except Exception:
+        pass
+
+    try:
+        tokens = outlook_service.exchange_code(code)
+        access_token = tokens.get("access_token", "")
+        profile = outlook_service.get_user_profile(access_token) if access_token else {}
+        item = outlook_service.save_connection(
+            db=db,
+            tenant_id=tenant_id or "default",
+            token_data=tokens,
+            user_profile=profile,
+        )
+        email = item.channel_or_project_id or "outlook_user"
+        return RedirectResponse(url=f"{frontend_url}/integrations?connected=OUTLOOK&email={email}")
+    except Exception as ex:
+        logger.error(f"Outlook OAuth callback error: {ex}")
+        return RedirectResponse(url=f"{frontend_url}/integrations?error=outlook_auth_failed")
+
+
+@router.post(
+    "/outlook/sync",
+    summary="Trigger immediate live Outlook Calendar API sync",
+)
+async def sync_outlook_calendar_now(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    events = await outlook_service.fetch_live_events(db, current_user.organization_id)
+    return {
+        "success": True,
+        "synced_count": len(events),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.post(
+    "/google-calendar/sync",
+    summary="Trigger immediate live Google Calendar API sync",
+)
+async def sync_google_calendar_now(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    events = await google_calendar_service.fetch_live_events(db, current_user.organization_id)
+    return {
+        "success": True,
+        "synced_count": len(events),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get(
     "/calendar/events",
     response_model=List[CalendarMeetingItem],
     summary="Fetch synced calendar meetings across Google, Outlook, and Zoom",
 )
-def get_calendar_events(
+async def get_calendar_events(
     provider: Optional[str] = Query(None, description="Filter by calendar provider"),
     db: Session = Depends(get_db),
     current_user: CurrentUserContext = Depends(get_current_user),
@@ -586,189 +811,34 @@ def get_calendar_events(
 
     events: List[CalendarMeetingItem] = []
 
-    def _create_events_for_provider(prov: str, item: Integration):
-        meta = item.metadata_json if isinstance(item.metadata_json, dict) else {}
-        acct_email = meta.get("account_email") or item.channel_or_project_id or default_email
-        auto_join = meta.get("auto_join", True)
+    # If Google Calendar is active, fetch real live events from Google Calendar API
+    if (not provider or provider.upper() in ("GOOGLE_CALENDAR", "GOOGLE_MEET")) and "GOOGLE_CALENDAR" in active_map:
+        try:
+            live_gcal = await google_calendar_service.fetch_live_events(db, tenant_id)
+            if live_gcal:
+                events.extend(live_gcal)
+        except Exception as e:
+            logger.error(f"Error fetching live Google Calendar events: {e}")
 
-        if "softude.com" in acct_email.lower():
-            if prov in ("GOOGLE_CALENDAR", "GOOGLE_MEET"):
-                return [
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_01",
-                        title="Softude Executive Boardroom: Knowra AI Deployment",
-                        provider=prov,
-                        start_time="Today, 2:30 PM",
-                        end_time="3:30 PM",
-                        duration_minutes=60,
-                        meeting_link="https://meet.google.com/qwa-bckp-dzy",
-                        organizer=acct_email,
-                        attendees=[acct_email, "ceo@softude.com", "cfo@softude.com", "sarah.chen@knowra.ai"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=False,
-                    ),
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_02",
-                        title="Sprint 44 Engineering Sync & Vector DB Partitioning",
-                        provider=prov,
-                        start_time="Today, 4:00 PM",
-                        end_time="4:45 PM",
-                        duration_minutes=45,
-                        meeting_link="https://meet.google.com/eng-sync-vctr",
-                        organizer=acct_email,
-                        attendees=[acct_email, "dev-team@softude.com", "david.kim@softude.com"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=False,
-                    ),
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_03",
-                        title="Softude Client Discovery & Architecture Solutioning",
-                        provider=prov,
-                        start_time="Tomorrow, 10:00 AM",
-                        end_time="11:00 AM",
-                        duration_minutes=60,
-                        meeting_link="https://meet.google.com/softude-arch-sync",
-                        organizer=acct_email,
-                        attendees=[acct_email, "elena.rostova@softude.com", "marcus.vance@enterprise.com"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=True,
-                    ),
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_04",
-                        title="Weekly Decision Audit & Action Item Retrospective",
-                        provider=prov,
-                        start_time="Friday, 3:00 PM",
-                        end_time="3:45 PM",
-                        duration_minutes=45,
-                        meeting_link="https://meet.google.com/ret-aud-sync",
-                        organizer=acct_email,
-                        attendees=[acct_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=False,
-                    ),
-                ]
-            elif prov == "OUTLOOK":
-                return [
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_01",
-                        title="Softude M365 Strategic Planning & OKRs Review",
-                        provider=prov,
-                        start_time="Today, 3:00 PM",
-                        end_time="4:00 PM",
-                        duration_minutes=60,
-                        meeting_link="https://teams.microsoft.com/l/meetup-join/boardroom-sync",
-                        organizer=acct_email,
-                        attendees=[acct_email, "ceo@softude.com", "vp-eng@softude.com"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=False,
-                    ),
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_02",
-                        title="Enterprise Client Architecture & Security Review",
-                        provider=prov,
-                        start_time="Tomorrow, 11:30 AM",
-                        end_time="12:30 PM",
-                        duration_minutes=60,
-                        meeting_link="https://teams.microsoft.com/l/meetup-join/client-review",
-                        organizer=acct_email,
-                        attendees=[acct_email, "ciso@softude.com", "security@clientcorp.com"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=True,
-                    ),
-                ]
-            elif prov == "ZOOM":
-                return [
-                    CalendarMeetingItem(
-                        id=f"{prov.lower()}_evt_01",
-                        title="Cross-Functional Product Demo & Client Walkthrough",
-                        provider=prov,
-                        start_time="Tomorrow, 1:00 PM",
-                        end_time="1:45 PM",
-                        duration_minutes=45,
-                        meeting_link="https://zoom.us/j/94829104821",
-                        organizer=acct_email,
-                        attendees=[acct_email, "alex.turner@clientcorp.com", "product-ops@knowra.ai"],
-                        auto_join=auto_join,
-                        status="SCHEDULED",
-                        is_external=True,
-                    ),
-                ]
-        else:
-            # Personal account (e.g. sujal2005nage@gmail.com) or custom email
-            return [
-                CalendarMeetingItem(
-                    id=f"{prov.lower()}_evt_01",
-                    title="Knowra AI & Google Cloud Platform Architecture Sync",
-                    provider=prov,
-                    start_time="Today, 2:30 PM",
-                    end_time="3:30 PM",
-                    duration_minutes=60,
-                    meeting_link="https://meet.google.com/qwa-bckp-dzy",
-                    organizer=acct_email,
-                    attendees=[acct_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com", "elena.rostova@softude.com"],
-                    auto_join=auto_join,
-                    status="SCHEDULED",
-                    is_external=False,
-                ),
-                CalendarMeetingItem(
-                    id=f"{prov.lower()}_evt_02",
-                    title="AI Knowledge Pipeline & Vector Search Optimization",
-                    provider=prov,
-                    start_time="Today, 4:00 PM",
-                    end_time="4:45 PM",
-                    duration_minutes=45,
-                    meeting_link="https://meet.google.com/eng-sync-vctr",
-                    organizer=acct_email,
-                    attendees=[acct_email, "dev-team@knowra.ai", "david.kim@softude.com"],
-                    auto_join=auto_join,
-                    status="SCHEDULED",
-                    is_external=False,
-                ),
-                CalendarMeetingItem(
-                    id=f"{prov.lower()}_evt_03",
-                    title="Weekly Decision Audit & Model Evaluation",
-                    provider=prov,
-                    start_time="Tomorrow, 11:00 AM",
-                    end_time="11:45 AM",
-                    duration_minutes=45,
-                    meeting_link="https://meet.google.com/ret-aud-sync",
-                    organizer=acct_email,
-                    attendees=[acct_email, "sarah.chen@knowra.ai", "marcus.vance@enterprise.com"],
-                    auto_join=auto_join,
-                    status="SCHEDULED",
-                    is_external=False,
-                ),
-                CalendarMeetingItem(
-                    id=f"{prov.lower()}_evt_04",
-                    title="Live Customer Discovery & Product Feedback Session",
-                    provider=prov,
-                    start_time="Tomorrow, 3:00 PM",
-                    end_time="3:30 PM",
-                    duration_minutes=30,
-                    meeting_link="https://meet.google.com/client-disc-89",
-                    organizer=acct_email,
-                    attendees=[acct_email, "product-ops@knowra.ai", "alex.turner@clientcorp.com"],
-                    auto_join=auto_join,
-                    status="SCHEDULED",
-                    is_external=True,
-                ),
-            ]
-        return []
+    # If Outlook is active, fetch real live events from Microsoft Graph API
+    if (not provider or provider.upper() == "OUTLOOK") and "OUTLOOK" in active_map:
+        try:
+            live_outlook = await outlook_service.fetch_live_events(db, tenant_id)
+            if live_outlook:
+                events.extend(live_outlook)
+        except Exception as e:
+            logger.error(f"Error fetching live Outlook events: {e}")
 
-    if provider:
-        p_up = provider.upper()
-        if p_up in active_map:
-            events.extend(_create_events_for_provider(p_up, active_map[p_up]))
-    else:
-        for p_key, itm in active_map.items():
-            events.extend(_create_events_for_provider(p_key, itm))
+    # If Zoom is active, fetch real live events from Zoom Meetings API
+    if (not provider or provider.upper() == "ZOOM") and "ZOOM" in active_map:
+        try:
+            live_zoom = await zoom_service.fetch_live_events(db, tenant_id)
+            if live_zoom:
+                events.extend(live_zoom)
+        except Exception as e:
+            logger.error(f"Error fetching live Zoom events: {e}")
 
+    # Return only verified real events from the connected provider (no dummy fallback data)
     return events
 
 

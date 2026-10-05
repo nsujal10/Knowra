@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/client";
@@ -41,6 +41,8 @@ import {
   Check,
   User,
   Lock,
+  Copy,
+  Key,
 } from "lucide-react";
 
 // Secure environment fallback for Resend
@@ -226,6 +228,19 @@ export default function IntegrationsPage() {
   const [scopeNotetaker, setScopeNotetaker] = useState<boolean>(true);
   const [scopeEmailSummaries, setScopeEmailSummaries] = useState<boolean>(true);
 
+  // Enterprise Notetaker & Ingestion Preferences
+  const [prefAutoJoin, setPrefAutoJoin] = useState<boolean>(true);
+  const [prefAutoEmail, setPrefAutoEmail] = useState<boolean>(true);
+  const [prefRestrictInternal, setPrefRestrictInternal] = useState<boolean>(false);
+
+  // Google Calendar Live OAuth States
+  const [isGoogleOAuthLoading, setIsGoogleOAuthLoading] = useState<boolean>(false);
+  const [googleSetupModalOpen, setGoogleSetupModalOpen] = useState<boolean>(false);
+  const [googleRedirectUri, setGoogleRedirectUri] = useState<string>(
+    "http://localhost:8000/api/v1/integrations/google-calendar/callback"
+  );
+  const [copiedRedirect, setCopiedRedirect] = useState<boolean>(false);
+
   // Payload viewer modal
   const [viewingPayload, setViewingPayload] = useState<Record<string, unknown> | null>(null);
 
@@ -281,6 +296,29 @@ export default function IntegrationsPage() {
     refetchInterval: 12_000,
   });
 
+  // ── OAuth Callback Query Parameter Handler (Google Calendar Redirect) ────
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const error = params.get("error");
+    const email = params.get("email");
+
+    if (connected === "GOOGLE_CALENDAR") {
+      toast.success(
+        `Google Calendar successfully connected${email ? ` (${email})` : ""}! Live events synchronized.`
+      );
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarStatus() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (error) {
+      toast.error(`Google Calendar connection failed: ${decodeURIComponent(error)}`);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [queryClient]);
+
   // ── Mutations ────────────────────────────────────────────────────────────
   const connectCalendarMutation = useMutation({
     mutationFn: ({
@@ -334,6 +372,23 @@ export default function IntegrationsPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
       toast.success(data?.message || "Calendars successfully synchronized!");
+    },
+  });
+
+  const syncGoogleMutation = useMutation({
+    mutationFn: () =>
+      api.post<{ success: boolean; synced_count: number; timestamp: string }>(
+        INTEGRATIONS.googleCalendarSync(),
+        {}
+      ),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarStatus() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+      toast.success(`Google Calendar synchronized! ${data.synced_count} live event(s) retrieved.`);
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to synchronize Google Calendar");
     },
   });
 
@@ -408,11 +463,87 @@ export default function IntegrationsPage() {
   };
 
   // ── Open Real OAuth Account Picker Modal ─────────────────────────────────
-  const handleOpenConnect = (connector: ConnectorItem) => {
+  const handleOpenConnect = async (connector: ConnectorItem) => {
     setAuthConnector(connector);
     setConnectingAccountEmail(null);
     setShowCustomAccountInput(false);
     setCustomAccountEmail("");
+
+    if (connector.provider === "GOOGLE_CALENDAR" || connector.provider === "GOOGLE_MEET") {
+      setIsGoogleOAuthLoading(true);
+      try {
+        const res = await api.get<{
+          is_configured: boolean;
+          auth_url?: string;
+          redirect_uri?: string;
+          client_id_preview?: string;
+        }>(INTEGRATIONS.googleCalendarAuthUrl());
+
+        if (res?.redirect_uri) {
+          setGoogleRedirectUri(res.redirect_uri);
+        }
+
+        if (res?.is_configured && res?.auth_url) {
+          toast.info(`Redirecting to Google Sign-In for ${connector.name}...`);
+          window.location.href = res.auth_url;
+          return;
+        } else {
+          setGoogleSetupModalOpen(true);
+          return;
+        }
+      } catch (err: any) {
+        console.warn("Could not check Google OAuth endpoint, opening picker modal:", err);
+        setIsOAuthModalOpen(true);
+      } finally {
+        setIsGoogleOAuthLoading(false);
+      }
+      return;
+    }
+
+    if (connector.provider === "ZOOM") {
+      try {
+        const res = await api.get<{
+          is_configured: boolean;
+          auth_url?: string;
+          redirect_uri?: string;
+          client_id_preview?: string;
+        }>(INTEGRATIONS.zoomAuthUrl());
+
+        if (res?.is_configured && res?.auth_url) {
+          toast.info("Redirecting to Zoom Authorization...");
+          window.location.href = res.auth_url;
+          return;
+        } else {
+          toast.error("Zoom OAuth is not configured. Please add ZOOM_CLIENT_ID and ZOOM_CLIENT_SECRET to your .env file.");
+          return;
+        }
+      } catch (err: any) {
+        console.warn("Could not check Zoom OAuth endpoint:", err);
+      }
+    }
+
+    if (connector.provider === "OUTLOOK") {
+      try {
+        const res = await api.get<{
+          is_configured: boolean;
+          auth_url?: string;
+          redirect_uri?: string;
+          client_id_preview?: string;
+        }>(INTEGRATIONS.outlookAuthUrl());
+
+        if (res?.is_configured && res?.auth_url) {
+          toast.info("Redirecting to Microsoft Sign-In for Outlook Calendar...");
+          window.location.href = res.auth_url;
+          return;
+        } else {
+          toast.error("Microsoft OAuth is not configured. Please add MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET to your .env file.");
+          return;
+        }
+      } catch (err: any) {
+        console.warn("Could not check Outlook OAuth endpoint:", err);
+      }
+    }
+
     setIsOAuthModalOpen(true);
   };
 
@@ -905,33 +1036,32 @@ export default function IntegrationsPage() {
 
             {/* ── RIGHT PANE: SELECTED CONNECTOR DETAIL (8 COLS) ─────────────── */}
             <div className="lg:col-span-8 xl:col-span-8 p-6 lg:p-8 space-y-6 bg-white overflow-y-auto">
-              {/* Connector Detail Header */}
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-4">
+              {/* ── 1. CLEAN ENTERPRISE CONNECTOR HEADER ── */}
+              <div className="space-y-3 pb-6 border-b border-slate-100">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
-                    <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-center text-3xl shadow-2xs shrink-0">
+                    <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs flex items-center justify-center text-2xl shrink-0">
                       {selectedConnector.iconSvg}
                     </div>
                     <div>
-                      <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-                        <span>{selectedConnector.name}</span>
-                        {isSelectedConnected && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            <CheckCircle2 size={11} className="text-emerald-600" />
-                            <span>Active Sync</span>
+                      <div className="flex items-center gap-2.5">
+                        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+                          {selectedConnector.name}
+                        </h2>
+                        {isSelectedConnected ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200/70">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            Connected
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                            Not Connected
                           </span>
                         )}
-                      </h2>
-                      <div className="flex items-center gap-1.5 mt-1">
-                        {selectedConnector.tags.map((t) => (
-                          <span
-                            key={t}
-                            className="text-[10px] font-medium bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-slate-600"
-                          >
-                            {t}
-                          </span>
-                        ))}
                       </div>
+                      <p className="text-xs text-slate-500 mt-1">
+                        Synchronize scheduled calendar meetings and coordinate AI notetaker auto-join.
+                      </p>
                     </div>
                   </div>
 
@@ -940,57 +1070,67 @@ export default function IntegrationsPage() {
                     {isSelectedConnected ? (
                       <>
                         <button
-                          onClick={() => syncCalendarsMutation.mutate()}
-                          disabled={syncCalendarsMutation.isPending}
-                          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                          onClick={() => {
+                            if (selectedConnector.provider === "GOOGLE_CALENDAR") {
+                              syncGoogleMutation.mutate();
+                            } else {
+                              syncCalendarsMutation.mutate();
+                            }
+                          }}
+                          disabled={syncCalendarsMutation.isPending || syncGoogleMutation.isPending}
+                          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
                         >
-                          <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
-                          <span>Sync Now</span>
+                          <RefreshCw
+                            size={12}
+                            className={
+                              syncCalendarsMutation.isPending || syncGoogleMutation.isPending
+                                ? "animate-spin"
+                                : ""
+                            }
+                          />
+                          <span>
+                            {syncGoogleMutation.isPending && selectedConnector.provider === "GOOGLE_CALENDAR"
+                              ? "Syncing..."
+                              : "Sync Now"}
+                          </span>
                         </button>
 
                         <button
                           onClick={() => handleDisconnect(selectedConnector)}
                           disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending}
-                          className="px-3.5 py-1.5 rounded-lg border border-rose-200 bg-rose-50/70 hover:bg-rose-100 text-rose-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer flex items-center gap-1.5"
-                          title="Disconnect this integration and remove access"
+                          className="px-3 py-1.5 rounded-lg border border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-semibold transition-colors cursor-pointer"
+                          title="Disconnect this integration and revoke access"
                         >
-                          <span>Disconnect</span>
+                          Disconnect
                         </button>
                       </>
                     ) : (
                       <button
                         onClick={() => handleOpenConnect(selectedConnector)}
-                        className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer flex items-center gap-1.5"
+                        disabled={isGoogleOAuthLoading}
+                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-70"
                       >
-                        <Check size={14} />
-                        <span>Connect</span>
+                        {isGoogleOAuthLoading && (selectedConnector.provider === "GOOGLE_CALENDAR" || selectedConnector.provider === "GOOGLE_MEET") ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check size={14} />
+                            <span>Connect</span>
+                          </>
+                        )}
                       </button>
                     )}
                   </div>
                 </div>
-
-                {/* Subtitle & Description */}
-                <p className="text-xs text-slate-700 leading-relaxed max-w-3xl">
-                  {selectedConnector.description}
-                </p>
-
-                {/* Policy Notice */}
-                {selectedConnector.policyNotice && (
-                  <p className="text-[11px] text-slate-500 leading-relaxed border-l-2 border-indigo-400 pl-3 py-0.5">
-                    {selectedConnector.policyNotice}
-                  </p>
-                )}
-
-                {/* Terms Disclaimer */}
-                <p className="text-[10px] text-slate-400">
-                  By connecting this service, you agree to Knowra's Terms of Service and acknowledge you have read the Privacy Policy.
-                </p>
               </div>
 
               {/* ── DETAIL BODY: CONNECTED vs NOT CONNECTED ───────────────────── */}
               {!isSelectedConnected ? (
-                /* Empty state dotted container (Matches user's screenshot exactly!) */
-                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center bg-slate-50/40 space-y-3.5 my-6">
+                /* Empty state container */
+                <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center bg-slate-50/40 space-y-3.5 my-6">
                   <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl mx-auto shadow-2xs border border-indigo-100">
                     <Calendar size={22} />
                   </div>
@@ -999,151 +1139,226 @@ export default function IntegrationsPage() {
                       {selectedConnector.name} isn't connected yet
                     </h3>
                     <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Click 'Connect' to select your email address and get started!
+                      Connect your account to synchronize meetings, capture live transcriptions, and receive automated executive summaries.
                     </p>
                   </div>
                   <button
                     onClick={() => handleOpenConnect(selectedConnector)}
-                    className="px-6 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5"
+                    disabled={isGoogleOAuthLoading}
+                    className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5 disabled:opacity-70"
                   >
-                    <span>Connect</span>
+                    {isGoogleOAuthLoading && (selectedConnector.provider === "GOOGLE_CALENDAR" || selectedConnector.provider === "GOOGLE_MEET") ? (
+                      <>
+                        <RefreshCw size={13} className="animate-spin" />
+                        <span>Connecting...</span>
+                      </>
+                    ) : (
+                      <span>Connect {selectedConnector.name}</span>
+                    )}
                   </button>
                 </div>
               ) : (
-                /* Connected State with Live Calendar Sync, Toggles, and Meetings List */
+                /* Connected State with Streamlined Layout */
                 <div className="space-y-6">
-                  {/* Sync Status Banner with Connected Email & Disconnect Action */}
-                  <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
-                        <CheckCheck size={18} />
+                  {/* ── 2. STREAMLINED ACCOUNT STRIP ── */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 gap-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white font-semibold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                        {(selectedCalStatus?.account_email || userEmail).charAt(0).toUpperCase()}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Synced Account: {selectedCalStatus?.account_email || userEmail}
-                          </h4>
-                          <span className="text-[10px] font-mono text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded font-semibold">
-                            OAuth Active
+                          <span className="text-xs font-bold text-slate-900 truncate">
+                            {selectedCalStatus?.account_email || userEmail}
+                          </span>
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white text-slate-600 border border-slate-200/80 font-medium shrink-0">
+                            OAuth 2.0
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          Last synchronized: {selectedCalStatus?.last_synced_at ? relativeTime(selectedCalStatus.last_synced_at) : "Just now"} &bull; Realtime Calendar Ingestion
+                        <p className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
+                          <span>Continuous Sync</span>
+                          <span>&bull;</span>
+                          <span>Last checked {selectedCalStatus?.last_synced_at ? relativeTime(selectedCalStatus.last_synced_at) : "just now"}</span>
                         </p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => handleOpenConnect(selectedConnector)}
-                        className="px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-700 text-xs font-medium hover:bg-slate-50 shadow-2xs transition-colors cursor-pointer"
-                        title="Change connected account email"
-                      >
-                        Switch Account
-                      </button>
+                    <button
+                      onClick={() => handleOpenConnect(selectedConnector)}
+                      className="text-xs font-medium text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-200/60 transition-colors shrink-0 cursor-pointer self-start sm:self-auto border border-transparent hover:border-slate-200"
+                    >
+                      Switch Account
+                    </button>
+                  </div>
 
-                      <button
-                        onClick={() => syncCalendarsMutation.mutate()}
-                        disabled={syncCalendarsMutation.isPending}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 text-xs font-semibold hover:bg-emerald-100/50 shadow-2xs flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
-                        <span>Sync Now</span>
-                      </button>
+                  {/* ── 3. AUTOMATION & NOTETAKER SETTINGS ── */}
+                  <div className="rounded-xl border border-slate-200/90 bg-white overflow-hidden shadow-2xs">
+                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
+                      <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase tracking-wider">
+                        <Sliders size={13} className="text-indigo-600" />
+                        <span>Automation & Bot Preferences</span>
+                      </h3>
+                      <span className="text-[11px] text-slate-400">Tenant-wide policy</span>
+                    </div>
 
-                      <button
-                        onClick={() => handleDisconnect(selectedConnector)}
-                        disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending}
-                        className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white text-rose-700 hover:bg-rose-50 text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
-                      >
-                        Disconnect
-                      </button>
+                    <div className="divide-y divide-slate-100">
+                      {/* Toggle 1 */}
+                      <div className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/40 transition-colors">
+                        <div className="space-y-0.5 pr-2">
+                          <p className="text-xs font-semibold text-slate-900">
+                            Auto-join calendar meetings
+                          </p>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Knowra AI assistant automatically enters Google Meet conferences 1 minute before scheduled start.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={prefAutoJoin}
+                          onClick={() => {
+                            setPrefAutoJoin(!prefAutoJoin);
+                            toast.success(prefAutoJoin ? "Auto-join disabled for future meetings" : "Auto-join enabled for all upcoming meetings");
+                          }}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                            prefAutoJoin ? "bg-indigo-600" : "bg-slate-200"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out",
+                              prefAutoJoin ? "translate-x-4" : "translate-x-0"
+                            )}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Toggle 2 */}
+                      <div className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/40 transition-colors">
+                        <div className="space-y-0.5 pr-2">
+                          <p className="text-xs font-semibold text-slate-900">
+                            Auto-dispatch executive briefings
+                          </p>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Send synthesized executive summaries, key decisions, and action items directly to attendees after each call.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={prefAutoEmail}
+                          onClick={() => {
+                            setPrefAutoEmail(!prefAutoEmail);
+                            toast.success(prefAutoEmail ? "Executive recap dispatch disabled" : "Executive recap dispatch enabled");
+                          }}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                            prefAutoEmail ? "bg-indigo-600" : "bg-slate-200"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out",
+                              prefAutoEmail ? "translate-x-4" : "translate-x-0"
+                            )}
+                          />
+                        </button>
+                      </div>
+
+                      {/* Toggle 3 */}
+                      <div className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/40 transition-colors">
+                        <div className="space-y-0.5 pr-2">
+                          <p className="text-xs font-semibold text-slate-900">
+                            Internal domain fence
+                          </p>
+                          <p className="text-[11px] text-slate-500 leading-relaxed">
+                            Do not auto-dispatch recaps if external participants or guests from outside your organization are present.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={prefRestrictInternal}
+                          onClick={() => {
+                            setPrefRestrictInternal(!prefRestrictInternal);
+                            toast.success(prefRestrictInternal ? "Internal domain fence relaxed" : "Internal domain fence enforced");
+                          }}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
+                            prefRestrictInternal ? "bg-indigo-600" : "bg-slate-200"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out",
+                              prefRestrictInternal ? "translate-x-4" : "translate-x-0"
+                            )}
+                          />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Enterprise Preferences */}
-                  <div className="bg-slate-50/60 rounded-xl border border-slate-200 p-4 space-y-3">
-                    <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-1.5">
-                      <Sliders size={13} className="text-indigo-600" />
-                      <span>Sync & Notetaker Preferences</span>
-                    </h4>
-
-                    <div className="space-y-2.5 text-xs text-slate-700">
-                      <label className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 cursor-pointer">
-                        <div>
-                          <p className="font-semibold text-slate-900 text-xs">Automatically join scheduled calendar meetings</p>
-                          <p className="text-[11px] text-slate-500">Knowra AI bot joins video conference 1 minute prior to scheduled start.</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          defaultChecked
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                        />
-                      </label>
-
-                      <label className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 cursor-pointer">
-                        <div>
-                          <p className="font-semibold text-slate-900 text-xs">Auto-email meeting recaps via Resend</p>
-                          <p className="text-[11px] text-slate-500">Deliver HTML summary, key decisions, and action items to all attendees.</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          defaultChecked
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                        />
-                      </label>
-
-                      <label className="flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200/80 cursor-pointer">
-                        <div>
-                          <p className="font-semibold text-slate-900 text-xs">Restrict automatic sharing to internal teammates</p>
-                          <p className="text-[11px] text-slate-500">Do not email recaps automatically if guests from outside Softude are present.</p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          defaultChecked={false}
-                          className="w-4 h-4 text-indigo-600 rounded focus:ring-indigo-500"
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* Fetched Calendar Meetings Schedule */}
+                  {/* ── 4. UPCOMING CALENDAR SCHEDULE ── */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Calendar size={14} className="text-indigo-600" />
                         <h4 className="text-xs font-bold text-slate-900">
-                          Upcoming Calendar Schedule & Auto-Join
+                          Upcoming Calendar Schedule
                         </h4>
-                        <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
                           {calendarEvents.length} Meetings
                         </span>
                       </div>
-                      <span className="text-[10px] text-slate-400">
-                        Synced for {selectedCalStatus?.account_email || userEmail}
+                      <span className="text-[11px] text-slate-400">
+                        Primary Calendar Feed
                       </span>
                     </div>
 
-                    <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
+                    <div className="border border-slate-200/90 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
                       {calendarEvents.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-slate-400">
-                          <p>No calendar meetings found for today.</p>
+                        <div className="py-12 px-4 text-center space-y-3">
+                          <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-200/60 shadow-2xs">
+                            <Calendar size={18} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-slate-800">
+                              No upcoming meetings found on your calendar
+                            </p>
+                            <p className="text-[11px] text-slate-500 max-w-sm mx-auto mt-0.5">
+                              Your {selectedConnector.name} is connected and synced. Real meetings created in {selectedConnector.name} will automatically appear here.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              refetchCalendarEvents();
+                              syncCalendarsMutation.mutate();
+                            }}
+                            disabled={syncCalendarsMutation.isPending}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+                          >
+                            <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
+                            <span>Check for New Events</span>
+                          </button>
                         </div>
                       ) : (
                         calendarEvents.map((evt) => (
-                          <div key={evt.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors">
+                          <div key={evt.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
                             <div className="flex items-start gap-3 min-w-0">
-                              <div className="w-12 text-center shrink-0">
-                                <span className="block text-[10px] font-mono text-indigo-600 font-bold bg-indigo-50 rounded py-0.5">
+                              <div className="w-16 text-center shrink-0">
+                                <span className="block text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50/80 rounded py-0.5 border border-indigo-100/60">
                                   {evt.start_time.split(",")[0] || "Today"}
                                 </span>
-                                <span className="block text-[10px] text-slate-500 font-medium mt-0.5">
+                                <span className="block text-[10px] text-slate-500 font-medium mt-1">
                                   {evt.start_time.split(",")[1] || evt.start_time}
                                 </span>
                               </div>
 
                               <div className="min-w-0">
-                                <h5 className="text-xs font-bold text-slate-900 truncate">
+                                <h5 className="text-xs font-semibold text-slate-900 truncate">
                                   {evt.title}
                                 </h5>
                                 <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
@@ -1152,7 +1367,7 @@ export default function IntegrationsPage() {
                                       href={evt.meeting_link}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="font-mono text-indigo-600 hover:underline flex items-center gap-0.5 truncate max-w-xs"
+                                      className="font-mono text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 truncate max-w-xs"
                                     >
                                       <span>{evt.meeting_link.replace("https://", "")}</span>
                                       <ExternalLink size={10} />
@@ -1164,7 +1379,7 @@ export default function IntegrationsPage() {
                               </div>
                             </div>
 
-                            {/* Right Action: Notetaker Toggle */}
+                            {/* Right Action: Clean Auto-join Status Switch */}
                             <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                               <button
                                 onClick={() =>
@@ -1174,20 +1389,19 @@ export default function IntegrationsPage() {
                                   })
                                 }
                                 className={cn(
-                                  "px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs",
+                                  "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs",
                                   evt.auto_join
-                                    ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
-                                    : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100"
+                                    ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 border border-emerald-200/80"
+                                    : "bg-slate-100 text-slate-600 hover:bg-slate-200/80 border border-slate-200"
                                 )}
                               >
-                                {evt.auto_join ? (
-                                  <>
-                                    <CheckCircle2 size={12} className="text-emerald-600" />
-                                    <span>Notetaker Scheduled</span>
-                                  </>
-                                ) : (
-                                  <span>+ Invite Bot</span>
-                                )}
+                                <span
+                                  className={cn(
+                                    "w-1.5 h-1.5 rounded-full",
+                                    evt.auto_join ? "bg-emerald-500 animate-pulse" : "bg-slate-400"
+                                  )}
+                                />
+                                <span>{evt.auto_join ? "Auto-join Active" : "Auto-join Off"}</span>
                               </button>
                             </div>
                           </div>
@@ -1198,17 +1412,17 @@ export default function IntegrationsPage() {
                 </div>
               )}
 
-              {/* Bottom Footer Link (Matching Read AI footer) */}
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                <span>Secure OAuth Connection &bull; Read & Write Calendar Scopes</span>
+              {/* ── 5. SUBTLE COMPLIANCE FOOTER ── */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+                <span>Google API Services Limited Use &amp; OAuth 2.0 Compliance</span>
                 <a
                   href={selectedConnector.docUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-indigo-600 hover:text-indigo-800 flex items-center gap-1 font-medium"
+                  className="text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors"
                 >
-                  <span>Visit {selectedConnector.name}</span>
-                  <ExternalLink size={12} />
+                  <span>Open {selectedConnector.name}</span>
+                  <ExternalLink size={11} />
                 </a>
               </div>
             </div>
@@ -1726,6 +1940,143 @@ export default function IntegrationsPage() {
                 <span className="hover:text-[#1f1f1f] cursor-pointer transition-colors">Help</span>
                 <span className="hover:text-[#1f1f1f] cursor-pointer transition-colors">Privacy</span>
                 <span className="hover:text-[#1f1f1f] cursor-pointer transition-colors">Terms</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 4B. GOOGLE CALENDAR LIVE OAUTH CLOUD SETUP MODAL ── */}
+      {googleSetupModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
+          <div className="relative w-full max-w-[620px] bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 sm:p-8 font-sans animate-in fade-in zoom-in-95 duration-150">
+            {/* Close Button */}
+            <button
+              onClick={() => setGoogleSetupModalOpen(false)}
+              className="absolute top-5 right-5 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer text-sm"
+              title="Close modal"
+            >
+              ✕
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-3 mb-5">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-2xl shadow-2xs">
+                📅
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <span>Connect Google Calendar</span>
+                  <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                    OAuth 2.0
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Live end-to-end synchronization with Google Calendar API v3
+                </p>
+              </div>
+            </div>
+
+            {/* Explanatory Body */}
+            <div className="space-y-4 text-xs">
+              <div className="p-3.5 bg-blue-50/70 border border-blue-200/80 rounded-2xl space-y-2 text-slate-700">
+                <div className="flex items-center gap-1.5 font-bold text-blue-900">
+                  <Key size={14} className="text-blue-600" />
+                  <span>Google Cloud Console Credentials Required</span>
+                </div>
+                <p className="text-slate-600 leading-relaxed">
+                  To authenticate with real Google accounts, your Knowra backend needs your Google OAuth Client ID and Secret in your <code className="bg-blue-100/70 text-blue-900 px-1 py-0.5 rounded font-mono text-[11px]">backend/.env</code> file.
+                </p>
+              </div>
+
+              {/* Instructions steps */}
+              <div className="space-y-2.5">
+                <h4 className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">
+                  Setup Steps:
+                </h4>
+                <ol className="space-y-2 list-decimal list-inside text-slate-600">
+                  <li>
+                    Go to{" "}
+                    <a
+                      href="https://console.cloud.google.com/apis/credentials"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 hover:underline font-semibold inline-flex items-center gap-1"
+                    >
+                      Google Cloud Console &rarr; Credentials <ExternalLink size={11} />
+                    </a>
+                  </li>
+                  <li>
+                    Enable the <span className="font-semibold text-slate-800">Google Calendar API</span> in APIs & Services.
+                  </li>
+                  <li>
+                    Create an <span className="font-semibold text-slate-800">OAuth 2.0 Client ID</span> (Web Application type).
+                  </li>
+                  <li className="space-y-1">
+                    <span>Add this exact Authorized Redirect URI:</span>
+                    <div className="mt-1 flex items-center gap-2 p-2 bg-slate-100 border border-slate-200 rounded-xl font-mono text-[11px] text-slate-800 select-all">
+                      <span className="truncate flex-1">{googleRedirectUri}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(googleRedirectUri);
+                          setCopiedRedirect(true);
+                          setTimeout(() => setCopiedRedirect(false), 2000);
+                          toast.success("Redirect URI copied to clipboard!");
+                        }}
+                        className="px-2.5 py-1 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 shadow-2xs flex items-center gap-1 shrink-0 cursor-pointer"
+                      >
+                        {copiedRedirect ? (
+                          <>
+                            <Check size={12} className="text-emerald-600" />
+                            <span className="text-emerald-700">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy size={12} />
+                            <span>Copy</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </li>
+                  <li>
+                    Add the values to <code className="bg-slate-100 px-1 py-0.5 rounded font-mono text-[11px]">backend/.env</code>:
+                    <div className="mt-1 p-2.5 bg-slate-900 text-slate-200 rounded-xl font-mono text-[11px] space-y-0.5">
+                      <div>GOOGLE_CLIENT_ID=&quot;your-client-id.apps.googleusercontent.com&quot;</div>
+                      <div>GOOGLE_CLIENT_SECRET=&quot;GOCSPX-your-secret&quot;</div>
+                    </div>
+                  </li>
+                </ol>
+              </div>
+
+              {/* Action Choices */}
+              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoogleSetupModalOpen(false);
+                    setIsOAuthModalOpen(true);
+                  }}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <User size={14} className="text-slate-500" />
+                  <span>Choose Account in Sandbox Mode</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoogleSetupModalOpen(false);
+                    if (authConnector) {
+                      handleOpenConnect(authConnector);
+                    }
+                  }}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw size={13} />
+                  <span>I've Saved .env, Retry Connect</span>
+                </button>
               </div>
             </div>
           </div>

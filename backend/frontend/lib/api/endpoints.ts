@@ -94,6 +94,11 @@ export const INTEGRATIONS = {
   calendarDisconnect: () => "/integrations/calendar/disconnect",
   calendarSync: () => "/integrations/calendar/sync",
   calendarToggleBot: () => "/integrations/calendar/toggle-bot",
+  googleCalendarAuthUrl: () => "/integrations/google-calendar/auth-url",
+  googleCalendarSync: () => "/integrations/google-calendar/sync",
+  zoomAuthUrl: () => "/integrations/zoom/auth-url",
+  outlookAuthUrl: () => "/integrations/outlook/auth-url",
+  outlookSync: () => "/integrations/outlook/sync",
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────

@@ -557,19 +557,30 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+      {/* Background backdrop click handler */}
       <div
-        className="w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col"
+        className="fixed inset-0"
+        onClick={() => {
+          if (!isRecording) onClose();
+        }}
+        aria-hidden="true"
+      />
+
+      <div
+        className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden flex flex-col z-10 transition-all"
+        onClick={(e) => e.stopPropagation()}
         role="dialog"
+        aria-modal="true"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-slate-50/50">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center text-[#5345dc]">
-              <Radio className="w-4 h-4 animate-pulse" />
+        {/* ── Modal Header: Standard Enterprise Light Styling ── */}
+        <div className="flex items-center justify-between px-6 py-4.5 bg-slate-50/60 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100/80 flex items-center justify-center text-indigo-600 shadow-2xs shrink-0">
+              <Radio className="w-4.5 h-4.5 stroke-[2.2] animate-pulse" />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+              <h2 className="text-base font-semibold text-slate-900 tracking-tight flex items-center gap-2 leading-tight">
                 <span>Connect Live Meeting</span>
                 {isRecording && (
                   <span className="flex items-center gap-1 text-[11px] font-medium text-rose-600 bg-rose-50 border border-rose-200/60 px-2 py-0.5 rounded-full animate-pulse">
@@ -578,168 +589,140 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                   </span>
                 )}
               </h2>
-              <p className="text-xs text-slate-500">
-                Multi-track speaker separation for Teams, Zoom, & Meet
+              <p className="text-xs text-slate-500 mt-0.5 leading-normal">
+                Real-time audio streaming and speech intelligence for Teams, Zoom, & Meet
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+            aria-label="Close modal"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4.5 h-4.5" />
           </button>
         </div>
 
-        {/* Body */}
+        {/* ── Modal Body ────────────────────────────────────────────────────── */}
         <div className="p-6 space-y-4">
           {!isRecording ? (
             <>
-              {/* Meeting Meta Inputs */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 col-span-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-700">Meeting Title</label>
-                    <span className="text-[10px] text-indigo-600 font-medium bg-indigo-50 px-1.5 py-0.5 rounded">Auto-generated if left empty</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={meetingTitle}
-                    onChange={(e) => setMeetingTitle(e.target.value)}
-                    placeholder="e.g. Sprint Planning (Auto-generated from transcript if left empty)"
-                    className="w-full text-xs h-9 px-3 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
+              {/* Meeting Title Input */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700">Meeting Title</label>
+                  <span className="text-[11px] text-slate-400 font-normal">Optional · Auto-generated</span>
                 </div>
-                <div className="space-y-1 col-span-2">
-                  <label className="text-xs font-medium text-slate-700">Host Identifier (Channel 1 - Your Mic)</label>
-                  <input
-                    type="text"
-                    value={hostName}
-                    onChange={(e) => setHostName(e.target.value)}
-                    placeholder={session?.user?.full_name || "Host"}
-                    className="w-full text-xs h-9 px-3 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
+                <input
+                  type="text"
+                  value={meetingTitle}
+                  onChange={(e) => setMeetingTitle(e.target.value)}
+                  placeholder="e.g. Sprint Planning & Architecture Review"
+                  className="w-full text-xs sm:text-sm h-9.5 px-3 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
+                />
+              </div>
+
+              {/* Invited Attendees */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700">Attendees</label>
+                  <span className="text-[11px] text-slate-400 font-normal">Optional</span>
                 </div>
-                <div className="space-y-1 col-span-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-700">Meeting Attendees (Channel 2 - Teams)</label>
-                    <span className="text-[10px] text-slate-400">Optional</span>
+                <input
+                  type="text"
+                  value={attendees}
+                  onChange={(e) => setAttendees(e.target.value)}
+                  placeholder="e.g. Harshita, Yash Lade, Rahul Sharma (comma separated)"
+                  className="w-full text-xs sm:text-sm h-9.5 px-3 rounded-xl border border-slate-200 bg-white text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
+                />
+              </div>
+
+              {/* Capture Source & Language Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Mode Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-700">Capture Audio Source</label>
+                  <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200/60">
+                    <button
+                      type="button"
+                      onClick={() => setMode("browser")}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs rounded-lg transition-all cursor-pointer ${
+                        mode === "browser"
+                          ? "bg-white text-slate-900 shadow-2xs font-semibold"
+                          : "text-slate-600 hover:text-slate-900 font-medium"
+                      }`}
+                    >
+                      <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Browser Tab</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("desktop")}
+                      className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs rounded-lg transition-all cursor-pointer ${
+                        mode === "desktop"
+                          ? "bg-white text-slate-900 shadow-2xs font-semibold"
+                          : "text-slate-600 hover:text-slate-900 font-medium"
+                      }`}
+                    >
+                      <Laptop className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Desktop App</span>
+                    </button>
                   </div>
-                  <input
-                    type="text"
-                    value={attendees}
-                    onChange={(e) => setAttendees(e.target.value)}
-                    placeholder="e.g. Harshita, Yash Lade, Rahul Sharma"
-                    className="w-full text-xs h-9 px-3 rounded-lg border border-slate-200 focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                  />
-                  <p className="text-[10.5px] text-slate-400">
-                    Names of attendees (separated by commas). Acoustic voice clustering automatically separates and attributes 3+ participants on the call.
-                  </p>
                 </div>
 
-                {/* Language Selector (English and Hinglish) */}
-                <div className="space-y-1.5 col-span-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-medium text-slate-700">Speech & Analysis Language</label>
-                    <span className="text-[10px] text-indigo-600 font-medium">Bilingual Speech AI</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2.5">
+                {/* Language Selector */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-700">Audio Language</label>
+                  <div className="flex rounded-xl bg-slate-100 p-1 border border-slate-200/60">
                     <button
                       type="button"
                       onClick={() => setLanguage("en-US")}
-                      className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      className={`flex-1 flex items-center justify-center py-1.5 text-xs rounded-lg transition-all cursor-pointer ${
                         language === "en-US"
-                          ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          ? "bg-white text-slate-900 shadow-2xs font-semibold"
+                          : "text-slate-600 hover:text-slate-900 font-medium"
                       }`}
                     >
-                      <span className="text-base">🌐</span>
-                      <div className="text-left">
-                        <div className="font-semibold text-xs">English</div>
-                        <div className="text-[10px] text-slate-500 font-normal">Pure English conversations</div>
-                      </div>
+                      English
                     </button>
                     <button
                       type="button"
                       onClick={() => setLanguage("hinglish")}
-                      className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center justify-center gap-2 transition-all cursor-pointer ${
+                      className={`flex-1 flex items-center justify-center py-1.5 text-xs rounded-lg transition-all cursor-pointer ${
                         language === "hinglish"
-                          ? "border-indigo-600 bg-indigo-50 text-indigo-900 font-semibold shadow-2xs"
-                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                          ? "bg-white text-slate-900 shadow-2xs font-semibold"
+                          : "text-slate-600 hover:text-slate-900 font-medium"
                       }`}
                     >
-                      <span className="text-base">🇮🇳</span>
-                      <div className="text-left">
-                        <div className="font-semibold text-xs">Hinglish</div>
-                        <div className="text-[10px] text-slate-500 font-normal">Hindi + English code-mixed</div>
-                      </div>
+                      Hinglish
                     </button>
                   </div>
                 </div>
               </div>
 
-              {/* Mode Switcher */}
-              <div className="flex rounded-xl bg-slate-100/80 p-1">
-                <button
-                  type="button"
-                  onClick={() => setMode("browser")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    mode === "browser"
-                      ? "bg-white text-slate-900 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Volume2 className="w-3.5 h-3.5 text-[#5345dc]" />
-                  <span>In-Browser Capture (Free)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("desktop")}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-medium rounded-lg transition-all cursor-pointer ${
-                    mode === "desktop"
-                      ? "bg-white text-slate-900 shadow-xs"
-                      : "text-slate-600 hover:text-slate-900"
-                  }`}
-                >
-                  <Laptop className="w-3.5 h-3.5 text-[#5345dc]" />
-                  <span>Desktop Companion (Teams.exe)</span>
-                </button>
-              </div>
-
-              {/* Mode Descriptions */}
+              {/* Minimalist Guidance Banner */}
               {mode === "browser" ? (
-                <div className="rounded-xl border border-indigo-100/80 bg-indigo-50/40 p-3.5 space-y-2">
-                  <div className="flex items-center gap-2 text-xs font-medium text-indigo-950">
-                    <Sparkles className="w-4 h-4 text-[#5345dc]" />
-                    <span>Zero-Bot Dual-Track Separation</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Knowra will capture your <strong>Microphone (Host Channel 1)</strong> and prompt you to select your <strong>Meeting Tab / Window Audio (Remote Channel 2)</strong>. There is no bot waiting in the lobby!
+                <div className="rounded-xl border border-indigo-100/80 bg-indigo-50/50 p-3 flex items-center gap-2.5">
+                  <Sparkles className="w-4 h-4 text-indigo-600 shrink-0" />
+                  <p className="text-[11.5px] text-indigo-950 leading-relaxed">
+                    Direct in-browser audio capture — no external bot joins your meeting room.
                   </p>
                 </div>
               ) : (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5 space-y-2">
-                  <div className="flex items-center justify-between text-xs font-medium text-slate-900">
-                    <div className="flex items-center gap-2">
-                      <Terminal className="w-4 h-4 text-slate-700" />
-                      <span>Desktop 1-Click Auto-Launch Agent</span>
-                    </div>
-                    {agentStatus === "detected" ? (
-                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                        Agent Connected (1-Click Ready)
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 text-[10px] font-semibold">
-                        <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                        Direct 1-Click Launch Ready
-                      </span>
-                    )}
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-800 text-xs">
+                    <Terminal className="w-3.5 h-3.5 text-slate-600" />
+                    <span className="text-[11.5px] font-medium">Desktop Audio Companion (Teams / Zoom)</span>
                   </div>
-                  <p className="text-[11px] text-slate-600 leading-relaxed">
-                    Automatically captures <strong>Host Mic</strong> and <strong>Teams.exe system audio</strong> with real-time acoustic voice separation for 2+ attendees. No terminal commands needed!
-                  </p>
+                  {agentStatus === "detected" ? (
+                    <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-semibold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Ready
+                    </span>
+                  ) : (
+                    <span className="text-[10.5px] text-slate-500">Auto-detect</span>
+                  )}
                 </div>
               )}
             </>
@@ -872,7 +855,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
                       <button
                         type="button"
                         onClick={() => copyCommand(false)}
-                        className="px-2 py-1 rounded-md bg-[#5345dc] hover:bg-[#4638cb] text-white transition-colors shrink-0 cursor-pointer flex items-center gap-1 text-[10px]"
+                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shrink-0 cursor-pointer flex items-center gap-1 text-[10px] font-semibold"
                       >
                         {copied ? <Check className="w-3 h-3 text-emerald-300" /> : <Copy className="w-3 h-3" />}
                         <span>Copy</span>
@@ -885,12 +868,12 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
           )}
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-50/80 border-t border-slate-100">
+        {/* ── Modal Footer: Standard Enterprise Light Styling ── */}
+        <div className="flex items-center justify-between px-6 py-3.5 bg-slate-50/60 border-t border-slate-100">
           <button
             type="button"
             onClick={onClose}
-            className="text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors cursor-pointer"
+            className="text-xs font-semibold text-slate-600 hover:text-slate-800 transition-colors cursor-pointer"
           >
             {isRecording ? "Keep in Background" : "Cancel"}
           </button>
@@ -900,7 +883,7 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
               type="button"
               disabled={isStarting}
               onClick={mode === "browser" ? handleStartBrowserCapture : handleStartDesktopMode}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-[#5345dc] hover:bg-[#4638cb] text-white shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center gap-2 h-9 px-4.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs hover:shadow-sm transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {isStarting ? (
                 <>
@@ -918,10 +901,10 @@ export function LiveMeetingModal({ isOpen, onClose, onLiveStarted }: LiveMeeting
             <button
               type="button"
               onClick={handleEndMeeting}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all cursor-pointer"
+              className="inline-flex items-center gap-2 h-9 px-4.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold shadow-xs hover:shadow-sm transition-all active:scale-95 cursor-pointer"
             >
               <Square className="w-3.5 h-3.5 fill-current" />
-              <span>End & View Transcript</span>
+              <span>End & Save Meeting</span>
             </button>
           )}
         </div>

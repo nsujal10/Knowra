@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Search, RefreshCw, Upload, Calendar, ArrowUpDown, Users, Sparkles,
   MoreHorizontal, SendHorizontal, Video, Clock, CheckCircle2, AlertCircle,
-  Download, Trash2, Loader2, Radio, FileText, X, FileSearch, ExternalLink,
+  Download, Trash2, Loader2, Radio, FileText, X, FileSearch, ExternalLink
 } from "lucide-react";
 import { format, parseISO, startOfWeek, endOfWeek, differenceInMinutes } from "date-fns";
 import { UploadMeetingModal } from "@/components/meetings/UploadMeetingModal";
@@ -16,7 +16,6 @@ import { MeetingThumbnail } from "@/components/meetings/MeetingThumbnail";
 import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/components/ui/toast";
 import { api } from "@/lib/api/client";
-import { useWorkspaceFolders } from "@/hooks/useWorkspaceFolders";
 
 // ============================================================================
 // 1. DOMAIN MODELS & TYPES
@@ -145,7 +144,6 @@ export default function MeetingsPage() {
   const [deletedMeetingIds, setDeletedMeetingIds] = useState<Set<string>>(new Set());
   const [activeSource, setActiveSource] = useState<MeetingSource | "ALL">("ALL");
   const [activeDateRange, setActiveDateRange] = useState<"all" | "today" | "week" | "month">("all");
-  const { folders, addMeetingToFolder } = useWorkspaceFolders();
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -543,31 +541,49 @@ export default function MeetingsPage() {
                             <MoreHorizontal className="w-4 h-4" />
                           </button>
                           {openMenuMeetingId === meeting.id && (
-                            <div className="absolute right-0 top-full mt-1.5 w-52 bg-white border border-slate-200 rounded-xl shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
-                              {folders.length > 0 && (
-                                <>
-                                  <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Add to Folder</div>
-                                  <div className="max-h-36 overflow-y-auto px-1 space-y-0.5">
-                                    {folders.map((f) => (
-                                      <button key={f.id} type="button"
-                                        onClick={(e) => { e.stopPropagation(); addMeetingToFolder(f.id, { id: meeting.id, title: meeting.title, date: format(startDate, "MMM d, yyyy"), duration, status: meeting.status as any }); setOpenMenuMeetingId(null); }}
-                                        className="w-full px-2.5 py-1.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
-                                      >
-                                        <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: f.color }} />
-                                        <span className="truncate">{f.name}</span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                  <div className="my-1 border-t border-slate-100" />
-                                </>
-                              )}
-                              <button type="button" disabled={downloadingMeetingId === meeting.id} onClick={(e) => handleDownloadVideo(meeting, e)} className="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50">
-                                {downloadingMeetingId === meeting.id ? <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" /> : <Download className="w-3.5 h-3.5 text-slate-400" />}
-                                {downloadingMeetingId === meeting.id ? "Preparing…" : "Download Video"}
+                            <div
+                              className="absolute right-0 top-full mt-1.5 w-48 bg-white border border-slate-200/90 rounded-xl shadow-xl py-1 z-50 animate-in fade-in zoom-in-95 text-slate-700"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Link
+                                href={`/meetings/${meeting.id}`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuMeetingId(null);
+                                }}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2.5 transition-colors cursor-pointer"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Open Meeting</span>
+                              </Link>
+
+                              <button
+                                type="button"
+                                disabled={downloadingMeetingId === meeting.id}
+                                onClick={(e) => handleDownloadVideo(meeting, e)}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-indigo-600 flex items-center gap-2.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                {downloadingMeetingId === meeting.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                                ) : (
+                                  <Download className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                                <span>{downloadingMeetingId === meeting.id ? "Preparing…" : "Download Video"}</span>
                               </button>
+
                               <div className="my-1 border-t border-slate-100" />
-                              <button type="button" onClick={(e) => { e.stopPropagation(); setMeetingToDelete(meeting); setOpenMenuMeetingId(null); }} className="w-full px-3.5 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 transition-colors cursor-pointer">
-                                <Trash2 className="w-3.5 h-3.5" />Delete Meeting
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setMeetingToDelete(meeting);
+                                  setOpenMenuMeetingId(null);
+                                }}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-rose-600 hover:bg-rose-50 flex items-center gap-2.5 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                <span>Delete Meeting</span>
                               </button>
                             </div>
                           )}

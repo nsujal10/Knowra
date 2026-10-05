@@ -45,8 +45,19 @@ class Settings(BaseSettings):
     MICROSOFT_TENANT_ID: str = "common"
     OAUTH_REDIRECT_BASE_URL: str = "http://localhost:8000/api/v1/auth"
     FRONTEND_URL: str = "http://localhost:3000"
+    FRONTEND_APP_URL: str = "http://localhost:3000"
     SSO_ENFORCE_BUSINESS_DOMAINS: bool = False
-    RESTRICT_DOMAIN: str = "softude.com"  # Restrict registration, login, and SSO to this domain
+    # Zoom OAuth Settings
+    ZOOM_CLIENT_ID: str = ""
+    ZOOM_CLIENT_SECRET: str = ""
+    ZOOM_REDIRECT_URI: str = ""
+
+    # Slack OAuth Settings
+    SLACK_CLIENT_ID: str = ""
+    SLACK_CLIENT_SECRET: str = ""
+    SLACK_SIGNING_SECRET: str = ""
+
+    # Single Sign-On (SSO) Configurations
 
     # Meeting Baas Bot Settings
     MEETING_BAAS_API_KEY: str = ""

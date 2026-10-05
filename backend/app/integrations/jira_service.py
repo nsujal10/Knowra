@@ -527,16 +527,18 @@ class JiraIntegrationService:
             logger.exception("Unexpected error creating Jira issue")
             raise ValueError(f"Could not create issue in Jira: {str(e)}")
 
-    def disconnect(self, tenant_id: uuid.UUID, db: Session) -> bool:
+    def disconnect(self, tenant_id: Any, db: Session) -> bool:
         """Disconnect and revoke Jira integration for tenant."""
-        item = (
+        tid = str(tenant_id)
+        items = (
             db.query(Integration)
-            .filter(Integration.tenant_id == tenant_id, Integration.provider == "JIRA")
-            .first()
+            .filter(Integration.provider == "JIRA")
+            .all()
         )
-        if item:
-            item.status = "INACTIVE"
-            item.encrypted_credentials = None
+        matched = [i for i in items if str(i.tenant_id) == tid or i.tenant_id == tenant_id]
+        if matched:
+            for item in matched:
+                item.status = "INACTIVE"
             db.commit()
             return True
         return False

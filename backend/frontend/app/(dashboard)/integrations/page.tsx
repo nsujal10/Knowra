@@ -786,9 +786,9 @@ export default function IntegrationsPage() {
       connectJiraMutation.mutate(
         {
           email: cleanEmail,
-          instance_url: jiraInstanceUrl || "https://softude.atlassian.net",
+          instance_url: "",
           api_token: "",
-          project_key: jiraProjectKey || "KNOWRA",
+          project_key: "",
         },
         {
           onSuccess: (res) => {

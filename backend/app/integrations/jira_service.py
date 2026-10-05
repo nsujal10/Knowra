@@ -99,6 +99,8 @@ class JiraIntegrationService:
             logger.error("Jira authentication failed HTTP %d: %s", e.code, err_body)
             if e.code in (401, 403):
                 raise ValueError("Authentication failed. Please verify your Atlassian email and API token.")
+            if e.code == 404:
+                raise ValueError(f"Jira site '{norm_url}' was not found (HTTP 404). Please verify your JIRA_INSTANCE_URL in .env (e.g. https://your-company.atlassian.net).")
             raise ValueError(f"Jira API error ({e.code}): {err_body[:200]}")
         except urllib.error.URLError as e:
             logger.error("Jira network error connecting to %s: %s", endpoint, e.reason)

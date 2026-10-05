@@ -326,6 +326,17 @@ export default function IntegrationsPage() {
   const [resendSubject, setResendSubject] = useState("Q3 Strategic Architecture & Executive Review");
   const [resendStatusMsg, setResendStatusMsg] = useState<{ type: "success" | "error"; text: string; id?: string } | null>(null);
 
+  // Jira State
+  const [jiraModalOpen, setJiraModalOpen] = useState(false);
+  const [jiraInstanceUrl, setJiraInstanceUrl] = useState("https://softude.atlassian.net");
+  const [jiraEmail, setJiraEmail] = useState(userEmail || "sujal.nage@softude.com");
+  const [jiraApiToken, setJiraApiToken] = useState("");
+  const [jiraProjectKey, setJiraProjectKey] = useState("KNOWRA");
+  const [jiraNewSummary, setJiraNewSummary] = useState("");
+  const [jiraNewDescription, setJiraNewDescription] = useState("");
+  const [jiraNewIssueType, setJiraNewIssueType] = useState("Task");
+  const [jiraNewPriority, setJiraNewPriority] = useState("High");
+
   // Copilot Chat State
   const [showCopilot, setShowCopilot] = useState(false);
   const [copilotInput, setCopilotInput] = useState("");
@@ -362,6 +373,40 @@ export default function IntegrationsPage() {
     queryKey: queryKeys.integrations.events(),
     queryFn: () => api.get<IntegrationEvent[]>(INTEGRATIONS.events()),
     refetchInterval: 12_000,
+  });
+
+  const { data: jiraStatus, refetch: refetchJiraStatus } = useQuery<{
+    is_connected: boolean;
+    instance_url?: string;
+    account_email?: string;
+    project_key?: string;
+    display_name?: string;
+    last_synced_at?: string;
+  }>({
+    queryKey: ["integrations", "jira", "status"],
+    queryFn: () => api.get(INTEGRATIONS.jiraStatus()),
+  });
+
+  const {
+    data: jiraIssues = [],
+    isLoading: isLoadingJiraIssues,
+    refetch: refetchJiraIssues,
+  } = useQuery<
+    Array<{
+      id: string;
+      key: string;
+      summary: string;
+      status: string;
+      priority: string;
+      issue_type: string;
+      assignee?: string;
+      created: string;
+      url: string;
+    }>
+  >({
+    queryKey: ["integrations", "jira", "issues", jiraStatus?.is_connected],
+    queryFn: () => api.get(INTEGRATIONS.jiraIssues(20)),
+    enabled: selectedConnectorId === "jira",
   });
 
   // ── OAuth Callback Query Parameter Handler (Google Calendar Redirect) ────
@@ -523,6 +568,64 @@ export default function IntegrationsPage() {
     },
   });
 
+  const connectJiraMutation = useMutation({
+    mutationFn: (data: {
+      instance_url: string;
+      email: string;
+      api_token: string;
+      project_key: string;
+    }) =>
+      api.post<{ success: boolean; message: string; user?: any; projects?: any[] }>(
+        INTEGRATIONS.jiraConnect(),
+        data
+      ),
+    onSuccess: (res) => {
+      toast.success(res?.message || "Successfully connected to Atlassian Jira Cloud!");
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "jira", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "jira", "issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+      setJiraModalOpen(false);
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to authenticate with Atlassian Jira API");
+    },
+  });
+
+  const createJiraIssueMutation = useMutation({
+    mutationFn: (data: {
+      summary: string;
+      description?: string;
+      issue_type?: string;
+      priority?: string;
+    }) =>
+      api.post<{ success: boolean; key: string; url: string; summary: string }>(
+        INTEGRATIONS.jiraCreateIssue(),
+        data
+      ),
+    onSuccess: (res) => {
+      toast.success(`Created Jira issue ${res.key || ""} successfully!`);
+      setJiraNewSummary("");
+      setJiraNewDescription("");
+      queryClient.invalidateQueries({ queryKey: ["integrations", "jira", "issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to create issue in Jira");
+    },
+  });
+
+  const disconnectJiraMutation = useMutation({
+    mutationFn: () => api.delete<{ success: boolean; message: string }>(INTEGRATIONS.jiraDisconnect()),
+    onSuccess: () => {
+      toast.success("Disconnected Atlassian Jira integration");
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "jira", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "jira", "issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+  });
+
   const resetModalForm = () => {
     setModalName("");
     setModalWebhookUrl("");
@@ -610,6 +713,11 @@ export default function IntegrationsPage() {
       } catch (err: any) {
         console.warn("Could not check Outlook OAuth endpoint:", err);
       }
+    }
+
+    if (connector.provider === "JIRA") {
+      setJiraModalOpen(true);
+      return;
     }
 
     setIsOAuthModalOpen(true);
@@ -728,7 +836,11 @@ export default function IntegrationsPage() {
       return `Synced: ${integ?.channel_or_project_id || userEmail}`;
     }
     if (item.provider === "JIRA") {
-      return `Synced: ${integ?.channel_or_project_id || "KNOWRA"} (Sprint Board)`;
+      const proj = jiraStatus?.project_key || "KNOWRA";
+      const domain = jiraStatus?.instance_url
+        ? jiraStatus.instance_url.replace("https://", "").replace("http://", "").split("/")[0]
+        : "softude.atlassian.net";
+      return `Synced: ${domain} (${proj})`;
     }
     if (item.provider === "LINEAR") {
       return `Synced: ${integ?.channel_or_project_id || "ENG-Cycle"} (Linear)`;
@@ -757,6 +869,8 @@ export default function IntegrationsPage() {
       connector.provider === "ZOOM"
     ) {
       disconnectCalendarMutation.mutate(connector.provider);
+    } else if (connector.provider === "JIRA") {
+      disconnectJiraMutation.mutate();
     } else {
       const found = integrations.find((i) => i.provider === connector.provider);
       if (found) {
@@ -770,6 +884,9 @@ export default function IntegrationsPage() {
     if (provider === "GOOGLE_CALENDAR" || provider === "OUTLOOK" || provider === "GOOGLE_MEET" || provider === "ZOOM") {
       const cal = calendarStatuses.find((c) => c.provider === provider);
       if (cal) return cal.is_connected;
+    }
+    if (provider === "JIRA") {
+      if (jiraStatus?.is_connected) return true;
     }
     const found = integrations.find((i) => i.provider === provider);
     return found ? found.status === "ACTIVE" : false;
@@ -1124,7 +1241,7 @@ export default function IntegrationsPage() {
                         )}
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
-                        Synchronize scheduled calendar meetings and coordinate AI notetaker auto-join.
+                        {selectedConnector.subtitle}
                       </p>
                     </div>
                   </div>
@@ -1137,17 +1254,20 @@ export default function IntegrationsPage() {
                           onClick={() => {
                             if (selectedConnector.provider === "GOOGLE_CALENDAR") {
                               syncGoogleMutation.mutate();
+                            } else if (selectedConnector.provider === "JIRA") {
+                              refetchJiraIssues();
+                              toast.success("Refreshed live Jira sprint issues");
                             } else {
                               syncCalendarsMutation.mutate();
                             }
                           }}
-                          disabled={syncCalendarsMutation.isPending || syncGoogleMutation.isPending}
+                          disabled={syncCalendarsMutation.isPending || syncGoogleMutation.isPending || isLoadingJiraIssues}
                           className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
                         >
                           <RefreshCw
                             size={12}
                             className={
-                              syncCalendarsMutation.isPending || syncGoogleMutation.isPending
+                              syncCalendarsMutation.isPending || syncGoogleMutation.isPending || isLoadingJiraIssues
                                 ? "animate-spin"
                                 : ""
                             }
@@ -1155,13 +1275,15 @@ export default function IntegrationsPage() {
                           <span>
                             {syncGoogleMutation.isPending && selectedConnector.provider === "GOOGLE_CALENDAR"
                               ? "Syncing..."
+                              : isLoadingJiraIssues && selectedConnector.provider === "JIRA"
+                              ? "Syncing Jira..."
                               : "Sync Now"}
                           </span>
                         </button>
 
                         <button
                           onClick={() => handleDisconnect(selectedConnector)}
-                          disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending}
+                          disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending || disconnectJiraMutation.isPending}
                           className="px-3 py-1.5 rounded-lg border border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-semibold transition-colors cursor-pointer"
                           title="Disconnect this integration and revoke access"
                         >
@@ -1195,15 +1317,15 @@ export default function IntegrationsPage() {
               {!isSelectedConnected ? (
                 /* Empty state container */
                 <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center bg-slate-50/40 space-y-3.5 my-6">
-                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-xl mx-auto shadow-2xs border border-indigo-100">
-                    <Calendar size={22} />
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl mx-auto shadow-2xs border border-indigo-100">
+                    <span>{selectedConnector.iconSvg}</span>
                   </div>
                   <div>
                     <h3 className="text-sm font-bold text-slate-900">
                       {selectedConnector.name} isn't connected yet
                     </h3>
-                    <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-                      Connect your account to synchronize meetings, capture live transcriptions, and receive automated executive summaries.
+                    <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+                      {selectedConnector.description}
                     </p>
                   </div>
                   <button
@@ -1228,12 +1350,12 @@ export default function IntegrationsPage() {
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white font-semibold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                        {(selectedCalStatus?.account_email || userEmail).charAt(0).toUpperCase()}
+                        {(selectedCalStatus?.account_email || (selectedConnector.provider === "JIRA" ? (jiraStatus?.account_email || userEmail) : userEmail)).charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-slate-900 truncate">
-                            {selectedCalStatus?.account_email || getConnectorSyncSubtitle(selectedConnector).replace("Synced: ", "")}
+                            {selectedCalStatus?.account_email || (selectedConnector.provider === "JIRA" ? (jiraStatus?.account_email || userEmail) : getConnectorSyncSubtitle(selectedConnector).replace("Synced: ", ""))}
                           </span>
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white text-slate-600 border border-slate-200/80 font-medium shrink-0">
                             {selectedConnector.category === "calendar"
@@ -1242,13 +1364,15 @@ export default function IntegrationsPage() {
                               ? "API Key (REST)"
                               : selectedConnector.provider === "SLACK"
                               ? "Bot Token (v2)"
+                              : selectedConnector.provider === "JIRA"
+                              ? "Atlassian Cloud REST API v3"
                               : "Enterprise OAuth 2.0"}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
                           <span>Continuous Sync</span>
                           <span>&bull;</span>
-                          <span>Last checked {selectedCalStatus?.last_synced_at ? relativeTime(selectedCalStatus.last_synced_at) : "just now"}</span>
+                          <span>Last checked {selectedCalStatus?.last_synced_at || jiraStatus?.last_synced_at ? relativeTime((selectedCalStatus?.last_synced_at || jiraStatus?.last_synced_at)!) : "just now"}</span>
                         </p>
                       </div>
                     </div>
@@ -1726,14 +1850,270 @@ export default function IntegrationsPage() {
                     </div>
                   )}
 
-                  {/* ── 4D. CONDITIONAL: PROJECT TRACKERS (JIRA & LINEAR) ── */}
-                  {selectedConnector.category === "tracker" && (
+                  {/* ── 4D-1. CONDITIONAL: REAL ATLASSIAN JIRA SOFTWARE CLOUD ── */}
+                  {selectedConnector.provider === "JIRA" && (
+                    <div className="space-y-4">
+                      {/* Section Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold border border-blue-200">
+                            🔵
+                          </div>
+                          <h4 className="text-xs font-bold text-slate-900">
+                            Atlassian Jira Software &amp; Live Sprint Issues
+                          </h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                            LIVE v3 REST API
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              refetchJiraIssues();
+                              toast.success("Refreshed live Jira sprint issues");
+                            }}
+                            disabled={isLoadingJiraIssues}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                          >
+                            <RefreshCw size={11} className={isLoadingJiraIssues ? "animate-spin" : ""} />
+                            <span>Refresh Issues</span>
+                          </button>
+                          {jiraStatus?.instance_url && (
+                            <a
+                              href={jiraStatus.instance_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-medium shadow-2xs flex items-center gap-1 transition-colors"
+                            >
+                              <span>Open Jira Cloud</span>
+                              <ExternalLink size={10} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* 2-Column Layout: Create Issue from Action Item (Left 5) & Live Sprint Issues Board (Right 7) */}
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        {/* Left Form: Create Action Item into Jira Ticket */}
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3.5">
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-800 block">
+                                Create Action Item in Jira
+                              </label>
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-semibold">
+                                Project: {jiraStatus?.project_key || "KNOWRA"}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Convert detected meeting commitments into real Jira sprint tickets in ADF format.
+                            </p>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Issue Summary / Action Item
+                            </label>
+                            <input
+                              type="text"
+                              value={jiraNewSummary}
+                              onChange={(e) => setJiraNewSummary(e.target.value)}
+                              placeholder="e.g. Implement vector index partitioning schema"
+                              className="w-full h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all font-medium"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                                Issue Type
+                              </label>
+                              <select
+                                value={jiraNewIssueType}
+                                onChange={(e) => setJiraNewIssueType(e.target.value)}
+                                className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white"
+                              >
+                                <option value="Task">Task</option>
+                                <option value="Story">Story</option>
+                                <option value="Bug">Bug</option>
+                                <option value="Improvement">Improvement</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                                Priority
+                              </label>
+                              <select
+                                value={jiraNewPriority}
+                                onChange={(e) => setJiraNewPriority(e.target.value)}
+                                className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white"
+                              >
+                                <option value="Highest">Highest</option>
+                                <option value="High">High</option>
+                                <option value="Medium">Medium</option>
+                                <option value="Low">Low</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Description &amp; Meeting Context (Optional)
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={jiraNewDescription}
+                              onChange={(e) => setJiraNewDescription(e.target.value)}
+                              placeholder="Add meeting decision details, owner assignment, or sprint notes..."
+                              className="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all resize-none"
+                            />
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!jiraNewSummary.trim()) {
+                                toast.error("Please enter an issue summary.");
+                                return;
+                              }
+                              createJiraIssueMutation.mutate({
+                                summary: jiraNewSummary.trim(),
+                                description: jiraNewDescription.trim(),
+                                issue_type: jiraNewIssueType,
+                                priority: jiraNewPriority,
+                              });
+                            }}
+                            disabled={createJiraIssueMutation.isPending || !jiraNewSummary.trim()}
+                            className="w-full h-9 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {createJiraIssueMutation.isPending ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Plus size={13} />
+                            )}
+                            <span>
+                              {createJiraIssueMutation.isPending ? "Creating in Jira..." : "Create Issue in Jira"}
+                            </span>
+                          </button>
+
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                            <span>OAuth: AES-256 Fernet</span>
+                            <span>Payload: ADF v3 JSON</span>
+                          </div>
+                        </div>
+
+                        {/* Right Board: Live Sprint Issues Stream */}
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                          <div className="px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1.5 text-[11px]">
+                              <Kanban size={13} className="text-blue-600" />
+                              <span>Live Sprint Board</span>
+                              <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 text-slate-700 font-mono text-[10px] font-bold">
+                                {jiraIssues.length}
+                              </span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {jiraStatus?.instance_url ? jiraStatus.instance_url.replace("https://", "").replace("http://", "") : "softude.atlassian.net"}
+                            </span>
+                          </div>
+
+                          <div className="p-3 bg-slate-50/40 flex-1 overflow-y-auto max-h-[380px] space-y-2.5">
+                            {isLoadingJiraIssues ? (
+                              <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                                <RefreshCw size={16} className="animate-spin text-blue-600" />
+                                <span>Loading Jira sprint tickets...</span>
+                              </div>
+                            ) : jiraIssues.length === 0 ? (
+                              <div className="py-10 px-4 text-center space-y-2 bg-white rounded-xl border border-slate-200/80">
+                                <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center text-sm mx-auto border border-blue-100">
+                                  🔵
+                                </div>
+                                <p className="text-xs font-bold text-slate-800">
+                                  No active sprint issues found in {jiraStatus?.project_key || "KNOWRA"}
+                                </p>
+                                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                                  Use the form on the left to push meeting action items or decisions directly into your Jira backlog.
+                                </p>
+                              </div>
+                            ) : (
+                              jiraIssues.map((iss) => (
+                                <div
+                                  key={iss.key || iss.id}
+                                  className="bg-white rounded-lg border border-slate-200/90 p-3 space-y-2 shadow-2xs hover:border-blue-300 hover:shadow-xs transition-all"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <a
+                                        href={iss.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200/80 flex items-center gap-1 transition-colors"
+                                      >
+                                        <span>{iss.key}</span>
+                                        <ExternalLink size={9} />
+                                      </a>
+                                      <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                        {iss.issue_type || "Task"}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className={cn(
+                                          "text-[10px] font-semibold px-2 py-0.5 rounded border",
+                                          iss.priority === "High" || iss.priority === "Highest"
+                                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                                            : iss.priority === "Medium"
+                                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                                            : "bg-slate-50 text-slate-600 border-slate-200"
+                                        )}
+                                      >
+                                        {iss.priority || "Medium"}
+                                      </span>
+                                      <span
+                                        className={cn(
+                                          "text-[10px] font-semibold px-2 py-0.5 rounded border",
+                                          iss.status === "Done"
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : iss.status === "In Progress"
+                                            ? "bg-blue-50 text-blue-700 border-blue-200"
+                                            : "bg-slate-100 text-slate-700 border-slate-200"
+                                        )}
+                                      >
+                                        {iss.status || "To Do"}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <h5 className="text-xs font-semibold text-slate-900 leading-snug">
+                                    {iss.summary}
+                                  </h5>
+
+                                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
+                                    <span className="truncate max-w-[180px]">
+                                      Assignee: <span className="font-medium text-slate-700">{iss.assignee || "Unassigned"}</span>
+                                    </span>
+                                    <span className="shrink-0 text-slate-400">
+                                      {iss.created ? relativeTime(iss.created) : "Recent"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4D-2. CONDITIONAL: LINEAR ENGINEERING SYNC ── */}
+                  {selectedConnector.provider === "LINEAR" && (
                     <div className="space-y-4">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <Kanban size={14} className="text-blue-600" />
+                          <Kanban size={14} className="text-violet-600" />
                           <h4 className="text-xs font-bold text-slate-900">
-                            {selectedConnector.name} &amp; Sprint Issue Mapping
+                            Linear Engineering Sync &amp; Cycles
                           </h4>
                         </div>
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
@@ -2775,6 +3155,174 @@ export default function IntegrationsPage() {
                 Copy JSON
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 8. ATLASSIAN JIRA CLOUD CONNECT MODAL ───────────────────────── */}
+      {jiraModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
+          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg border border-blue-200/80 shadow-2xs">
+                  🔵
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">Connect Atlassian Jira Cloud</h3>
+                  <p className="text-[11px] text-slate-500">Automate issue creation from verbal action items</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setJiraModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!jiraInstanceUrl.trim()) {
+                  toast.error("Please enter your Atlassian Jira instance URL or domain.");
+                  return;
+                }
+                if (!jiraEmail.trim()) {
+                  toast.error("Please enter your Atlassian account email.");
+                  return;
+                }
+                if (!jiraApiToken.trim()) {
+                  toast.error("Please enter your Atlassian API token.");
+                  return;
+                }
+                connectJiraMutation.mutate({
+                  instance_url: jiraInstanceUrl.trim(),
+                  email: jiraEmail.trim(),
+                  api_token: jiraApiToken.trim(),
+                  project_key: jiraProjectKey.trim().toUpperCase() || "KNOWRA",
+                });
+              }}
+              className="p-5 space-y-4 text-xs"
+            >
+              <div>
+                <label className="font-semibold text-slate-700 block mb-1">
+                  Atlassian Jira Instance URL or Domain
+                </label>
+                <input
+                  type="text"
+                  value={jiraInstanceUrl}
+                  onChange={(e) => setJiraInstanceUrl(e.target.value)}
+                  placeholder="https://your-domain.atlassian.net"
+                  className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  e.g., <code>https://softude.atlassian.net</code> or simply <code>softude</code>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Atlassian Account Email
+                  </label>
+                  <input
+                    type="email"
+                    value={jiraEmail}
+                    onChange={(e) => setJiraEmail(e.target.value)}
+                    placeholder="name@company.com"
+                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="font-semibold text-slate-700 block mb-1">
+                    Target Project Key
+                  </label>
+                  <input
+                    type="text"
+                    value={jiraProjectKey}
+                    onChange={(e) => setJiraProjectKey(e.target.value.toUpperCase())}
+                    placeholder="e.g. KNOWRA"
+                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-indigo-600 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-semibold text-slate-700">
+                    Atlassian API Token
+                  </label>
+                  <a
+                    href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-0.5"
+                  >
+                    <span>Create token</span>
+                    <ExternalLink size={9} />
+                  </a>
+                </div>
+                <input
+                  type="password"
+                  value={jiraApiToken}
+                  onChange={(e) => setJiraApiToken(e.target.value)}
+                  placeholder="Paste your Atlassian Cloud API token"
+                  className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Tokens are encrypted with AES-256 Fernet and never logged in plain text.
+                </p>
+              </div>
+
+              {/* Quick Fill Demo Helper Button */}
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold text-slate-800">Quick Test Environment</p>
+                  <p className="text-[10px] text-slate-500">Prefill Softude workspace test credentials</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setJiraInstanceUrl("https://softude.atlassian.net");
+                    setJiraEmail("sujal.nage@softude.com");
+                    setJiraProjectKey("KNOWRA");
+                    setJiraApiToken("jira_demo_token_knowra_live");
+                    toast.info("Prefilled Softude Jira test configuration!");
+                  }}
+                  className="px-2.5 py-1 text-[11px] font-medium bg-white hover:bg-slate-100 text-indigo-600 border border-slate-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                >
+                  Prefill Demo
+                </button>
+              </div>
+
+              <div className="p-4 -mx-5 -mb-5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setJiraModalOpen(false)}
+                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={connectJiraMutation.isPending}
+                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {connectJiraMutation.isPending ? (
+                    <>
+                      <RefreshCw size={12} className="animate-spin" />
+                      <span>Verifying & Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={13} />
+                      <span>Verify & Connect Jira</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

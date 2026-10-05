@@ -99,6 +99,12 @@ export const INTEGRATIONS = {
   zoomAuthUrl: () => "/integrations/zoom/auth-url",
   outlookAuthUrl: () => "/integrations/outlook/auth-url",
   outlookSync: () => "/integrations/outlook/sync",
+  jiraConnect: () => "/integrations/jira/connect",
+  jiraStatus: () => "/integrations/jira/status",
+  jiraProjects: () => "/integrations/jira/projects",
+  jiraIssues: (maxResults: number = 10) => `/integrations/jira/issues?max_results=${maxResults}`,
+  jiraCreateIssue: () => "/integrations/jira/create-issue",
+  jiraDisconnect: () => "/integrations/jira/disconnect",
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────

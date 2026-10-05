@@ -32,6 +32,7 @@ from app.integrations.crypto import SecretEncryptionService
 from app.integrations.google_calendar_service import google_calendar_service
 from app.integrations.zoom_service import zoom_service
 from app.integrations.outlook_service import outlook_service
+from app.integrations.jira_service import jira_service
 from app.integrations.models import Integration, IntegrationEvent
 from app.integrations.schemas import (
     IntegrationCreate,
@@ -45,6 +46,8 @@ from app.integrations.schemas import (
     CalendarMeetingItem,
     CalendarConnectRequest,
     CalendarToggleBotRequest,
+    JiraConnectRequest,
+    JiraCreateIssueRequest,
 )
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user
@@ -1121,6 +1124,107 @@ def test_integration_dispatch(
         status="COMPLETED",
         detail=f"Dispatched test ping to {item.provider} ({item.name}) • Status 200 OK",
     )
+
+
+# ── Jira Software Automation Endpoints ──────────────────────────────────────────
+
+@router.post(
+    "/jira/connect",
+    summary="Connect Atlassian Jira workspace with API Token",
+)
+def connect_jira(
+    payload: JiraConnectRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        return jira_service.save_connection(
+            tenant_id=current_user.organization_id,
+            instance_url=payload.instance_url,
+            email=payload.email,
+            api_token=payload.api_token,
+            project_key=payload.project_key or "KNOWRA",
+            db=db,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Jira connection error")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to connect to Jira: {str(e)}")
+
+
+@router.get(
+    "/jira/status",
+    summary="Get Jira connection status",
+)
+def get_jira_status(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return jira_service.get_status(tenant_id=current_user.organization_id, db=db)
+
+
+@router.get(
+    "/jira/projects",
+    summary="Get accessible Jira projects",
+)
+def get_jira_projects(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    creds = jira_service.get_credentials(current_user.organization_id, db)
+    if not creds:
+        return []
+    return jira_service.fetch_projects(creds["instance_url"], creds["email"], creds["api_token"])
+
+
+@router.get(
+    "/jira/issues",
+    summary="Get latest issues from connected Jira project",
+)
+def get_jira_issues(
+    max_results: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    return jira_service.fetch_issues(current_user.organization_id, db, max_results=max_results)
+
+
+@router.post(
+    "/jira/create-issue",
+    summary="Create a real Jira ticket from an action item",
+)
+def create_jira_issue(
+    payload: JiraCreateIssueRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        return jira_service.create_issue(
+            tenant_id=current_user.organization_id,
+            summary=payload.summary,
+            description=payload.description or "",
+            db=db,
+            issue_type=payload.issue_type or "Task",
+            priority=payload.priority or "Medium",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Jira create issue error")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to create Jira issue: {str(e)}")
+
+
+@router.delete(
+    "/jira/disconnect",
+    summary="Disconnect Jira integration",
+)
+def disconnect_jira(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    success = jira_service.disconnect(current_user.organization_id, db)
+    return {"success": success, "message": "Jira integration disconnected."}
 
 
 @router.get(

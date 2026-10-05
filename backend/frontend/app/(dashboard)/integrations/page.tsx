@@ -864,10 +864,8 @@ export default function IntegrationsPage() {
     }
     if (item.provider === "JIRA") {
       const proj = jiraStatus?.project_key || "KNOWRA";
-      const domain = jiraStatus?.instance_url
-        ? jiraStatus.instance_url.replace("https://", "").replace("http://", "").split("/")[0]
-        : "softude.atlassian.net";
-      return `Synced: ${domain} (${proj})`;
+      const email = jiraStatus?.account_email || userEmail;
+      return `Synced: ${email} (${proj})`;
     }
     if (item.provider === "LINEAR") {
       return `Synced: ${integ?.channel_or_project_id || "ENG-Cycle"} (Linear)`;
@@ -941,7 +939,7 @@ export default function IntegrationsPage() {
       if (statusFilter === "not_connected") return !connected;
       return true;
     });
-  }, [searchQuery, statusFilter, integrations, calendarStatuses]);
+  }, [searchQuery, statusFilter, integrations, calendarStatuses, jiraStatus]);
 
   // Group by category
   const groupedConnectors = useMemo(() => {

@@ -33,6 +33,7 @@ import {
   Calendar,
   Search,
   Eye,
+  EyeOff,
   Sliders,
   Filter,
   ArrowUpDown,
@@ -330,6 +331,9 @@ export default function IntegrationsPage() {
   const [jiraModalOpen, setJiraModalOpen] = useState(false);
   const [jiraInstanceUrl, setJiraInstanceUrl] = useState("https://softude.atlassian.net");
   const [jiraEmail, setJiraEmail] = useState(userEmail || "sujal.nage@softude.com");
+  const [jiraShowCustomEmail, setJiraShowCustomEmail] = useState(false);
+  const [jiraCustomEmail, setJiraCustomEmail] = useState("");
+  const [jiraShowToken, setJiraShowToken] = useState(false);
   const [jiraApiToken, setJiraApiToken] = useState("");
   const [jiraProjectKey, setJiraProjectKey] = useState("KNOWRA");
   const [jiraNewSummary, setJiraNewSummary] = useState("");
@@ -772,13 +776,9 @@ export default function IntegrationsPage() {
       });
       setIsOAuthModalOpen(false);
     } else if (authConnector.provider === "JIRA") {
-      createIntegrationMutation.mutate({
-        provider: "JIRA",
-        name: "Jira Software Automation",
-        channel_or_project_id: "KNOWRA",
-        credentials_secret: "jira_api_knowra_cloud",
-      });
+      setJiraEmail(cleanEmail);
       setIsOAuthModalOpen(false);
+      setJiraModalOpen(true);
     } else if (authConnector.provider === "NOTION") {
       createIntegrationMutation.mutate({
         provider: "NOTION",
@@ -3159,170 +3159,374 @@ export default function IntegrationsPage() {
         </div>
       )}
 
-      {/* ── 8. ATLASSIAN JIRA CLOUD CONNECT MODAL ───────────────────────── */}
+      {/* ── 8. ATLASSIAN JIRA CLOUD CONNECT & ACCOUNT SELECTION MODAL ───────────────────────── */}
       {jiraModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-fade-in">
-          <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="p-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg border border-blue-200/80 shadow-2xs">
-                  🔵
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Connect Atlassian Jira Cloud</h3>
-                  <p className="text-[11px] text-slate-500">Automate issue creation from verbal action items</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setJiraModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!jiraInstanceUrl.trim()) {
-                  toast.error("Please enter your Atlassian Jira instance URL or domain.");
-                  return;
-                }
-                if (!jiraEmail.trim()) {
-                  toast.error("Please enter your Atlassian account email.");
-                  return;
-                }
-                if (!jiraApiToken.trim()) {
-                  toast.error("Please enter your Atlassian API token.");
-                  return;
-                }
-                connectJiraMutation.mutate({
-                  instance_url: jiraInstanceUrl.trim(),
-                  email: jiraEmail.trim(),
-                  api_token: jiraApiToken.trim(),
-                  project_key: jiraProjectKey.trim().toUpperCase() || "KNOWRA",
-                });
+          <div className="relative w-full max-w-[820px] bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 sm:p-8 font-sans animate-in fade-in zoom-in-95 duration-150 max-h-[92vh] overflow-y-auto">
+            {/* Close Button */}
+            <button
+              onClick={() => {
+                setJiraModalOpen(false);
+                setJiraShowCustomEmail(false);
               }}
-              className="p-5 space-y-4 text-xs"
+              className="absolute top-5 right-5 w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer text-sm"
+              title="Close modal"
             >
+              ✕
+            </button>
+
+            {/* Header */}
+            <div className="flex items-center gap-3.5 mb-6 pb-4 border-b border-slate-100">
+              <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-2xl shadow-2xs shrink-0">
+                🔵
+              </div>
               <div>
-                <label className="font-semibold text-slate-700 block mb-1">
-                  Atlassian Jira Instance URL or Domain
-                </label>
-                <input
-                  type="text"
-                  value={jiraInstanceUrl}
-                  onChange={(e) => setJiraInstanceUrl(e.target.value)}
-                  placeholder="https://your-domain.atlassian.net"
-                  className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  e.g., <code>https://softude.atlassian.net</code> or simply <code>softude</code>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <span>Connect Atlassian Jira Software</span>
+                  <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-mono">
+                    Cloud REST v3
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Choose your Atlassian account email and configure credentials to automate sprint issue creation.
                 </p>
               </div>
+            </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="font-semibold text-slate-700 block mb-1">
-                    Atlassian Account Email
-                  </label>
-                  <input
-                    type="email"
-                    value={jiraEmail}
-                    onChange={(e) => setJiraEmail(e.target.value)}
-                    placeholder="name@company.com"
-                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600 focus:bg-white"
-                  />
+            {/* Main Content */}
+            <div className="space-y-6 text-xs">
+              {/* SECTION 1: WHICH MAIL ID TO CONNECT (Account Picker Fidelity) */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-bold text-slate-800 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+                    <User size={13} className="text-blue-600" />
+                    <span>1. Choose Atlassian Account Email (Which Mail ID)</span>
+                  </h4>
+                  <span className="text-[10px] text-slate-400">
+                    Selected: <strong className="text-blue-700 font-mono">{jiraEmail}</strong>
+                  </span>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Account Card 1: Softude Workspace */}
+                  <div
+                    onClick={() => {
+                      setJiraEmail("sujal.nage@softude.com");
+                      setJiraShowCustomEmail(false);
+                    }}
+                    className={cn(
+                      "p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 text-left",
+                      jiraEmail === "sujal.nage@softude.com" && !jiraShowCustomEmail
+                        ? "bg-blue-50/70 border-blue-400 ring-2 ring-blue-500/20 shadow-2xs"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-[#7b1fa2] text-white flex items-center justify-center font-medium text-xs shrink-0 shadow-2xs">
+                        S
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 truncate flex items-center gap-1.5">
+                          <span>Sujal Nage</span>
+                          <span className="text-[9px] font-mono px-1 bg-purple-100 text-purple-700 rounded font-semibold">WORK</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate font-mono">
+                          sujal.nage@softude.com
+                        </div>
+                      </div>
+                    </div>
+                    {jiraEmail === "sujal.nage@softude.com" && !jiraShowCustomEmail && (
+                      <CheckCircle2 size={16} className="text-blue-600 shrink-0" />
+                    )}
+                  </div>
+
+                  {/* Account Card 2: Personal Google */}
+                  <div
+                    onClick={() => {
+                      setJiraEmail("sujal2005nage@gmail.com");
+                      setJiraShowCustomEmail(false);
+                    }}
+                    className={cn(
+                      "p-3 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-3 text-left",
+                      jiraEmail === "sujal2005nage@gmail.com" && !jiraShowCustomEmail
+                        ? "bg-blue-50/70 border-blue-400 ring-2 ring-blue-500/20 shadow-2xs"
+                        : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-[#137333] text-white flex items-center justify-center font-medium text-xs shrink-0 shadow-2xs">
+                        S
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-900 truncate">
+                          Sujal Nage
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate font-mono">
+                          sujal2005nage@gmail.com
+                        </div>
+                      </div>
+                    </div>
+                    {jiraEmail === "sujal2005nage@gmail.com" && !jiraShowCustomEmail && (
+                      <CheckCircle2 size={16} className="text-blue-600 shrink-0" />
+                    )}
+                  </div>
+                </div>
+
+                {/* Custom Email Expandable Toggle */}
+                <div className="pt-0.5">
+                  {!jiraShowCustomEmail ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJiraShowCustomEmail(true);
+                        if (jiraCustomEmail.trim()) {
+                          setJiraEmail(jiraCustomEmail.trim());
+                        }
+                      }}
+                      className="text-[11px] text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                    >
+                      <Plus size={11} />
+                      <span>Use a different Atlassian email address</span>
+                    </button>
+                  ) : (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2 animate-in fade-in duration-150">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-semibold text-slate-700">
+                          Enter custom Atlassian work email:
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setJiraShowCustomEmail(false);
+                            setJiraEmail("sujal.nage@softude.com");
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="email"
+                          value={jiraCustomEmail}
+                          onChange={(e) => {
+                            setJiraCustomEmail(e.target.value);
+                            setJiraEmail(e.target.value.trim());
+                          }}
+                          placeholder="e.g. developer@company.com"
+                          className="flex-1 h-8 px-3 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-blue-600 font-mono"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* SECTION 2: STEPS TO CONFIGURE JIRA CLOUD (Instructions Panel) */}
+              <div className="p-4 bg-gradient-to-br from-blue-50/70 via-indigo-50/40 to-slate-50 border border-blue-200/80 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold text-blue-900 text-xs">
+                    <Key size={14} className="text-blue-600" />
+                    <span>2. Steps to Configure Atlassian Jira Cloud</span>
+                  </div>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white text-blue-700 border border-blue-200 font-semibold shadow-2xs">
+                    4 Quick Steps
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-slate-700 text-[11px]">
+                  <div className="p-2.5 bg-white/90 rounded-xl border border-blue-100 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                      <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">1</span>
+                      <span>Generate API Token</span>
+                    </div>
+                    <p className="text-slate-500 leading-relaxed text-[11px]">
+                      Go to{" "}
+                      <a
+                        href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 hover:underline font-semibold inline-flex items-center gap-0.5"
+                      >
+                        <span>Atlassian Security</span>
+                        <ExternalLink size={9} />
+                      </a>
+                      , click <strong>Create API token</strong>, label it <code>Knowra</code>, and copy the token.
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 bg-white/90 rounded-xl border border-blue-100 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                      <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">2</span>
+                      <span>Instance Domain</span>
+                    </div>
+                    <p className="text-slate-500 leading-relaxed text-[11px]">
+                      Use your Atlassian workspace URL: <code>https://softude.atlassian.net</code> or simply <code>softude</code>.
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 bg-white/90 rounded-xl border border-blue-100 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                      <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">3</span>
+                      <span>Paste Token Securely</span>
+                    </div>
+                    <p className="text-slate-500 leading-relaxed text-[11px]">
+                      Paste the token below. Tokens are encrypted using <strong>AES-256 Fernet</strong> and never stored in plain text.
+                    </p>
+                  </div>
+
+                  <div className="p-2.5 bg-white/90 rounded-xl border border-blue-100 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                      <span className="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px]">4</span>
+                      <span>Target Project Key</span>
+                    </div>
+                    <p className="text-slate-500 leading-relaxed text-[11px]">
+                      Specify the Jira project key (e.g. <code>KNOWRA</code>) where meeting action items will be created.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 3: CREDENTIAL INPUTS & DEMO PREFILL */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!jiraInstanceUrl.trim()) {
+                    toast.error("Please enter your Atlassian Jira instance URL or domain.");
+                    return;
+                  }
+                  if (!jiraEmail.trim()) {
+                    toast.error("Please select or enter your Atlassian account email.");
+                    return;
+                  }
+                  if (!jiraApiToken.trim()) {
+                    toast.error("Please enter your Atlassian API token.");
+                    return;
+                  }
+                  connectJiraMutation.mutate({
+                    instance_url: jiraInstanceUrl.trim(),
+                    email: jiraEmail.trim(),
+                    api_token: jiraApiToken.trim(),
+                    project_key: jiraProjectKey.trim().toUpperCase() || "KNOWRA",
+                  });
+                }}
+                className="space-y-4"
+              >
                 <div>
                   <label className="font-semibold text-slate-700 block mb-1">
-                    Target Project Key
+                    Atlassian Jira Instance URL or Domain
                   </label>
                   <input
                     type="text"
-                    value={jiraProjectKey}
-                    onChange={(e) => setJiraProjectKey(e.target.value.toUpperCase())}
-                    placeholder="e.g. KNOWRA"
-                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-indigo-600 focus:bg-white"
+                    value={jiraInstanceUrl}
+                    onChange={(e) => setJiraInstanceUrl(e.target.value)}
+                    placeholder="https://softude.atlassian.net"
+                    className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-blue-600 focus:bg-white"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    e.g., <code>https://softude.atlassian.net</code> or simply <code>softude</code>
+                  </p>
                 </div>
-              </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="font-semibold text-slate-700">
-                    Atlassian API Token
-                  </label>
-                  <a
-                    href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-indigo-600 hover:text-indigo-700 hover:underline flex items-center gap-0.5"
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="font-semibold text-slate-700">
+                        Atlassian API Token
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setJiraShowToken(!jiraShowToken)}
+                        className="text-[10px] text-slate-400 hover:text-slate-600 flex items-center gap-1 cursor-pointer"
+                      >
+                        {jiraShowToken ? <EyeOff size={11} /> : <Eye size={11} />}
+                        <span>{jiraShowToken ? "Hide" : "Show"}</span>
+                      </button>
+                    </div>
+                    <input
+                      type={jiraShowToken ? "text" : "password"}
+                      value={jiraApiToken}
+                      onChange={(e) => setJiraApiToken(e.target.value)}
+                      placeholder="Paste your Atlassian API token"
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-blue-600 focus:bg-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-slate-700 block mb-1">
+                      Target Project Key
+                    </label>
+                    <input
+                      type="text"
+                      value={jiraProjectKey}
+                      onChange={(e) => setJiraProjectKey(e.target.value.toUpperCase())}
+                      placeholder="e.g. KNOWRA"
+                      className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono uppercase focus:outline-none focus:border-blue-600 focus:bg-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick-Fill Softude Workspace Demo Helper Box */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                      <span>⚡ Quick Sandbox / Demo Mode</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      Prefills Softude Jira Cloud instance, email, project key, and demo token for immediate testing.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setJiraEmail("sujal.nage@softude.com");
+                      setJiraShowCustomEmail(false);
+                      setJiraInstanceUrl("https://softude.atlassian.net");
+                      setJiraProjectKey("KNOWRA");
+                      setJiraApiToken("jira_demo_token_knowra_live");
+                      toast.info("Prefilled Softude Jira test configuration!");
+                    }}
+                    className="px-3 py-1.5 text-xs font-semibold bg-white hover:bg-slate-100 text-blue-700 border border-blue-200 rounded-lg shadow-2xs transition-colors shrink-0 cursor-pointer self-start sm:self-auto flex items-center gap-1.5"
                   >
-                    <span>Create token</span>
-                    <ExternalLink size={9} />
-                  </a>
+                    <span>Prefill Demo Config</span>
+                  </button>
                 </div>
-                <input
-                  type="password"
-                  value={jiraApiToken}
-                  onChange={(e) => setJiraApiToken(e.target.value)}
-                  placeholder="Paste your Atlassian Cloud API token"
-                  className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono focus:outline-none focus:border-indigo-600 focus:bg-white"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Tokens are encrypted with AES-256 Fernet and never logged in plain text.
-                </p>
-              </div>
 
-              {/* Quick Fill Demo Helper Button */}
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex items-center justify-between">
-                <div>
-                  <p className="text-[11px] font-semibold text-slate-800">Quick Test Environment</p>
-                  <p className="text-[10px] text-slate-500">Prefill Softude workspace test credentials</p>
+                {/* Footer Buttons */}
+                <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="text-[11px] text-slate-500 font-mono">
+                    Connecting as: <strong className="text-slate-800">{jiraEmail}</strong>
+                  </div>
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setJiraModalOpen(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={connectJiraMutation.isPending}
+                      className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      {connectJiraMutation.isPending ? (
+                        <>
+                          <RefreshCw size={12} className="animate-spin" />
+                          <span>Verifying &amp; Connecting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check size={14} />
+                          <span>Verify &amp; Connect Jira</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setJiraInstanceUrl("https://softude.atlassian.net");
-                    setJiraEmail("sujal.nage@softude.com");
-                    setJiraProjectKey("KNOWRA");
-                    setJiraApiToken("jira_demo_token_knowra_live");
-                    toast.info("Prefilled Softude Jira test configuration!");
-                  }}
-                  className="px-2.5 py-1 text-[11px] font-medium bg-white hover:bg-slate-100 text-indigo-600 border border-slate-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
-                >
-                  Prefill Demo
-                </button>
-              </div>
-
-              <div className="p-4 -mx-5 -mb-5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setJiraModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={connectJiraMutation.isPending}
-                  className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                >
-                  {connectJiraMutation.isPending ? (
-                    <>
-                      <RefreshCw size={12} className="animate-spin" />
-                      <span>Verifying & Connecting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check size={13} />
-                      <span>Verify & Connect Jira</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
+              </form>
+            </div>
           </div>
         </div>
       )}

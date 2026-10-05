@@ -277,6 +277,9 @@ export default function IntegrationsPage() {
   const [linearNewDescription, setLinearNewDescription] = useState("");
   const [linearNewPriority, setLinearNewPriority] = useState<number>(2); // High
   const [linearNewTeamKey, setLinearNewTeamKey] = useState("ENG");
+  const [linearInputApiKey, setLinearInputApiKey] = useState("");
+  const [linearInputTeamKey, setLinearInputTeamKey] = useState("ENG");
+  const [showLinearApiKey, setShowLinearApiKey] = useState(false);
 
   // Copilot Chat State
   const [showCopilot, setShowCopilot] = useState(false);
@@ -626,7 +629,7 @@ export default function IntegrationsPage() {
   });
 
   const connectLinearMutation = useMutation({
-    mutationFn: (data?: { api_key?: string; team_key?: string }) =>
+    mutationFn: (data?: { api_key?: string; team_key?: string; email?: string }) =>
       api.post<{ success: boolean; message: string; viewer?: any; team?: any }>(
         INTEGRATIONS.linearConnect(),
         data || {}
@@ -830,12 +833,16 @@ export default function IntegrationsPage() {
     } else if (authConnector.provider === "LINEAR") {
       setConnectingAccountEmail(cleanEmail);
       connectLinearMutation.mutate(
-        {},
+        {
+          api_key: linearInputApiKey.trim(),
+          team_key: linearInputTeamKey.trim() || "ENG",
+          email: cleanEmail,
+        },
         {
           onSuccess: (res) => {
             toast.success(
               res?.message ||
-                `Linear Engineering Sync connected automatically for ${cleanEmail}!`
+                `Linear Engineering Sync connected successfully for ${cleanEmail}!`
             );
             setIsOAuthModalOpen(false);
             setConnectingAccountEmail(null);
@@ -1404,20 +1411,53 @@ export default function IntegrationsPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center justify-center gap-2.5">
-                    <button
-                      onClick={() => handleOpenConnect(selectedConnector)}
-                      disabled={isGoogleOAuthLoading}
-                      className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5 disabled:opacity-70"
-                    >
-                      {isGoogleOAuthLoading && (selectedConnector.provider === "GOOGLE_CALENDAR" || selectedConnector.provider === "GOOGLE_MEET") ? (
-                        <>
-                          <RefreshCw size={13} className="animate-spin" />
-                          <span>Connecting...</span>
-                        </>
-                      ) : (
-                        <span>Connect {selectedConnector.name}</span>
-                      )}
-                    </button>
+                    {selectedConnector.provider === "LINEAR" ? (
+                      <>
+                        <button
+                          onClick={() => handleOpenConnect(selectedConnector)}
+                          className="px-5 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5"
+                        >
+                          <Plus size={13} />
+                          <span>Connect Linear Workspace</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            connectLinearMutation.mutate(
+                              { api_key: "demo", team_key: "ENG", email: userEmail },
+                              {
+                                onSuccess: () => {
+                                  toast.success("Connected to Linear Engineering Sandbox workspace!");
+                                },
+                              }
+                            );
+                          }}
+                          disabled={connectLinearMutation.isPending}
+                          className="px-4 py-2 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5"
+                        >
+                          {connectLinearMutation.isPending ? (
+                            <RefreshCw size={12} className="animate-spin text-amber-500" />
+                          ) : (
+                            <Sparkles size={13} className="text-amber-500" />
+                          )}
+                          <span>Quick Demo Sandbox</span>
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => handleOpenConnect(selectedConnector)}
+                        disabled={isGoogleOAuthLoading}
+                        className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-all inline-flex items-center gap-1.5 disabled:opacity-70"
+                      >
+                        {isGoogleOAuthLoading && (selectedConnector.provider === "GOOGLE_CALENDAR" || selectedConnector.provider === "GOOGLE_MEET") ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            <span>Connecting...</span>
+                          </>
+                        ) : (
+                          <span>Connect {selectedConnector.name}</span>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -2765,15 +2805,138 @@ export default function IntegrationsPage() {
                 </p>
               </div>
 
-              {/* Right Column: Account Choices */}
-              <div className="md:col-span-7 divide-y divide-[#e0e2ec]">
-                {/* Account 1: sujal2005nage@gmail.com */}
-                <button
-                  type="button"
-                  onClick={() => handleSelectAccount("sujal2005nage@gmail.com")}
-                  disabled={connectingAccountEmail !== null}
-                  className="w-full py-3 px-2 flex items-center justify-between text-left hover:bg-[#f8fafd] transition-colors rounded-lg cursor-pointer group disabled:opacity-60"
-                >
+              {/* Right Column: Account Choices or Linear Key Card */}
+              <div className="md:col-span-7 space-y-4">
+                {authConnector.provider === "LINEAR" && (
+                  <div className="p-4 bg-slate-50 border border-slate-200/90 rounded-2xl space-y-3.5 shadow-2xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <Key size={13} className="text-violet-600" />
+                        <span>Linear Personal API Key</span>
+                      </span>
+                      <a
+                        href="https://linear.app/settings/api"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-violet-600 hover:text-violet-800 hover:underline flex items-center gap-1"
+                      >
+                        <span>Get Key from Linear</span>
+                        <ExternalLink size={10} />
+                      </a>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type={showLinearApiKey ? "text" : "password"}
+                        value={linearInputApiKey}
+                        onChange={(e) => setLinearInputApiKey(e.target.value)}
+                        placeholder="lin_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                        className="w-full h-9 pl-3 pr-10 text-xs font-mono bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-violet-600 shadow-2xs"
+                      />
+                      <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowLinearApiKey(!showLinearApiKey)}
+                          className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
+                          title={showLinearApiKey ? "Hide Key" : "Show Key"}
+                        >
+                          {showLinearApiKey ? <EyeOff size={13} /> : <Eye size={13} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                          Default Team Key
+                        </label>
+                        <input
+                          type="text"
+                          value={linearInputTeamKey}
+                          onChange={(e) => setLinearInputTeamKey(e.target.value.toUpperCase())}
+                          placeholder="ENG"
+                          className="w-full h-8 px-3 text-xs font-mono uppercase bg-white border border-slate-300 rounded-lg focus:outline-none focus:border-violet-600 shadow-2xs"
+                        />
+                      </div>
+                      <div className="flex flex-col justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!linearInputApiKey.trim()) {
+                              toast.error("Please paste your Linear Personal API Key (starts with lin_api_...)");
+                              return;
+                            }
+                            handleSelectAccount(userEmail);
+                          }}
+                          disabled={connectLinearMutation.isPending}
+                          className="w-full h-8 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          {connectLinearMutation.isPending ? (
+                            <RefreshCw size={11} className="animate-spin" />
+                          ) : (
+                            <Check size={12} />
+                          )}
+                          <span>Connect Workspace</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConnectingAccountEmail("sandbox@knowra.ai");
+                          connectLinearMutation.mutate(
+                            {
+                              api_key: "demo",
+                              team_key: "ENG",
+                              email: userEmail,
+                            },
+                            {
+                              onSuccess: () => {
+                                toast.success("Connected to Linear Engineering Sandbox workspace!");
+                                setIsOAuthModalOpen(false);
+                                setConnectingAccountEmail(null);
+                              },
+                              onError: (err: any) => {
+                                toast.error(err?.message || "Failed to connect sandbox");
+                                setConnectingAccountEmail(null);
+                              },
+                            }
+                          );
+                        }}
+                        disabled={connectLinearMutation.isPending}
+                        className="w-full h-8 rounded-lg border border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        title="Instantly test cycle issues and live ticket creation without an API key"
+                      >
+                        <Sparkles size={12} className="text-amber-500" />
+                        <span>Instant Demo Sandbox Mode</span>
+                      </button>
+                    </div>
+
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      * You can also set <code className="text-slate-700 font-mono">LINEAR_API_KEY</code> in root <code className="text-slate-700 font-mono">.env</code> and click an account below.
+                    </p>
+                  </div>
+                )}
+
+                {authConnector.provider === "LINEAR" && (
+                  <div className="flex items-center gap-3 pt-1">
+                    <div className="flex-1 h-px bg-slate-200" />
+                    <span className="text-[10px] text-slate-400 font-medium">Or choose account using .env key</span>
+                    <div className="flex-1 h-px bg-slate-200" />
+                  </div>
+                )}
+
+                {/* Account List */}
+                <div className="divide-y divide-[#e0e2ec]">
+                  {/* Account 1: sujal2005nage@gmail.com */}
+                  <button
+                    type="button"
+                    onClick={() => handleSelectAccount("sujal2005nage@gmail.com")}
+                    disabled={connectingAccountEmail !== null}
+                    className="w-full py-3 px-2 flex items-center justify-between text-left hover:bg-[#f8fafd] transition-colors rounded-lg cursor-pointer group disabled:opacity-60"
+                  >
                   <div className="flex items-center gap-3.5 min-w-0">
                     <div className="w-9 h-9 rounded-full bg-[#137333] text-white flex items-center justify-center font-medium text-sm shrink-0 shadow-2xs">
                       S
@@ -2873,6 +3036,7 @@ export default function IntegrationsPage() {
                 </div>
               </div>
             </div>
+          </div>
 
             {/* Bottom Footer (Matching Google Account Picker) */}
             <div className="mt-12 pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-[12px] text-[#444746] border-t border-slate-100">

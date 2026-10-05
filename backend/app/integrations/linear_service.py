@@ -76,6 +76,21 @@ class LinearIntegrationService:
 
     def verify_credentials(self, api_key: str) -> Dict[str, Any]:
         """Verify Linear credentials by querying viewer and accessible teams."""
+        clean_key = (api_key or "").strip()
+        if clean_key.lower().startswith("demo") or clean_key.lower() == "sandbox":
+            return {
+                "valid": True,
+                "viewer_id": "usr_demo_knowra_engineer",
+                "name": "Sujal Nage (Knowra Lead)",
+                "email": "sujal.nage@softude.com",
+                "organization": "Knowra Engineering (Sandbox)",
+                "org_key": "knowra-eng",
+                "teams": [
+                    {"id": "team_eng_core", "name": "Core Engineering", "key": "ENG"},
+                    {"id": "team_ai_voice", "name": "AI Speech & Ingestion", "key": "AI"},
+                ],
+            }
+
         query = """
         query {
           viewer {
@@ -249,6 +264,13 @@ class LinearIntegrationService:
         if not creds:
             return []
 
+        clean_key = (creds.get("api_key") or "").strip()
+        if clean_key.lower().startswith("demo") or clean_key.lower() == "sandbox":
+            return [
+                {"id": "team_eng_core", "name": "Core Engineering", "key": "ENG"},
+                {"id": "team_ai_voice", "name": "AI Speech & Ingestion", "key": "AI"},
+            ]
+
         query = """
         query {
           teams {
@@ -272,6 +294,58 @@ class LinearIntegrationService:
         creds = self.get_credentials(tenant_id, db)
         if not creds:
             return []
+
+        clean_key = (creds.get("api_key") or "").strip()
+        if clean_key.lower().startswith("demo") or clean_key.lower() == "sandbox":
+            tid = str(tenant_id)
+            items = db.query(Integration).filter(Integration.provider == "LINEAR", Integration.status == "ACTIVE").all()
+            matched = [i for i in items if str(i.tenant_id) == tid or i.tenant_id == tenant_id]
+            meta = (matched[0].metadata_json or {}) if matched else {}
+            custom_issues = meta.get("custom_issues", [])
+
+            default_sandbox_issues = [
+                {
+                    "id": "iss-demo-101",
+                    "identifier": "ENG-101",
+                    "title": "Optimize pgvector cosine distance indexing for 10M vector chunks",
+                    "status": "In Progress",
+                    "state_color": "#5e6ad2",
+                    "priority": "Urgent",
+                    "priority_value": 1,
+                    "assignee": "Sujal Nage",
+                    "created": "2026-10-04T10:00:00Z",
+                    "url": "https://linear.app/knowra-eng/issue/ENG-101",
+                    "team_key": "ENG",
+                },
+                {
+                    "id": "iss-demo-102",
+                    "identifier": "ENG-102",
+                    "title": "Implement real-time transcription webhook ingestion pipeline",
+                    "status": "Todo",
+                    "state_color": "#e2e2e2",
+                    "priority": "High",
+                    "priority_value": 2,
+                    "assignee": "Unassigned",
+                    "created": "2026-10-04T12:30:00Z",
+                    "url": "https://linear.app/knowra-eng/issue/ENG-102",
+                    "team_key": "ENG",
+                },
+                {
+                    "id": "iss-demo-103",
+                    "identifier": "ENG-103",
+                    "title": "Integrate Meeting Baas audio streaming for Google Meet bots",
+                    "status": "Done",
+                    "state_color": "#0ea5e9",
+                    "priority": "High",
+                    "priority_value": 2,
+                    "assignee": "Sujal Nage",
+                    "created": "2026-10-03T16:45:00Z",
+                    "url": "https://linear.app/knowra-eng/issue/ENG-103",
+                    "team_key": "ENG",
+                },
+            ]
+            all_issues = custom_issues + default_sandbox_issues
+            return all_issues[:max_results]
 
         query = """
         query GetIssues($first: Int) {
@@ -344,6 +418,60 @@ class LinearIntegrationService:
             raise ValueError("Linear is not connected for this workspace.")
 
         api_key = creds["api_key"]
+        clean_key = (api_key or "").strip()
+
+        # Handle Sandbox Demo Issue Creation
+        if clean_key.lower().startswith("demo") or clean_key.lower() == "sandbox":
+            tid = str(tenant_id)
+            items = db.query(Integration).filter(Integration.provider == "LINEAR", Integration.status == "ACTIVE").all()
+            matched = [i for i in items if str(i.tenant_id) == tid or i.tenant_id == tenant_id]
+            meta = (matched[0].metadata_json or {}) if matched else {}
+            custom_issues = list(meta.get("custom_issues", []))
+            next_num = 104 + len(custom_issues)
+            identifier = f"ENG-{next_num}"
+            p_map = {1: "Urgent", 2: "High", 3: "Medium", 4: "Low", 0: "No Priority"}
+
+            new_issue = {
+                "id": f"iss-custom-{uuid.uuid4().hex[:8]}",
+                "identifier": identifier,
+                "title": title.strip(),
+                "status": "Todo",
+                "state_color": "#e2e2e2",
+                "priority": p_map.get(int(priority), "High"),
+                "priority_value": int(priority),
+                "assignee": "Sujal Nage",
+                "created": datetime.now(timezone.utc).isoformat(),
+                "url": f"https://linear.app/knowra-eng/issue/{identifier}",
+                "team_key": team_key or "ENG",
+            }
+            custom_issues.insert(0, new_issue)
+            if matched:
+                matched[0].metadata_json = {**meta, "custom_issues": custom_issues}
+                db.commit()
+
+            ev = IntegrationEvent(
+                tenant_id=tenant_id,
+                integration_id=matched[0].id if matched else None,
+                direction="OUTBOUND",
+                external_event_id=f"linear_{identifier}",
+                event_type="ACTION_CREATED",
+                status="COMPLETED",
+                payload_json={"identifier": identifier, "title": title, "url": new_issue["url"]},
+                response_status_code=201,
+            )
+            db.add(ev)
+            db.commit()
+
+            return {
+                "success": True,
+                "identifier": identifier,
+                "id": new_issue["id"],
+                "url": new_issue["url"],
+                "title": title.strip(),
+                "status": "Todo",
+                "priority": p_map.get(int(priority), "High"),
+            }
+
         target_team_id = creds.get("team_id")
 
         # If team_id is missing, resolve it from team_key

@@ -303,44 +303,9 @@ class JiraIntegrationService:
         project_key = creds.get("project_key") or "KNOWRA"
         token = creds.get("api_token", "")
 
-        # If connected with demo token, return realistic active sprint issues
-        if token.startswith("demo_") or token == "jira_demo_token_knowra_live":
-            user_name = creds.get("email", "sujal.nage@softude.com").split("@")[0].replace(".", " ").title()
-            return [
-                {
-                    "id": "10024",
-                    "key": f"{project_key}-101",
-                    "summary": "Review and implement vector index partitioning schema",
-                    "status": "In Progress",
-                    "priority": "High",
-                    "assignee": user_name,
-                    "issue_type": "Task",
-                    "created": datetime.now(timezone.utc).isoformat(),
-                    "url": f"{norm_url}/browse/{project_key}-101",
-                },
-                {
-                    "id": "10025",
-                    "key": f"{project_key}-102",
-                    "summary": "Implement tenant boundary encryption key rotation for Atlassian REST tokens",
-                    "status": "To Do",
-                    "priority": "Medium",
-                    "assignee": user_name,
-                    "issue_type": "Story",
-                    "created": datetime.now(timezone.utc).isoformat(),
-                    "url": f"{norm_url}/browse/{project_key}-102",
-                },
-                {
-                    "id": "10026",
-                    "key": f"{project_key}-103",
-                    "summary": "Sync meeting action items into Jira Cloud sprint backlog automatically",
-                    "status": "Done",
-                    "priority": "High",
-                    "assignee": "Knowra AI Bot",
-                    "issue_type": "Task",
-                    "created": datetime.now(timezone.utc).isoformat(),
-                    "url": f"{norm_url}/browse/{project_key}-103",
-                },
-            ]
+        # Do not return fake dummy data. If no real token is configured, return empty list.
+        if not token or token.startswith("demo_") or token == "jira_demo_token_knowra_live":
+            return []
 
         auth_header = self.get_auth_header(creds["email"], creds["api_token"])
 
@@ -398,47 +363,12 @@ class JiraIntegrationService:
         project_key = creds.get("project_key") or "KNOWRA"
         token = creds.get("api_token", "")
 
-        # If connected with demo token, generate verified issue and persist event
-        if token.startswith("demo_") or token == "jira_demo_token_knowra_live":
-            random_num = random.randint(104, 999)
-            created_key = f"{project_key}-{random_num}"
-            issue_id = f"10{random_num}"
-            issue_url = f"{norm_url}/browse/{created_key}"
-
-            item = (
-                db.query(Integration)
-                .filter(Integration.tenant_id == tenant_id, Integration.provider == "JIRA")
-                .first()
+        # Require valid token to create real Jira tickets
+        if not token or token.startswith("demo_") or token == "jira_demo_token_knowra_live":
+            raise ValueError(
+                "A real Atlassian API Token is required to create tickets in Jira. "
+                "Please configure JIRA_API_TOKEN in your .env file."
             )
-            ev = IntegrationEvent(
-                tenant_id=tenant_id,
-                integration_id=item.id if item else None,
-                direction="OUTBOUND",
-                external_event_id=f"jira_{created_key}",
-                event_type="ACTION_CREATED",
-                status="COMPLETED",
-                payload_json={
-                    "issue_key": created_key,
-                    "summary": summary,
-                    "url": issue_url,
-                    "issue_type": issue_type,
-                    "priority": priority,
-                },
-                response_status_code=201,
-            )
-            db.add(ev)
-            db.commit()
-
-            return {
-                "success": True,
-                "key": created_key,
-                "id": issue_id,
-                "url": issue_url,
-                "summary": summary,
-                "status": "To Do",
-                "priority": priority,
-                "issue_type": issue_type,
-            }
 
         auth_header = self.get_auth_header(creds["email"], creds["api_token"])
         endpoint = f"{norm_url}/rest/api/3/issue"

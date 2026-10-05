@@ -152,3 +152,16 @@ class JiraCreateIssueRequest(BaseModel):
     issue_type: Optional[str] = Field("Task", description="Task, Story, Bug, etc.")
     priority: Optional[str] = Field("Medium", description="High, Medium, Low")
 
+
+class LinearConnectRequest(BaseModel):
+    api_key: Optional[str] = Field(default="", description="Linear Personal API Key (lin_api_...)")
+    team_key: Optional[str] = Field(default="ENG", description="Default Linear Team Key")
+    email: Optional[str] = Field(default=None, description="Account email")
+
+
+class LinearCreateIssueRequest(BaseModel):
+    title: str = Field(..., description="Issue title")
+    description: Optional[str] = Field(None, description="Issue description")
+    team_key: Optional[str] = Field(None, description="Team key e.g. ENG")
+    priority: Optional[int] = Field(2, description="Priority: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low")
+

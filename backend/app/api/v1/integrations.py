@@ -33,6 +33,7 @@ from app.integrations.google_calendar_service import google_calendar_service
 from app.integrations.zoom_service import zoom_service
 from app.integrations.outlook_service import outlook_service
 from app.integrations.jira_service import jira_service
+from app.integrations.linear_service import linear_service
 from app.integrations.models import Integration, IntegrationEvent
 from app.integrations.schemas import (
     IntegrationCreate,
@@ -48,6 +49,8 @@ from app.integrations.schemas import (
     CalendarToggleBotRequest,
     JiraConnectRequest,
     JiraCreateIssueRequest,
+    LinearConnectRequest,
+    LinearCreateIssueRequest,
 )
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user
@@ -225,15 +228,6 @@ def _seed_tenant_defaults(tenant_id: UUID, db: Session):
             "channel": "PROJ-ENG",
             "events": ["ACTION_CREATED"],
             "metadata": {"project_key": "ENG", "default_issue_type": "Task"},
-        },
-        {
-            "provider": "LINEAR",
-            "name": "Linear Engineering Sync",
-            "secret": secrets.token_hex(20),
-            "webhook_url": "https://api.linear.app/graphql",
-            "channel": "ENG-Cycle",
-            "events": ["ACTION_CREATED", "DECISION_CONFIRMED"],
-            "metadata": {"team_key": "ENG", "cycle": "Active Cycle"},
         },
         {
             "provider": "WEBHOOK",
@@ -1217,6 +1211,118 @@ def disconnect_jira(
 ) -> Dict[str, Any]:
     success = jira_service.disconnect(current_user.organization_id, db)
     return {"success": success, "message": "Jira integration disconnected."}
+
+
+# ─── Linear Engineering Sync Endpoints ──────────────────────────────────────────
+
+@router.get(
+    "/linear/status",
+    summary="Get Linear connection status",
+)
+def get_linear_status(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return linear_service.get_status(tenant_id=current_user.organization_id, db=db)
+
+
+@router.post(
+    "/linear/connect",
+    summary="Connect Linear workspace with API key or default configuration",
+)
+def connect_linear(
+    payload: LinearConnectRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        api_key = (payload.api_key or "").strip() or settings.LINEAR_API_KEY
+        team_key = (payload.team_key or "").strip() or settings.LINEAR_DEFAULT_TEAM_KEY or "ENG"
+        email = payload.email
+
+        if not api_key:
+            raise ValueError(
+                "Linear API Key is required. Please set LINEAR_API_KEY in your .env or provide your Linear Personal API Key."
+            )
+
+        return linear_service.save_connection(
+            tenant_id=current_user.organization_id,
+            api_key=api_key,
+            team_key=team_key,
+            db=db,
+            email=email,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Linear connection error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to connect to Linear: {str(e)}"
+        )
+
+
+@router.get(
+    "/linear/teams",
+    summary="Get accessible Linear teams",
+)
+def get_linear_teams(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    return linear_service.fetch_teams(current_user.organization_id, db)
+
+
+@router.get(
+    "/linear/issues",
+    summary="Get latest issues from connected Linear team/workspace",
+)
+def get_linear_issues(
+    max_results: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    return linear_service.fetch_issues(current_user.organization_id, db, max_results=max_results)
+
+
+@router.post(
+    "/linear/create-issue",
+    summary="Create a real Linear issue from a meeting action item",
+)
+def create_linear_issue(
+    payload: LinearCreateIssueRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        return linear_service.create_issue(
+            tenant_id=current_user.organization_id,
+            title=payload.title,
+            description=payload.description or "",
+            db=db,
+            team_key=payload.team_key,
+            priority=payload.priority or 2,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Linear create issue error")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create Linear issue: {str(e)}"
+        )
+
+
+@router.delete(
+    "/linear/disconnect",
+    summary="Disconnect Linear integration",
+)
+def disconnect_linear(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    success = linear_service.disconnect(current_user.organization_id, db)
+    return {"success": success, "message": "Linear integration disconnected."}
 
 
 @router.get(

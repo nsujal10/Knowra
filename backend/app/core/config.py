@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     JIRA_API_TOKEN: str = ""
     JIRA_DEFAULT_PROJECT_KEY: str = "KNOWRA"
 
+    # Linear Engineering Sync Settings
+    LINEAR_API_KEY: str = ""
+    LINEAR_DEFAULT_TEAM_KEY: str = "ENG"
+
     # Single Sign-On (SSO) Configurations
 
     # Meeting Baas Bot Settings

@@ -106,6 +106,12 @@ export const INTEGRATIONS = {
   jiraIssues: (maxResults: number = 10) => `/integrations/jira/issues?max_results=${maxResults}`,
   jiraCreateIssue: () => "/integrations/jira/create-issue",
   jiraDisconnect: () => "/integrations/jira/disconnect",
+  linearConnect: () => "/integrations/linear/connect",
+  linearStatus: () => "/integrations/linear/status",
+  linearTeams: () => "/integrations/linear/teams",
+  linearIssues: (maxResults: number = 20) => `/integrations/linear/issues?max_results=${maxResults}`,
+  linearCreateIssue: () => "/integrations/linear/create-issue",
+  linearDisconnect: () => "/integrations/linear/disconnect",
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────

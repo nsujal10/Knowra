@@ -272,6 +272,12 @@ export default function IntegrationsPage() {
   const [jiraNewIssueType, setJiraNewIssueType] = useState("Task");
   const [jiraNewPriority, setJiraNewPriority] = useState("High");
 
+  // Linear State
+  const [linearNewTitle, setLinearNewTitle] = useState("");
+  const [linearNewDescription, setLinearNewDescription] = useState("");
+  const [linearNewPriority, setLinearNewPriority] = useState<number>(2); // High
+  const [linearNewTeamKey, setLinearNewTeamKey] = useState("ENG");
+
   // Copilot Chat State
   const [showCopilot, setShowCopilot] = useState(false);
   const [copilotInput, setCopilotInput] = useState("");
@@ -342,6 +348,54 @@ export default function IntegrationsPage() {
     queryKey: ["integrations", "jira", "issues", jiraStatus?.is_connected],
     queryFn: () => api.get(INTEGRATIONS.jiraIssues(20)),
     enabled: selectedConnectorId === "jira",
+  });
+
+  const { data: linearStatus, refetch: refetchLinearStatus } = useQuery<{
+    is_connected: boolean;
+    team_key?: string;
+    team_name?: string;
+    viewer_name?: string;
+    viewer_email?: string;
+    organization?: string;
+    last_synced_at?: string;
+  }>({
+    queryKey: ["integrations", "linear", "status"],
+    queryFn: () => api.get(INTEGRATIONS.linearStatus()),
+  });
+
+  const {
+    data: linearIssues = [],
+    isLoading: isLoadingLinearIssues,
+    refetch: refetchLinearIssues,
+  } = useQuery<
+    Array<{
+      id: string;
+      identifier: string;
+      title: string;
+      status: string;
+      priority: number;
+      priority_label: string;
+      assignee?: string;
+      created_at: string;
+      url: string;
+      team_key?: string;
+    }>
+  >({
+    queryKey: ["integrations", "linear", "issues", linearStatus?.is_connected],
+    queryFn: () => api.get(INTEGRATIONS.linearIssues(20)),
+    enabled: selectedConnectorId === "linear",
+  });
+
+  const { data: linearTeams = [] } = useQuery<
+    Array<{
+      id: string;
+      name: string;
+      key: string;
+    }>
+  >({
+    queryKey: ["integrations", "linear", "teams", linearStatus?.is_connected],
+    queryFn: () => api.get(INTEGRATIONS.linearTeams()),
+    enabled: selectedConnectorId === "linear" && Boolean(linearStatus?.is_connected),
   });
 
   // ── OAuth Callback Query Parameter Handler (Google Calendar Redirect) ────
@@ -571,6 +625,71 @@ export default function IntegrationsPage() {
     },
   });
 
+  const connectLinearMutation = useMutation({
+    mutationFn: (data?: { api_key?: string; team_key?: string }) =>
+      api.post<{ success: boolean; message: string; viewer?: any; team?: any }>(
+        INTEGRATIONS.linearConnect(),
+        data || {}
+      ),
+    onSuccess: (res) => {
+      toast.success(res?.message || "Successfully connected to Linear GraphQL API!");
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "teams"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to authenticate with Linear GraphQL API");
+    },
+  });
+
+  const createLinearIssueMutation = useMutation({
+    mutationFn: (data: {
+      title: string;
+      description?: string;
+      team_key?: string;
+      priority?: number;
+    }) =>
+      api.post<{ success: boolean; id: string; identifier: string; url: string; title: string }>(
+        INTEGRATIONS.linearCreateIssue(),
+        data
+      ),
+    onSuccess: (res) => {
+      toast.success(`Created Linear issue ${res.identifier || ""} successfully!`);
+      setLinearNewTitle("");
+      setLinearNewDescription("");
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to create issue in Linear");
+    },
+  });
+
+  const disconnectLinearMutation = useMutation({
+    mutationFn: () => api.delete<{ success: boolean; message: string }>(INTEGRATIONS.linearDisconnect()),
+    onSuccess: () => {
+      toast.success("Disconnected Linear engineering integration");
+      queryClient.setQueryData(["integrations", "linear", "status"], {
+        is_connected: false,
+        team_key: null,
+        team_name: null,
+        viewer_name: null,
+        viewer_email: null,
+        organization: null,
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "teams"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "linear", "issues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to disconnect Linear");
+    },
+  });
+
   const resetModalForm = () => {
     setModalName("");
     setModalWebhookUrl("");
@@ -709,13 +828,26 @@ export default function IntegrationsPage() {
       });
       setIsOAuthModalOpen(false);
     } else if (authConnector.provider === "LINEAR") {
-      createIntegrationMutation.mutate({
-        provider: "LINEAR",
-        name: "Linear Engineering Sync",
-        channel_or_project_id: "ENG-Cycle",
-        credentials_secret: "lin_api_knowra_workspace",
-      });
-      setIsOAuthModalOpen(false);
+      setConnectingAccountEmail(cleanEmail);
+      connectLinearMutation.mutate(
+        {},
+        {
+          onSuccess: (res) => {
+            toast.success(
+              res?.message ||
+                `Linear Engineering Sync connected automatically for ${cleanEmail}!`
+            );
+            setIsOAuthModalOpen(false);
+            setConnectingAccountEmail(null);
+            setShowCustomAccountInput(false);
+            setCustomAccountEmail("");
+          },
+          onError: (err: any) => {
+            toast.error(err?.message || "Failed to authenticate with Linear GraphQL API");
+            setConnectingAccountEmail(null);
+          },
+        }
+      );
     } else if (authConnector.provider === "JIRA") {
       setConnectingAccountEmail(cleanEmail);
       setJiraEmail(cleanEmail);
@@ -773,7 +905,9 @@ export default function IntegrationsPage() {
       return `Synced: ${email} (${proj})`;
     }
     if (item.provider === "LINEAR") {
-      return `Synced: ${integ?.channel_or_project_id || "ENG-Cycle"} (Linear)`;
+      const team = linearStatus?.team_name || linearStatus?.team_key || "ENG";
+      const org = linearStatus?.organization ? ` • ${linearStatus.organization}` : "";
+      return `Synced: ${team}${org} (Linear)`;
     }
     return `Synced: ${integ?.channel_or_project_id || userEmail}`;
   };
@@ -789,6 +923,8 @@ export default function IntegrationsPage() {
       disconnectCalendarMutation.mutate(connector.provider);
     } else if (connector.provider === "JIRA") {
       disconnectJiraMutation.mutate();
+    } else if (connector.provider === "LINEAR") {
+      disconnectLinearMutation.mutate();
     } else {
       const found = integrations.find((i) => i.provider === connector.provider);
       if (found) {
@@ -805,6 +941,9 @@ export default function IntegrationsPage() {
     }
     if (provider === "JIRA") {
       return Boolean(jiraStatus?.is_connected);
+    }
+    if (provider === "LINEAR") {
+      return Boolean(linearStatus?.is_connected);
     }
     const found = integrations.find((i) => i.provider === provider);
     return found ? found.status === "ACTIVE" : false;
@@ -832,7 +971,7 @@ export default function IntegrationsPage() {
       if (statusFilter === "not_connected") return !connected;
       return true;
     });
-  }, [searchQuery, statusFilter, integrations, calendarStatuses, jiraStatus]);
+  }, [searchQuery, statusFilter, integrations, calendarStatuses, jiraStatus, linearStatus]);
 
   // Group by category
   const groupedConnectors = useMemo(() => {
@@ -1175,17 +1314,28 @@ export default function IntegrationsPage() {
                             } else if (selectedConnector.provider === "JIRA") {
                               refetchJiraIssues();
                               toast.success("Refreshed live Jira sprint issues");
+                            } else if (selectedConnector.provider === "LINEAR") {
+                              refetchLinearIssues();
+                              toast.success("Refreshed live Linear cycle issues");
                             } else {
                               syncCalendarsMutation.mutate();
                             }
                           }}
-                          disabled={syncCalendarsMutation.isPending || syncGoogleMutation.isPending || isLoadingJiraIssues}
+                          disabled={
+                            syncCalendarsMutation.isPending ||
+                            syncGoogleMutation.isPending ||
+                            isLoadingJiraIssues ||
+                            isLoadingLinearIssues
+                          }
                           className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
                         >
                           <RefreshCw
                             size={12}
                             className={
-                              syncCalendarsMutation.isPending || syncGoogleMutation.isPending || isLoadingJiraIssues
+                              syncCalendarsMutation.isPending ||
+                              syncGoogleMutation.isPending ||
+                              isLoadingJiraIssues ||
+                              isLoadingLinearIssues
                                 ? "animate-spin"
                                 : ""
                             }
@@ -1195,13 +1345,20 @@ export default function IntegrationsPage() {
                               ? "Syncing..."
                               : isLoadingJiraIssues && selectedConnector.provider === "JIRA"
                               ? "Syncing Jira..."
+                              : isLoadingLinearIssues && selectedConnector.provider === "LINEAR"
+                              ? "Syncing Linear..."
                               : "Sync Now"}
                           </span>
                         </button>
 
                         <button
                           onClick={() => handleDisconnect(selectedConnector)}
-                          disabled={disconnectCalendarMutation.isPending || deleteIntegrationMutation.isPending || disconnectJiraMutation.isPending}
+                          disabled={
+                            disconnectCalendarMutation.isPending ||
+                            deleteIntegrationMutation.isPending ||
+                            disconnectJiraMutation.isPending ||
+                            disconnectLinearMutation.isPending
+                          }
                           className="px-3 py-1.5 rounded-lg border border-transparent hover:border-rose-200 hover:bg-rose-50 text-slate-500 hover:text-rose-600 text-xs font-semibold transition-colors cursor-pointer"
                           title="Disconnect this integration and revoke access"
                         >
@@ -2026,108 +2183,272 @@ export default function IntegrationsPage() {
                     </div>
                   )}
 
-                  {/* ── 4D-2. CONDITIONAL: LINEAR ENGINEERING SYNC ── */}
+                  {/* ── 4D-2. CONDITIONAL: LINEAR ENGINEERING SYNC (GRAPHQL API) ── */}
                   {selectedConnector.provider === "LINEAR" && (
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
+                      {/* Section Header */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <Kanban size={14} className="text-violet-600" />
+                          <div className="w-5 h-5 rounded-md bg-violet-50 text-violet-700 flex items-center justify-center text-xs font-bold border border-violet-200">
+                            🔺
+                          </div>
                           <h4 className="text-xs font-bold text-slate-900">
-                            Linear Engineering Sync &amp; Cycles
+                            Linear Engineering Sync &amp; Live Cycle Issues
                           </h4>
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                            LIVE GRAPHQL API
+                          </span>
                         </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                          AUTO-SYNC
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              refetchLinearIssues();
+                              toast.success("Refreshed live Linear cycle issues");
+                            }}
+                            disabled={isLoadingLinearIssues}
+                            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                          >
+                            <RefreshCw size={11} className={isLoadingLinearIssues ? "animate-spin" : ""} />
+                            <span>Refresh Issues</span>
+                          </button>
+                          <a
+                            href="https://linear.app"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2.5 py-1 rounded-lg border border-violet-200 bg-violet-50/80 hover:bg-violet-100 text-violet-700 text-xs font-medium shadow-2xs flex items-center gap-1 transition-colors"
+                          >
+                            <span>Open Linear</span>
+                            <ExternalLink size={10} />
+                          </a>
+                        </div>
                       </div>
 
+                      {/* 2-Column Layout: Create Issue from Action Item (Left 5) & Live Linear Issues Stream (Right 7) */}
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                        {/* Left Form: Create Action Item into Linear Issue */}
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3.5">
                           <div>
-                            <label className="text-xs font-semibold text-slate-700 block mb-1">
-                              Target Project / Team Board
-                            </label>
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
-                              <span>{selectedConnector.provider === "LINEAR" ? "ENG-Cycle (Knowra Core)" : "KNOWRA (Product Sprint)"}</span>
+                            <div className="flex items-center justify-between">
+                              <label className="text-xs font-bold text-slate-800 block">
+                                Create Action Item in Linear
+                              </label>
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-100 font-semibold">
+                                Team: {linearStatus?.team_key || linearNewTeamKey || "ENG"}
+                              </span>
                             </div>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Discovered commitments and action items are automatically filed here.
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Convert detected technical decisions and commitments into real Linear cycle issues.
                             </p>
                           </div>
 
-                          <div className="space-y-2 pt-1">
-                            <label className="text-xs font-semibold text-slate-700 block">
-                              Automated Issue Attributes
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Issue Title / Action Item
                             </label>
-                            <div className="space-y-1.5 text-[11px] text-slate-600">
-                              <div className="flex justify-between items-center py-0.5">
-                                <span>Default Issue Type:</span>
-                                <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-800 font-semibold">Task</span>
-                              </div>
-                              <div className="flex justify-between items-center py-0.5">
-                                <span>Priority Mapping:</span>
-                                <span className="font-mono bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold border border-amber-200">Auto-Detect</span>
-                              </div>
-                              <div className="flex justify-between items-center py-0.5">
-                                <span>Assignee Matching:</span>
-                                <span className="font-mono bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold border border-emerald-200">By Speaker Voice</span>
-                              </div>
+                            <input
+                              type="text"
+                              value={linearNewTitle}
+                              onChange={(e) => setLinearNewTitle(e.target.value)}
+                              placeholder="e.g. Optimize vector index recall performance"
+                              className="w-full h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-violet-600 focus:bg-white transition-all font-medium"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                                Target Team
+                              </label>
+                              {linearTeams.length > 0 ? (
+                                <select
+                                  value={linearNewTeamKey}
+                                  onChange={(e) => setLinearNewTeamKey(e.target.value)}
+                                  className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-violet-600 focus:bg-white"
+                                >
+                                  {linearTeams.map((team) => (
+                                    <option key={team.id || team.key} value={team.key}>
+                                      {team.key} ({team.name})
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={linearNewTeamKey}
+                                  onChange={(e) => setLinearNewTeamKey(e.target.value.toUpperCase())}
+                                  placeholder="ENG"
+                                  className="w-full h-8 px-2.5 text-xs font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-violet-600 focus:bg-white uppercase"
+                                />
+                              )}
                             </div>
+                            <div>
+                              <label className="text-xs font-semibold text-slate-700 block mb-1">
+                                Priority
+                              </label>
+                              <select
+                                value={linearNewPriority}
+                                onChange={(e) => setLinearNewPriority(Number(e.target.value))}
+                                className="w-full h-8 px-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-violet-600 focus:bg-white"
+                              >
+                                <option value={1}>Urgent (1)</option>
+                                <option value={2}>High (2)</option>
+                                <option value={3}>Medium (3)</option>
+                                <option value={4}>Low (4)</option>
+                                <option value={0}>No Priority (0)</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Description &amp; Meeting Context (Optional)
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={linearNewDescription}
+                              onChange={(e) => setLinearNewDescription(e.target.value)}
+                              placeholder="Add meeting decision details, owner assignment, or cycle notes..."
+                              className="w-full p-2.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-violet-600 focus:bg-white transition-all resize-none"
+                            />
                           </div>
 
                           <button
+                            type="button"
                             onClick={() => {
-                              const found = integrations.find((i) => i.provider === selectedConnector.provider);
-                              if (found) testIntegrationMutation.mutate(found.id);
-                              else toast.info(`${selectedConnector.name} is synced with active sprint.`);
+                              if (!linearNewTitle.trim()) {
+                                toast.error("Please enter an issue title.");
+                                return;
+                              }
+                              createLinearIssueMutation.mutate({
+                                title: linearNewTitle.trim(),
+                                description: linearNewDescription.trim(),
+                                team_key: linearNewTeamKey || linearStatus?.team_key || "ENG",
+                                priority: linearNewPriority,
+                              });
                             }}
-                            disabled={testIntegrationMutation.isPending}
-                            className="w-full h-9 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            disabled={createLinearIssueMutation.isPending || !linearNewTitle.trim()}
+                            className="w-full h-9 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                           >
-                            {testIntegrationMutation.isPending ? (
+                            {createLinearIssueMutation.isPending ? (
                               <RefreshCw size={12} className="animate-spin" />
                             ) : (
-                              <Zap size={12} />
+                              <Plus size={13} />
                             )}
-                            <span>Sync Pending Action Items</span>
+                            <span>
+                              {createLinearIssueMutation.isPending ? "Creating in Linear..." : "Create Issue in Linear"}
+                            </span>
                           </button>
+
+                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                            <span>OAuth: Scoped Bearer</span>
+                            <span>API: Linear GraphQL v1</span>
+                          </div>
                         </div>
 
+                        {/* Right Board: Live Linear Cycle Issues Stream */}
                         <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
-                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
-                              <Eye size={12} className="text-blue-600" />
-                              <span>Extracted Issue Ticket Preview</span>
+                          <div className="px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1.5 text-[11px]">
+                              <Kanban size={13} className="text-violet-600" />
+                              <span>Live Cycle Issues Board</span>
+                              <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 text-slate-700 font-mono text-[10px] font-bold">
+                                {linearIssues.length}
+                              </span>
                             </span>
                             <span className="text-[10px] text-slate-400 font-mono">
-                              {selectedConnector.provider === "LINEAR" ? "ENG-104" : "KNOWRA-4892"}
+                              {linearStatus?.organization || linearStatus?.viewer_name || "Linear Workspace"}
                             </span>
                           </div>
 
-                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
-                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2 shadow-2xs">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
-                                  {selectedConnector.provider === "LINEAR" ? "ENG-104" : "KNOWRA-4892"}
-                                </span>
-                                <span className="text-[10px] font-semibold bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200">
-                                  High Priority
-                                </span>
+                          <div className="p-3 bg-slate-50/40 flex-1 overflow-y-auto max-h-[380px] space-y-2.5">
+                            {isLoadingLinearIssues ? (
+                              <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2">
+                                <RefreshCw size={16} className="animate-spin text-violet-600" />
+                                <span>Loading Linear cycle tickets...</span>
                               </div>
-
-                              <h5 className="text-xs font-bold text-slate-900 leading-snug">
-                                Review and implement vector index partitioning schema
-                              </h5>
-
-                              <p className="text-[11px] text-slate-500 leading-relaxed">
-                                Verbal commitment ratified during Strategic Architecture Review. Partition pgvector indexes per tenant to eliminate cross-tenant vector scanning overhead.
-                              </p>
-
-                              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-medium">
-                                <span>Assignee: Sujal Nage</span>
-                                <span>Due: End of Sprint</span>
+                            ) : linearIssues.length === 0 ? (
+                              <div className="py-10 px-4 text-center space-y-2 bg-white rounded-xl border border-slate-200/80">
+                                <div className="w-8 h-8 rounded-lg bg-violet-50 text-violet-600 flex items-center justify-center text-sm mx-auto border border-violet-100">
+                                  🔺
+                                </div>
+                                <p className="text-xs font-bold text-slate-800">
+                                  No active cycle issues found in {linearStatus?.team_key || linearNewTeamKey || "ENG"}
+                                </p>
+                                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                                  Use the form on the left to push meeting action items or decisions directly into your Linear backlog.
+                                </p>
                               </div>
-                            </div>
+                            ) : (
+                              linearIssues.map((iss) => (
+                                <div
+                                  key={iss.identifier || iss.id}
+                                  className="bg-white rounded-lg border border-slate-200/90 p-3 space-y-2 shadow-2xs hover:border-violet-300 hover:shadow-xs transition-all"
+                                >
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="flex items-center gap-1.5">
+                                      <a
+                                        href={iss.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-[10px] font-mono font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 px-2 py-0.5 rounded border border-violet-200/80 flex items-center gap-1 transition-colors"
+                                      >
+                                        <span>{iss.identifier}</span>
+                                        <ExternalLink size={9} />
+                                      </a>
+                                      {iss.team_key && (
+                                        <span className="text-[10px] font-mono font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                          {iss.team_key}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                      <span
+                                        className={cn(
+                                          "text-[10px] font-semibold px-2 py-0.5 rounded border",
+                                          iss.priority === 1
+                                            ? "bg-rose-50 text-rose-700 border-rose-200"
+                                            : iss.priority === 2
+                                            ? "bg-orange-50 text-orange-700 border-orange-200"
+                                            : iss.priority === 3
+                                            ? "bg-amber-50 text-amber-700 border-amber-200"
+                                            : iss.priority === 4
+                                            ? "bg-sky-50 text-sky-700 border-sky-200"
+                                            : "bg-slate-50 text-slate-600 border-slate-200"
+                                        )}
+                                      >
+                                        {iss.priority_label || "No Priority"}
+                                      </span>
+                                      <span
+                                        className={cn(
+                                          "text-[10px] font-semibold px-2 py-0.5 rounded border",
+                                          iss.status === "Done" || iss.status === "Completed"
+                                            ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                            : iss.status === "In Progress" || iss.status === "Started"
+                                            ? "bg-violet-50 text-violet-700 border-violet-200"
+                                            : "bg-slate-100 text-slate-700 border-slate-200"
+                                        )}
+                                      >
+                                        {iss.status || "Todo"}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <h5 className="text-xs font-semibold text-slate-900 leading-snug">
+                                    {iss.title}
+                                  </h5>
+
+                                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500">
+                                    <span className="truncate max-w-[180px]">
+                                      Assignee: <span className="font-medium text-slate-700">{iss.assignee || "Unassigned"}</span>
+                                    </span>
+                                    <span className="shrink-0 text-slate-400">
+                                      {iss.created_at ? relativeTime(iss.created_at) : "Recent"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
                         </div>
                       </div>
@@ -2401,6 +2722,13 @@ export default function IntegrationsPage() {
                   </div>
                   <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Atlassian</span>
                 </>
+              ) : authConnector.provider === "LINEAR" ? (
+                <>
+                  <div className="w-5 h-5 rounded-md bg-[#5E6AD2] text-white flex items-center justify-center font-bold text-xs shadow-2xs">
+                    <Kanban size={13} className="text-white" />
+                  </div>
+                  <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Linear</span>
+                </>
               ) : (
                 <>
                   <span className="text-lg">{authConnector.iconSvg}</span>
@@ -2421,11 +2749,17 @@ export default function IntegrationsPage() {
                 <p className="text-[15px] text-[#444746] leading-relaxed">
                   to continue to{" "}
                   <span className="text-[#0b57d0] font-medium hover:underline cursor-pointer">
-                    {authConnector.provider === "JIRA" ? "Knowra Jira Intelligence" : "Knowra"}
+                    {authConnector.provider === "LINEAR"
+                      ? "Knowra Linear Intelligence"
+                      : authConnector.provider === "JIRA"
+                      ? "Knowra Jira Intelligence"
+                      : "Knowra"}
                   </span>
                 </p>
                 <p className="text-[12px] text-[#5f6368] pt-2 hidden sm:block leading-relaxed">
-                  {authConnector.provider === "JIRA"
+                  {authConnector.provider === "LINEAR"
+                    ? "Selecting your engineering account authenticates Linear GraphQL API. Action items and technical decisions will sync directly to your Linear team backlog."
+                    : authConnector.provider === "JIRA"
                     ? "Selecting your Atlassian account configures Jira automatically. Meeting action items and decisions will seamlessly link to sprint issues."
                     : "Knowra will access your calendar schedules and authorize notetakers to automatically record and summarize meetings."}
                 </p>

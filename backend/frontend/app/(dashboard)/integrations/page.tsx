@@ -43,6 +43,10 @@ import {
   Lock,
   Copy,
   Key,
+  MessageSquare,
+  Kanban,
+  FileText,
+  Target,
 } from "lucide-react";
 
 // Secure environment fallback for Resend
@@ -52,7 +56,7 @@ interface ConnectorItem {
   id: string;
   provider: string;
   name: string;
-  category: "calendar" | "email" | "tracker" | "custom";
+  category: "calendar" | "email" | "tracker" | "docs" | "crm" | "custom";
   categoryLabel: string;
   iconBg: string;
   iconSvg: string;
@@ -191,6 +195,70 @@ const ALL_CONNECTORS: ConnectorItem[] = [
       "Linear API requests are encrypted and authenticated via scoped personal or team API tokens.",
     tags: ["Tracker", "Fast Issues"],
     docUrl: "https://linear.app",
+  },
+  {
+    id: "notion",
+    provider: "NOTION",
+    name: "Notion Workspace Wiki",
+    category: "docs",
+    categoryLabel: "Knowledge & Docs",
+    iconBg: "bg-slate-100 text-slate-800 border-slate-200",
+    iconSvg: "📝",
+    subtitle: "Auto-publish executive briefs, action matrices, and meeting transcripts to Notion.",
+    description:
+      "Seamlessly synchronize structured meeting databases, action item trackers, and AI synthesis directly into team Notion workspaces with linked database relations.",
+    policyNotice:
+      "Notion API integration connects via scoped internal integration tokens with AES-256 encrypted credential storage.",
+    tags: ["Knowledge Base", "Team Wiki", "Databases"],
+    docUrl: "https://notion.so",
+  },
+  {
+    id: "confluence",
+    provider: "CONFLUENCE",
+    name: "Confluence Enterprise Wiki",
+    category: "docs",
+    categoryLabel: "Knowledge & Docs",
+    iconBg: "bg-sky-50 text-sky-700 border-sky-200",
+    iconSvg: "📑",
+    subtitle: "Publish meeting decision records and architectural RFCs into Confluence spaces.",
+    description:
+      "Automatically generate formatted Confluence pages with executive recaps, architectural ADRs, and speaker summaries inside dedicated team spaces.",
+    policyNotice:
+      "Atlassian Confluence REST API authorization adheres to Atlassian Cloud Security and Tenant boundary policies.",
+    tags: ["Knowledge Base", "Enterprise Wiki", "ADRs"],
+    docUrl: "https://atlassian.com/software/confluence",
+  },
+  {
+    id: "hubspot",
+    provider: "HUBSPOT",
+    name: "HubSpot CRM Intelligence",
+    category: "crm",
+    categoryLabel: "CRM & Revenue Intelligence",
+    iconBg: "bg-orange-50 text-orange-600 border-orange-200",
+    iconSvg: "🎯",
+    subtitle: "Sync client call summaries, sentiment, and follow-ups directly to Deals & Contacts.",
+    description:
+      "Automatically match meeting attendee emails to HubSpot Contacts, create deal notes with buyer sentiment, and sync next steps into pipeline activities.",
+    policyNotice:
+      "HubSpot CRM integration uses OAuth 2.0 with granular CRM scopes (contacts, deals, timeline events).",
+    tags: ["CRM", "Sales Intelligence", "Deals"],
+    docUrl: "https://hubspot.com",
+  },
+  {
+    id: "salesforce",
+    provider: "SALESFORCE",
+    name: "Salesforce Enterprise CRM",
+    category: "crm",
+    categoryLabel: "CRM & Revenue Intelligence",
+    iconBg: "bg-blue-50 text-blue-700 border-blue-200",
+    iconSvg: "☁️",
+    subtitle: "Auto-log executive customer syncs and account commitments to Salesforce Opportunities.",
+    description:
+      "Streamline enterprise sales enablement by auto-logging customer meeting recordings, decision matrices, and follow-up commitments into Salesforce accounts.",
+    policyNotice:
+      "Salesforce REST API connection complies with Enterprise SOC2 Type II and FedRAMP certification standards.",
+    tags: ["CRM", "Enterprise Accounts", "Pipeline"],
+    docUrl: "https://salesforce.com",
   },
 ];
 
@@ -578,13 +646,106 @@ export default function IntegrationsPage() {
         channel_or_project_id: cleanEmail,
         credentials_secret: DEFAULT_RESEND_KEY,
       });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "SLACK") {
+      createIntegrationMutation.mutate({
+        provider: "SLACK",
+        name: "Slack Intelligence Bot",
+        channel_or_project_id: "#general-intelligence",
+        credentials_secret: "xoxb-knowra-bot-token",
+      });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "LINEAR") {
+      createIntegrationMutation.mutate({
+        provider: "LINEAR",
+        name: "Linear Engineering Sync",
+        channel_or_project_id: "ENG-Cycle",
+        credentials_secret: "lin_api_knowra_workspace",
+      });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "JIRA") {
+      createIntegrationMutation.mutate({
+        provider: "JIRA",
+        name: "Jira Software Automation",
+        channel_or_project_id: "KNOWRA",
+        credentials_secret: "jira_api_knowra_cloud",
+      });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "NOTION") {
+      createIntegrationMutation.mutate({
+        provider: "NOTION",
+        name: "Notion Workspace Wiki",
+        channel_or_project_id: "Meeting Notes & Wiki",
+        credentials_secret: "secret_notion_knowra_db",
+      });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "CONFLUENCE") {
+      createIntegrationMutation.mutate({
+        provider: "CONFLUENCE",
+        name: "Confluence Enterprise Wiki",
+        channel_or_project_id: "Architecture Spaces",
+        credentials_secret: "confluence_api_knowra",
+      });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "HUBSPOT") {
+      createIntegrationMutation.mutate({
+        provider: "HUBSPOT",
+        name: "HubSpot CRM Intelligence",
+        channel_or_project_id: "Deals & Contacts CRM",
+        credentials_secret: "pat-na1-knowra-hubspot",
+      });
+      setIsOAuthModalOpen(false);
+    } else if (authConnector.provider === "SALESFORCE") {
+      createIntegrationMutation.mutate({
+        provider: "SALESFORCE",
+        name: "Salesforce Enterprise CRM",
+        channel_or_project_id: "Opportunities CRM",
+        credentials_secret: "salesforce_oauth_knowra",
+      });
+      setIsOAuthModalOpen(false);
     } else {
       createIntegrationMutation.mutate({
         provider: authConnector.provider,
         name: authConnector.name,
         channel_or_project_id: cleanEmail,
       });
+      setIsOAuthModalOpen(false);
     }
+  };
+
+  // Helper for subtitle in connector list and details
+  const getConnectorSyncSubtitle = (item: ConnectorItem) => {
+    if (item.category === "calendar") {
+      const cal = calendarStatuses.find((c) => c.provider === item.provider);
+      return `Synced: ${cal?.account_email || userEmail}`;
+    }
+    const integ = integrations.find((i) => i.provider === item.provider);
+    if (item.provider === "SLACK") {
+      const ch = integ?.channel_or_project_id;
+      return `Synced: ${ch && ch.startsWith("#") ? ch : "#general-intelligence"}`;
+    }
+    if (item.provider === "RESEND") {
+      return `Synced: ${integ?.channel_or_project_id || userEmail}`;
+    }
+    if (item.provider === "JIRA") {
+      return `Synced: ${integ?.channel_or_project_id || "KNOWRA"} (Sprint Board)`;
+    }
+    if (item.provider === "LINEAR") {
+      return `Synced: ${integ?.channel_or_project_id || "ENG-Cycle"} (Linear)`;
+    }
+    if (item.provider === "NOTION") {
+      return `Synced: ${integ?.channel_or_project_id || "Meeting Notes & Wiki"}`;
+    }
+    if (item.provider === "CONFLUENCE") {
+      return `Synced: ${integ?.channel_or_project_id || "Architecture Spaces"}`;
+    }
+    if (item.provider === "HUBSPOT") {
+      return `Synced: ${integ?.channel_or_project_id || "Deals & Contacts CRM"}`;
+    }
+    if (item.provider === "SALESFORCE") {
+      return `Synced: ${integ?.channel_or_project_id || "Opportunities CRM"}`;
+    }
+    return `Synced: ${integ?.channel_or_project_id || userEmail}`;
   };
 
   // ── Disconnect Integration ───────────────────────────────────────────────
@@ -972,7 +1133,7 @@ export default function IntegrationsPage() {
                                       </p>
                                       {isConnected && (
                                         <p className="text-[10px] text-emerald-700 font-mono mt-0.5 font-medium truncate">
-                                          Synced: {calendarStatuses.find((c) => c.provider === item.provider)?.account_email || integrations.find((i) => i.provider === item.provider)?.channel_or_project_id || userEmail}
+                                          {getConnectorSyncSubtitle(item)}
                                         </p>
                                       )}
                                     </div>
@@ -1155,10 +1316,16 @@ export default function IntegrationsPage() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-slate-900 truncate">
-                            {selectedCalStatus?.account_email || userEmail}
+                            {selectedCalStatus?.account_email || getConnectorSyncSubtitle(selectedConnector).replace("Synced: ", "")}
                           </span>
                           <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white text-slate-600 border border-slate-200/80 font-medium shrink-0">
-                            OAuth 2.0
+                            {selectedConnector.category === "calendar"
+                              ? "OAuth 2.0 PKCE"
+                              : selectedConnector.provider === "RESEND"
+                              ? "API Key (REST)"
+                              : selectedConnector.provider === "SLACK"
+                              ? "Bot Token (v2)"
+                              : "Enterprise OAuth 2.0"}
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
@@ -1520,6 +1687,454 @@ export default function IntegrationsPage() {
                                     <li>PostgreSQL 16 & pgvector approved for enterprise tenants.</li>
                                   </ul>
                                 </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4C. CONDITIONAL: SLACK INTELLIGENCE BOT ── */}
+                  {selectedConnector.provider === "SLACK" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <MessageSquare size={14} className="text-purple-600" />
+                          <h4 className="text-xs font-bold text-slate-900">
+                            Slack Team Notifications &amp; Channel Stream
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                          BOT ACTIVE
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Target Broadcast Channel
+                            </label>
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
+                              <span className="text-slate-400">#</span>
+                              <span>general-intelligence</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Knowra bot posts summaries and action item alerts here.
+                            </p>
+                          </div>
+
+                          <div className="space-y-2 pt-1">
+                            <label className="text-xs font-semibold text-slate-700 block">
+                              Notification Triggers
+                            </label>
+                            <div className="space-y-1.5 text-[11px] text-slate-600">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" defaultChecked className="rounded text-indigo-600" />
+                                <span>Meeting executive briefings</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" defaultChecked className="rounded text-indigo-600" />
+                                <span>Direct @mentions for action item owners</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" defaultChecked className="rounded text-indigo-600" />
+                                <span>Audio highlight snippets (MP3 preview)</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const found = integrations.find((i) => i.provider === "SLACK");
+                              if (found) testIntegrationMutation.mutate(found.id);
+                              else toast.info("Slack bot is active and listening for meeting events.");
+                            }}
+                            disabled={testIntegrationMutation.isPending}
+                            className="w-full h-9 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {testIntegrationMutation.isPending ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Zap size={12} />
+                            )}
+                            <span>Send Test Slack Notification</span>
+                          </button>
+                        </div>
+
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                              <Eye size={12} className="text-purple-600" />
+                              <span>Live Slack Channel Preview</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">#general-intelligence</span>
+                          </div>
+
+                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
+                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2 shadow-2xs">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-md bg-[#4A154B] text-white flex items-center justify-center text-xs font-bold">
+                                  K
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-bold text-slate-900">Knowra Bot</span>
+                                    <span className="text-[9px] px-1 bg-slate-100 text-slate-600 rounded font-semibold uppercase">APP</span>
+                                    <span className="text-[10px] text-slate-400">10:42 AM</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="pl-9 space-y-2 text-xs">
+                                <div className="border-l-2 border-purple-500 pl-2.5 py-0.5 space-y-1">
+                                  <p className="font-bold text-slate-900 text-xs">
+                                    ⚡ Executive Meeting Brief: Q3 Strategic Architecture Review
+                                  </p>
+                                  <p className="text-[11px] text-slate-600">
+                                    <span className="font-semibold">Key Decision:</span> Ratified PostgreSQL 16 &amp; pgvector partitioning schema for multi-tenant isolation.
+                                  </p>
+                                  <div className="text-[11px] text-slate-600 space-y-0.5">
+                                    <p className="font-semibold text-slate-800">Action Items:</p>
+                                    <p>• <span className="text-indigo-600 font-medium">@sujal.nage</span>: Benchmark HNSW indexing speed with 1M vectors</p>
+                                    <p>• <span className="text-indigo-600 font-medium">@platform-eng</span>: Finalize zero-downtime database migration script</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4D. CONDITIONAL: PROJECT TRACKERS (JIRA & LINEAR) ── */}
+                  {selectedConnector.category === "tracker" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Kanban size={14} className="text-blue-600" />
+                          <h4 className="text-xs font-bold text-slate-900">
+                            {selectedConnector.name} &amp; Sprint Issue Mapping
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                          AUTO-SYNC
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Target Project / Team Board
+                            </label>
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
+                              <span>{selectedConnector.provider === "LINEAR" ? "ENG-Cycle (Knowra Core)" : "KNOWRA (Product Sprint)"}</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Discovered commitments and action items are automatically filed here.
+                            </p>
+                          </div>
+
+                          <div className="space-y-2 pt-1">
+                            <label className="text-xs font-semibold text-slate-700 block">
+                              Automated Issue Attributes
+                            </label>
+                            <div className="space-y-1.5 text-[11px] text-slate-600">
+                              <div className="flex justify-between items-center py-0.5">
+                                <span>Default Issue Type:</span>
+                                <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-slate-800 font-semibold">Task</span>
+                              </div>
+                              <div className="flex justify-between items-center py-0.5">
+                                <span>Priority Mapping:</span>
+                                <span className="font-mono bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-semibold border border-amber-200">Auto-Detect</span>
+                              </div>
+                              <div className="flex justify-between items-center py-0.5">
+                                <span>Assignee Matching:</span>
+                                <span className="font-mono bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-semibold border border-emerald-200">By Speaker Voice</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const found = integrations.find((i) => i.provider === selectedConnector.provider);
+                              if (found) testIntegrationMutation.mutate(found.id);
+                              else toast.info(`${selectedConnector.name} is synced with active sprint.`);
+                            }}
+                            disabled={testIntegrationMutation.isPending}
+                            className="w-full h-9 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {testIntegrationMutation.isPending ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Zap size={12} />
+                            )}
+                            <span>Sync Pending Action Items</span>
+                          </button>
+                        </div>
+
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                              <Eye size={12} className="text-blue-600" />
+                              <span>Extracted Issue Ticket Preview</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {selectedConnector.provider === "LINEAR" ? "ENG-104" : "KNOWRA-4892"}
+                            </span>
+                          </div>
+
+                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
+                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2 shadow-2xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">
+                                  {selectedConnector.provider === "LINEAR" ? "ENG-104" : "KNOWRA-4892"}
+                                </span>
+                                <span className="text-[10px] font-semibold bg-rose-50 text-rose-700 px-2 py-0.5 rounded border border-rose-200">
+                                  High Priority
+                                </span>
+                              </div>
+
+                              <h5 className="text-xs font-bold text-slate-900 leading-snug">
+                                Review and implement vector index partitioning schema
+                              </h5>
+
+                              <p className="text-[11px] text-slate-500 leading-relaxed">
+                                Verbal commitment ratified during Strategic Architecture Review. Partition pgvector indexes per tenant to eliminate cross-tenant vector scanning overhead.
+                              </p>
+
+                              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-medium">
+                                <span>Assignee: Sujal Nage</span>
+                                <span>Due: End of Sprint</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4E. CONDITIONAL: KNOWLEDGE & DOCS (NOTION & CONFLUENCE) ── */}
+                  {selectedConnector.category === "docs" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <FileText size={14} className="text-slate-800" />
+                          <h4 className="text-xs font-bold text-slate-900">
+                            {selectedConnector.name} &amp; Workspace Wiki Auto-Publish
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                          AUTO-PUBLISH
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              Target Database / Workspace Space
+                            </label>
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
+                              <span>{selectedConnector.provider === "NOTION" ? "Meeting Notes & Wiki" : "Architecture & RFC Spaces"}</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Completed meeting intelligence documents are automatically published to this destination.
+                            </p>
+                          </div>
+
+                          <div className="space-y-2 pt-1">
+                            <label className="text-xs font-semibold text-slate-700 block">
+                              Generated Document Structure
+                            </label>
+                            <div className="space-y-1.5 text-[11px] text-slate-600">
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Executive Briefing &amp; Background</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Ratified Decisions &amp; Voting Matrix</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Prioritized Action Items Table</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Diarized Speaker Transcript</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const found = integrations.find((i) => i.provider === selectedConnector.provider);
+                              if (found) testIntegrationMutation.mutate(found.id);
+                              else toast.info(`Exporting latest meeting intelligence to ${selectedConnector.name}...`);
+                            }}
+                            disabled={testIntegrationMutation.isPending}
+                            className="w-full h-9 rounded-lg bg-slate-900 hover:bg-black text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {testIntegrationMutation.isPending ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Zap size={12} />
+                            )}
+                            <span>Export Latest Meeting to {selectedConnector.provider === "NOTION" ? "Notion" : "Confluence"}</span>
+                          </button>
+                        </div>
+
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                              <Eye size={12} className="text-slate-800" />
+                              <span>Published Document Preview</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {selectedConnector.provider === "NOTION" ? "Notion Page" : "Confluence Space"}
+                            </span>
+                          </div>
+
+                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
+                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2.5 shadow-2xs">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">📄</span>
+                                <div>
+                                  <h5 className="text-xs font-bold text-slate-900">
+                                    Strategic Architecture Review &bull; Executive Brief
+                                  </h5>
+                                  <p className="text-[10px] text-slate-400">Created by Knowra AI Assistant &bull; Today</p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1.5 text-[11px] text-slate-700 bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                <p className="font-semibold text-slate-900 text-xs">Summary Callout</p>
+                                <p className="text-slate-600 leading-relaxed text-[10px]">
+                                  Engineering ratified vector partitioning schemas, established multi-tenant tenant isolation boundaries, and approved automated notetaker bots.
+                                </p>
+                              </div>
+
+                              <div className="space-y-1 text-[10px]">
+                                <p className="font-bold text-slate-800 uppercase tracking-wider text-[9px]">Decision Record:</p>
+                                <div className="flex items-center gap-1.5 text-slate-600">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                  <span>ADR-041: PostgreSQL 16 &amp; pgvector approved for enterprise tenants</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── 4F. CONDITIONAL: CRM & REVENUE (HUBSPOT & SALESFORCE) ── */}
+                  {selectedConnector.category === "crm" && (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Target size={14} className="text-orange-600" />
+                          <h4 className="text-xs font-bold text-slate-900">
+                            {selectedConnector.name} &amp; Deal Activity Logging
+                          </h4>
+                        </div>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+                          CRM SYNC ACTIVE
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                          <div>
+                            <label className="text-xs font-semibold text-slate-700 block mb-1">
+                              CRM Target Object
+                            </label>
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
+                              <span>{selectedConnector.provider === "HUBSPOT" ? "Deals & Contacts CRM" : "Opportunities CRM"}</span>
+                            </div>
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              Client calls are automatically correlated to CRM contacts based on attendee email domains.
+                            </p>
+                          </div>
+
+                          <div className="space-y-2 pt-1">
+                            <label className="text-xs font-semibold text-slate-700 block">
+                              Intelligence Capture Settings
+                            </label>
+                            <div className="space-y-1.5 text-[11px] text-slate-600">
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Auto-detect buyer objections &amp; budget intent</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Log call recording &amp; AI recap to Deal timeline</span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <Check size={12} className="text-emerald-600" />
+                                <span>Sync promised follow-up deadlines to CRM tasks</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              const found = integrations.find((i) => i.provider === selectedConnector.provider);
+                              if (found) testIntegrationMutation.mutate(found.id);
+                              else toast.info(`CRM call sync active for ${selectedConnector.name}.`);
+                            }}
+                            disabled={testIntegrationMutation.isPending}
+                            className="w-full h-9 rounded-lg bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {testIntegrationMutation.isPending ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Zap size={12} />
+                            )}
+                            <span>Test CRM Activity Log</span>
+                          </button>
+                        </div>
+
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                              <Eye size={12} className="text-orange-600" />
+                              <span>CRM Activity Timeline Preview</span>
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {selectedConnector.provider === "HUBSPOT" ? "HubSpot Engagement" : "Salesforce Task"}
+                            </span>
+                          </div>
+
+                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
+                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2 shadow-2xs">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-[10px] font-bold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
+                                    Deal: Acme Enterprise Tier
+                                  </span>
+                                  <span className="text-[10px] font-mono text-slate-500 font-semibold">$120,000 ARR</span>
+                                </div>
+                                <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+                                  Buyer Intent: High
+                                </span>
+                              </div>
+
+                              <p className="text-xs font-bold text-slate-900 mt-1">
+                                Call Logged: Strategic Solution Alignment Sync
+                              </p>
+
+                              <p className="text-[11px] text-slate-600 leading-relaxed">
+                                Prospect confirmed interest in Knowra AI enterprise connectors. Next steps: Deliver security compliance packet and schedule SOC2 architecture review.
+                              </p>
+
+                              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+                                <span>Synced by Knowra Intelligence</span>
+                                <span>Matched to: vp-eng@acme.corp</span>
                               </div>
                             </div>
                           </div>
@@ -2149,8 +2764,13 @@ export default function IntegrationsPage() {
                   className="w-full h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs"
                 >
                   <option value="SLACK">Slack</option>
-                  <option value="TEAMS">Microsoft Teams</option>
+                  <option value="LINEAR">Linear</option>
                   <option value="JIRA">Jira</option>
+                  <option value="NOTION">Notion</option>
+                  <option value="CONFLUENCE">Confluence</option>
+                  <option value="HUBSPOT">HubSpot</option>
+                  <option value="SALESFORCE">Salesforce</option>
+                  <option value="TEAMS">Microsoft Teams</option>
                   <option value="WEBHOOK">Custom Webhook</option>
                 </select>
               </div>

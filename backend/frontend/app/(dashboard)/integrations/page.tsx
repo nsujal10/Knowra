@@ -48,6 +48,7 @@ import {
   Kanban,
   FileText,
   Target,
+  Hash,
 } from "lucide-react";
 
 // Secure environment fallback for Resend
@@ -233,11 +234,6 @@ export default function IntegrationsPage() {
   const [scopeNotetaker, setScopeNotetaker] = useState<boolean>(true);
   const [scopeEmailSummaries, setScopeEmailSummaries] = useState<boolean>(true);
 
-  // Enterprise Notetaker & Ingestion Preferences
-  const [prefAutoJoin, setPrefAutoJoin] = useState<boolean>(true);
-  const [prefAutoEmail, setPrefAutoEmail] = useState<boolean>(true);
-  const [prefRestrictInternal, setPrefRestrictInternal] = useState<boolean>(false);
-
   // Google Calendar Live OAuth States
   const [isGoogleOAuthLoading, setIsGoogleOAuthLoading] = useState<boolean>(false);
   const [googleSetupModalOpen, setGoogleSetupModalOpen] = useState<boolean>(false);
@@ -245,6 +241,7 @@ export default function IntegrationsPage() {
     "http://localhost:8000/api/v1/integrations/google-calendar/callback"
   );
   const [copiedRedirect, setCopiedRedirect] = useState<boolean>(false);
+  const [isSlackOAuthLoading, setIsSlackOAuthLoading] = useState<boolean>(false);
 
   // Payload viewer modal
   const [viewingPayload, setViewingPayload] = useState<Record<string, unknown> | null>(null);
@@ -271,6 +268,16 @@ export default function IntegrationsPage() {
   const [jiraNewDescription, setJiraNewDescription] = useState("");
   const [jiraNewIssueType, setJiraNewIssueType] = useState("Task");
   const [jiraNewPriority, setJiraNewPriority] = useState("High");
+  const [selectedJiraActionId, setSelectedJiraActionId] = useState("");
+
+  // Slack State
+  const [slackBotTokenInput, setSlackBotTokenInput] = useState("");
+  const [slackWebhookInput, setSlackWebhookInput] = useState("");
+  const [slackChannelInput, setSlackChannelInput] = useState("#general");
+  const [slackTestMessage, setSlackTestMessage] = useState(
+    "⚡ Knowra Executive Briefing: System synchronization verified. All meeting decisions and action items will now broadcast directly into this channel."
+  );
+  const [showManualSlackConfig, setShowManualSlackConfig] = useState(false);
 
   // Linear State
   const [linearNewTitle, setLinearNewTitle] = useState("");
@@ -321,8 +328,10 @@ export default function IntegrationsPage() {
     instance_url?: string;
     account_email?: string;
     project_key?: string;
+    project_name?: string;
     display_name?: string;
     last_synced_at?: string;
+    projects?: any[];
   }>({
     queryKey: ["integrations", "jira", "status"],
     queryFn: () => api.get(INTEGRATIONS.jiraStatus()),
@@ -347,6 +356,19 @@ export default function IntegrationsPage() {
   >({
     queryKey: ["integrations", "jira", "issues", jiraStatus?.is_connected],
     queryFn: () => api.get(INTEGRATIONS.jiraIssues(20)),
+    enabled: selectedConnectorId === "jira",
+  });
+
+  const { data: jiraProjects = [] } = useQuery<
+    Array<{
+      id: string;
+      key: string;
+      name: string;
+      projectTypeKey?: string;
+    }>
+  >({
+    queryKey: ["integrations", "jira", "projects", jiraStatus?.is_connected],
+    queryFn: () => api.get(INTEGRATIONS.jiraProjects()),
     enabled: selectedConnectorId === "jira",
   });
 
@@ -406,6 +428,8 @@ export default function IntegrationsPage() {
       priority: string;
       description?: string;
       status?: string;
+      meeting_title?: string;
+      assignee?: string;
     }>
   >({
     queryKey: ["actions", "meeting-import"],
@@ -422,9 +446,70 @@ export default function IntegrationsPage() {
     enabled: selectedConnectorId === "linear" || selectedConnectorId === "jira",
   });
 
-  // ── OAuth Callback Query Parameter Handler (Google Calendar Redirect) ────
+  // Slack Queries
+  const { data: slackConfigStatus } = useQuery<{
+    oauth_configured: boolean;
+    has_bot_token: boolean;
+    has_webhook: boolean;
+    default_channel: string;
+    bot_token_preview?: string;
+  }>({
+    queryKey: ["integrations", "slack", "config-status"],
+    queryFn: () => api.get(INTEGRATIONS.slackConfigStatus()),
+  });
+
+  const { data: slackStatus, refetch: refetchSlackStatus } = useQuery<{
+    is_connected: boolean;
+    source?: "database" | "environment";
+    default_channel?: string;
+    has_bot_token?: boolean;
+    has_webhook?: boolean;
+    bot_user_id?: string;
+    team_name?: string;
+    team_id?: string;
+    app_id?: string;
+    auth_status?: string;
+  }>({
+    queryKey: ["integrations", "slack", "status"],
+    queryFn: () => api.get(INTEGRATIONS.slackStatus()),
+  });
+
+  const { data: slackChannels = [], isLoading: isLoadingSlackChannels, refetch: refetchSlackChannels } = useQuery<
+    Array<{
+      id: string;
+      name: string;
+      is_private: boolean;
+      num_members?: number;
+    }>
+  >({
+    queryKey: ["integrations", "slack", "channels", slackStatus?.is_connected],
+    queryFn: () => api.get(INTEGRATIONS.slackChannels()),
+    enabled: selectedConnectorId === "slack" && Boolean(slackStatus?.is_connected && slackStatus?.has_bot_token),
+  });
+
+  // ── OAuth Callback Query Parameter & Popup Message Handler ─────────────────
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // 1. Popup message listener (Slack OAuth Popup flow)
+    const handlePopupMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== "object") return;
+
+      if (event.data.type === "SLACK_CONNECTED") {
+        const teamName = event.data.team || "Slack Workspace";
+        toast.success(`Slack workspace "${teamName}" successfully authorized! Bot notifications are now active.`);
+        queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "status"] });
+        queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "channels"] });
+        queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+        queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+      } else if (event.data.type === "SLACK_ERROR") {
+        toast.error(`Slack authorization failed: ${event.data.error || "Unknown error"}`);
+      }
+    };
+
+    window.addEventListener("message", handlePopupMessage);
+
+    // 2. Direct redirect query parameter fallback
     const params = new URLSearchParams(window.location.search);
     const connected = params.get("connected");
     const error = params.get("error");
@@ -439,10 +524,21 @@ export default function IntegrationsPage() {
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.calendarEvents() });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
       window.history.replaceState({}, "", window.location.pathname);
+    } else if (connected === "SLACK") {
+      toast.success("Slack workspace successfully authorized! Bot notifications are now active.");
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "channels"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+      window.history.replaceState({}, "", window.location.pathname);
     } else if (error) {
-      toast.error(`Google Calendar connection failed: ${decodeURIComponent(error)}`);
+      toast.error(`Integration connection failed: ${decodeURIComponent(error)}`);
       window.history.replaceState({}, "", window.location.pathname);
     }
+
+    return () => {
+      window.removeEventListener("message", handlePopupMessage);
+    };
   }, [queryClient]);
 
   // ── Mutations ────────────────────────────────────────────────────────────
@@ -619,6 +715,7 @@ export default function IntegrationsPage() {
       toast.success(`Created Jira issue ${res.key || ""} successfully!`);
       setJiraNewSummary("");
       setJiraNewDescription("");
+      setSelectedJiraActionId("");
       queryClient.invalidateQueries({ queryKey: ["integrations", "jira", "issues"] });
       queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
     },
@@ -711,6 +808,72 @@ export default function IntegrationsPage() {
     },
     onError: (err: any) => {
       toast.error(err?.message || "Failed to disconnect Linear");
+    },
+  });
+
+  const connectSlackMutation = useMutation({
+    mutationFn: (data: {
+      bot_token?: string;
+      webhook_url?: string;
+      channel_id?: string;
+    }) =>
+      api.post<{ success: boolean; message: string; team_name?: string }>(
+        INTEGRATIONS.slackConnect(),
+        data
+      ),
+    onSuccess: (res) => {
+      toast.success(res?.message || "Successfully connected to Slack workspace!");
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "channels"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to connect to Slack");
+    },
+  });
+
+  const postSlackMessageMutation = useMutation({
+    mutationFn: (data: {
+      channel?: string;
+      text: string;
+      title?: string;
+    }) =>
+      api.post<{ success: boolean; channel: string; message: string }>(
+        INTEGRATIONS.slackPostMessage(),
+        data
+      ),
+    onSuccess: (res) => {
+      toast.success(res?.message || "Message delivered to Slack successfully!");
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to post message to Slack");
+    },
+  });
+
+  const disconnectSlackMutation = useMutation({
+    mutationFn: () =>
+      api.delete<{ success: boolean; message: string }>(INTEGRATIONS.slackDisconnect()),
+    onSuccess: () => {
+      toast.success("Disconnected Slack integration");
+      queryClient.setQueryData(["integrations", "slack", "status"], {
+        is_connected: false,
+        source: null,
+        default_channel: null,
+        has_bot_token: false,
+        has_webhook: false,
+        bot_user_id: null,
+        team_name: null,
+        team_id: null,
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.list() });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "status"] });
+      queryClient.invalidateQueries({ queryKey: ["integrations", "slack", "channels"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.integrations.events() });
+    },
+    onError: (err: any) => {
+      toast.error(err?.message || "Failed to disconnect Slack");
     },
   });
 
@@ -808,7 +971,65 @@ export default function IntegrationsPage() {
       return;
     }
 
+    if (connector.provider === "SLACK") {
+      await handleAuthorizeSlack();
+      return;
+    }
+
     setIsOAuthModalOpen(true);
+  };
+
+  const handleAuthorizeSlack = async () => {
+    setIsSlackOAuthLoading(true);
+
+    // Open popup window immediately on user click to avoid browser popup blockers
+    const width = 600;
+    const height = 780;
+    const left =
+      typeof window !== "undefined"
+        ? window.screenX + Math.max(0, Math.round((window.outerWidth - width) / 2))
+        : 100;
+    const top =
+      typeof window !== "undefined"
+        ? window.screenY + Math.max(0, Math.round((window.outerHeight - height) / 2))
+        : 100;
+
+    let popup: Window | null = null;
+    try {
+      popup = window.open(
+        "about:blank",
+        "SlackOAuthPopup",
+        `width=${width},height=${height},left=${left},top=${top},status=no,resizable=yes,scrollbars=yes`
+      );
+    } catch {
+      // Ignored if window.open fails directly
+    }
+
+    try {
+      const res = await api.get<{
+        is_configured?: boolean;
+        auth_url?: string;
+        redirect_uri?: string;
+      }>(INTEGRATIONS.slackAuthUrl());
+
+      if (res?.auth_url) {
+        if (popup && !popup.closed) {
+          popup.location.href = res.auth_url;
+          popup.focus();
+        } else {
+          // Fallback if popup was blocked
+          window.location.href = res.auth_url;
+        }
+      } else {
+        if (popup && !popup.closed) popup.close();
+        toast.error("Slack OAuth is not configured. Please check SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in backend configuration.");
+      }
+    } catch (err: any) {
+      if (popup && !popup.closed) popup.close();
+      toast.error(err?.message || "Failed to start Slack OAuth authorization.");
+    } finally {
+      setIsSlackOAuthLoading(false);
+    }
   };
 
   // ── Direct OAuth Account Connection (Exact Google/Microsoft Account Picker) ─
@@ -844,13 +1065,24 @@ export default function IntegrationsPage() {
       });
       setIsOAuthModalOpen(false);
     } else if (authConnector.provider === "SLACK") {
-      createIntegrationMutation.mutate({
-        provider: "SLACK",
-        name: "Slack Intelligence Bot",
-        channel_or_project_id: "#general-intelligence",
-        credentials_secret: "xoxb-knowra-bot-token",
-      });
-      setIsOAuthModalOpen(false);
+      connectSlackMutation.mutate(
+        {
+          bot_token: slackBotTokenInput || undefined,
+          webhook_url: slackWebhookInput || undefined,
+          channel_id: slackChannelInput || undefined,
+        },
+        {
+          onSuccess: (res) => {
+            toast.success(res?.message || `Slack connected for ${cleanEmail}!`);
+            setIsOAuthModalOpen(false);
+            setConnectingAccountEmail(null);
+          },
+          onError: (err: any) => {
+            toast.error(err?.message || "Failed to connect Slack");
+            setConnectingAccountEmail(null);
+          },
+        }
+      );
     } else if (authConnector.provider === "LINEAR") {
       setConnectingAccountEmail(cleanEmail);
       connectLinearMutation.mutate(
@@ -917,14 +1149,15 @@ export default function IntegrationsPage() {
     }
     const integ = integrations.find((i) => i.provider === item.provider);
     if (item.provider === "SLACK") {
-      const ch = integ?.channel_or_project_id;
-      return `Synced: ${ch && ch.startsWith("#") ? ch : "#general-intelligence"}`;
+      const ch = slackStatus?.default_channel || integ?.channel_or_project_id || "#general";
+      const team = slackStatus?.team_name ? ` • ${slackStatus.team_name}` : "";
+      return `Synced: ${ch.startsWith("#") ? ch : `#${ch}`}${team}`;
     }
     if (item.provider === "RESEND") {
       return `Synced: ${integ?.channel_or_project_id || userEmail}`;
     }
     if (item.provider === "JIRA") {
-      const proj = jiraStatus?.project_key || "KNOWRA";
+      const proj = jiraStatus?.project_key || "SCRUM";
       const email = jiraStatus?.account_email || userEmail;
       return `Synced: ${email} (${proj})`;
     }
@@ -945,6 +1178,8 @@ export default function IntegrationsPage() {
       connector.provider === "ZOOM"
     ) {
       disconnectCalendarMutation.mutate(connector.provider);
+    } else if (connector.provider === "SLACK") {
+      disconnectSlackMutation.mutate();
     } else if (connector.provider === "JIRA") {
       disconnectJiraMutation.mutate();
     } else if (connector.provider === "LINEAR") {
@@ -962,6 +1197,9 @@ export default function IntegrationsPage() {
     if (provider === "GOOGLE_CALENDAR" || provider === "OUTLOOK" || provider === "GOOGLE_MEET" || provider === "ZOOM") {
       const cal = calendarStatuses.find((c) => c.provider === provider);
       if (cal) return cal.is_connected;
+    }
+    if (provider === "SLACK") {
+      return Boolean(slackStatus?.is_connected);
     }
     if (provider === "JIRA") {
       return Boolean(jiraStatus?.is_connected);
@@ -995,7 +1233,7 @@ export default function IntegrationsPage() {
       if (statusFilter === "not_connected") return !connected;
       return true;
     });
-  }, [searchQuery, statusFilter, integrations, calendarStatuses, jiraStatus, linearStatus]);
+  }, [searchQuery, statusFilter, integrations, calendarStatuses, jiraStatus, linearStatus, slackStatus]);
 
   // Group by category
   const groupedConnectors = useMemo(() => {
@@ -1138,13 +1376,10 @@ export default function IntegrationsPage() {
         </div>
 
         {/* ── SUB-BANNER NOTICE (READ AI STYLE) ──────────────────────────────── */}
-        <div className="bg-slate-50/70 border-b border-slate-200/80 px-6 py-2.5 flex items-center justify-between text-xs text-slate-600">
+        <div className="bg-slate-50/70 border-b border-slate-300 px-6 py-2.5 text-xs text-slate-600">
           <p className="leading-relaxed">
             Your integrations can only be configured and used by you. For example, connecting Google or Outlook will only give you access to your calendar schedule and meeting summaries.
           </p>
-          <span className="text-[11px] text-slate-400 shrink-0 font-medium ml-4 hidden md:inline">
-            TLS 1.3 &bull; AES-256 Protected
-          </span>
         </div>
 
         {/* ═════════════════════════════════════════════════════════════════════ */}
@@ -1153,7 +1388,7 @@ export default function IntegrationsPage() {
         {currentTopTab === "apps" && (
           <div className="grid grid-cols-1 lg:grid-cols-12 min-h-[640px]">
             {/* ── LEFT PANE: CONNECTOR CATALOG & CATEGORIES (4 COLS) ─────────── */}
-            <div className="lg:col-span-4 xl:col-span-4 border-r border-slate-200 p-4 space-y-4 bg-slate-50/30">
+            <div className="lg:col-span-4 xl:col-span-4 border-r border-slate-300 p-4 space-y-4 bg-slate-50/30">
               {/* Filter & Sort Controls Bar */}
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
@@ -1232,8 +1467,8 @@ export default function IntegrationsPage() {
                                 className={cn(
                                   "p-3 rounded-xl border transition-all cursor-pointer text-left select-none",
                                   isSelected
-                                    ? "bg-white border-indigo-600 shadow-xs ring-1 ring-indigo-600/20"
-                                    : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/50 shadow-2xs"
+                                    ? "bg-white border-indigo-600 shadow-sm ring-1 ring-indigo-600/20"
+                                    : "bg-white border-slate-300 hover:border-slate-400 hover:bg-slate-50/70 shadow-2xs hover:shadow-xs"
                                 )}
                               >
                                 <div className="flex items-start justify-between gap-2">
@@ -1299,7 +1534,7 @@ export default function IntegrationsPage() {
             {/* ── RIGHT PANE: SELECTED CONNECTOR DETAIL (8 COLS) ─────────────── */}
             <div className="lg:col-span-8 xl:col-span-8 p-6 lg:p-8 space-y-6 bg-white overflow-y-auto">
               {/* ── 1. CLEAN ENTERPRISE CONNECTOR HEADER ── */}
-              <div className="space-y-3 pb-6 border-b border-slate-100">
+              <div className="space-y-3 pb-6 border-b border-slate-300">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5">
                     <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200/90 shadow-2xs flex items-center justify-center text-2xl shrink-0">
@@ -1391,14 +1626,35 @@ export default function IntegrationsPage() {
                       </>
                     ) : (
                       <button
-                        onClick={() => handleOpenConnect(selectedConnector)}
-                        disabled={isGoogleOAuthLoading}
-                        className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-70"
+                        onClick={() => {
+                          if (selectedConnector.provider === "SLACK") {
+                            handleAuthorizeSlack();
+                          } else {
+                            handleOpenConnect(selectedConnector);
+                          }
+                        }}
+                        disabled={isGoogleOAuthLoading || isSlackOAuthLoading}
+                        className={cn(
+                          "px-4 py-2 rounded-xl text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-70",
+                          selectedConnector.provider === "SLACK"
+                            ? "bg-[#4A154B] hover:bg-[#3d113e]"
+                            : "bg-indigo-600 hover:bg-indigo-700"
+                        )}
                       >
-                        {isGoogleOAuthLoading && (selectedConnector.provider === "GOOGLE_CALENDAR" || selectedConnector.provider === "GOOGLE_MEET") ? (
+                        {isSlackOAuthLoading && selectedConnector.provider === "SLACK" ? (
+                          <>
+                            <RefreshCw size={13} className="animate-spin" />
+                            <span>Authorizing...</span>
+                          </>
+                        ) : isGoogleOAuthLoading && (selectedConnector.provider === "GOOGLE_CALENDAR" || selectedConnector.provider === "GOOGLE_MEET") ? (
                           <>
                             <RefreshCw size={13} className="animate-spin" />
                             <span>Connecting...</span>
+                          </>
+                        ) : selectedConnector.provider === "SLACK" ? (
+                          <>
+                            <ExternalLink size={14} />
+                            <span>Connect Slack</span>
                           </>
                         ) : (
                           <>
@@ -1413,9 +1669,9 @@ export default function IntegrationsPage() {
               </div>
 
               {/* ── DETAIL BODY: CONNECTED vs NOT CONNECTED ───────────────────── */}
-              {!isSelectedConnected ? (
+              {!isSelectedConnected && selectedConnector.provider !== "SLACK" ? (
                 /* Empty state container */
-                <div className="border border-dashed border-slate-200 rounded-2xl p-12 text-center bg-slate-50/40 space-y-3.5 my-6">
+                <div className="border border-dashed border-slate-300 rounded-2xl p-12 text-center bg-slate-50/50 space-y-3.5 my-6 shadow-2xs">
                   <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-2xl mx-auto shadow-2xs border border-indigo-100">
                     <span>{selectedConnector.iconSvg}</span>
                   </div>
@@ -1448,178 +1704,63 @@ export default function IntegrationsPage() {
                 /* Connected State with Streamlined Layout */
                 <div className="space-y-6">
                   {/* ── 2. STREAMLINED ACCOUNT STRIP ── */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl bg-slate-50/70 border border-slate-200/80 gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white font-semibold text-xs flex items-center justify-center shrink-0 shadow-2xs">
-                        {(selectedCalStatus?.account_email || (selectedConnector.provider === "JIRA" ? (jiraStatus?.account_email || userEmail) : selectedConnector.provider === "LINEAR" ? (linearStatus?.organization || linearStatus?.viewer_name || "Linear") : userEmail)).charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-slate-900 truncate">
-                            {selectedCalStatus?.account_email || (selectedConnector.provider === "JIRA" ? (jiraStatus?.account_email || userEmail) : selectedConnector.provider === "LINEAR" ? `${linearStatus?.organization || "Softude"} (${linearStatus?.team_name || linearStatus?.team_key || "SOF"})` : getConnectorSyncSubtitle(selectedConnector).replace("Synced: ", ""))}
-                          </span>
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white text-slate-600 border border-slate-200/80 font-medium shrink-0">
-                            {selectedConnector.category === "calendar"
-                              ? "OAuth 2.0 PKCE"
-                              : selectedConnector.provider === "RESEND"
-                              ? "API Key (REST)"
-                              : selectedConnector.provider === "SLACK"
-                              ? "Bot Token (v2)"
-                              : selectedConnector.provider === "JIRA"
-                              ? "Atlassian Cloud REST API v3"
-                              : selectedConnector.provider === "LINEAR"
-                              ? "Linear GraphQL API v1"
-                              : "Enterprise OAuth 2.0"}
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
-                          <span>Continuous Sync</span>
-                          <span>&bull;</span>
-                          <span>Last checked {selectedCalStatus?.last_synced_at || jiraStatus?.last_synced_at || linearStatus?.last_synced_at ? relativeTime((selectedCalStatus?.last_synced_at || jiraStatus?.last_synced_at || linearStatus?.last_synced_at)!) : "just now"}</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleOpenConnect(selectedConnector)}
-                      className="text-xs font-medium text-slate-600 hover:text-slate-900 px-3 py-1.5 rounded-lg hover:bg-slate-200/60 transition-colors shrink-0 cursor-pointer self-start sm:self-auto border border-transparent hover:border-slate-200"
-                    >
-                      Switch Account
-                    </button>
-                  </div>
-
-                  {/* ── 3. AUTOMATION & NOTETAKER SETTINGS ── */}
-                  <div className="rounded-xl border border-slate-200/90 bg-white overflow-hidden shadow-2xs">
-                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/40 flex items-center justify-between">
-                      <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase tracking-wider">
-                        <Sliders size={13} className="text-indigo-600" />
-                        <span>Automation & Bot Preferences</span>
-                      </h3>
-                      <span className="text-[11px] text-slate-400">Tenant-wide policy</span>
-                    </div>
-
-                    <div className="divide-y divide-slate-100">
-                      {/* Toggle 1 */}
-                      <div className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/40 transition-colors">
-                        <div className="space-y-0.5 pr-2">
-                          <p className="text-xs font-semibold text-slate-900">
-                            Auto-join calendar meetings
-                          </p>
-                          <p className="text-[11px] text-slate-500 leading-relaxed">
-                            Knowra AI assistant automatically enters Google Meet conferences 1 minute before scheduled start.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={prefAutoJoin}
-                          onClick={() => {
-                            setPrefAutoJoin(!prefAutoJoin);
-                            toast.success(prefAutoJoin ? "Auto-join disabled for future meetings" : "Auto-join enabled for all upcoming meetings");
-                          }}
-                          className={cn(
-                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                            prefAutoJoin ? "bg-indigo-600" : "bg-slate-200"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out",
-                              prefAutoJoin ? "translate-x-4" : "translate-x-0"
-                            )}
-                          />
-                        </button>
-                      </div>
-
-                      {/* Toggle 2 */}
-                      <div className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/40 transition-colors">
-                        <div className="space-y-0.5 pr-2">
-                          <p className="text-xs font-semibold text-slate-900">
-                            Auto-dispatch executive briefings
-                          </p>
-                          <p className="text-[11px] text-slate-500 leading-relaxed">
-                            Send synthesized executive summaries, key decisions, and action items directly to attendees after each call.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={prefAutoEmail}
-                          onClick={() => {
-                            setPrefAutoEmail(!prefAutoEmail);
-                            toast.success(prefAutoEmail ? "Executive recap dispatch disabled" : "Executive recap dispatch enabled");
-                          }}
-                          className={cn(
-                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                            prefAutoEmail ? "bg-indigo-600" : "bg-slate-200"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out",
-                              prefAutoEmail ? "translate-x-4" : "translate-x-0"
-                            )}
-                          />
-                        </button>
-                      </div>
-
-                      {/* Toggle 3 */}
-                      <div className="p-4 flex items-center justify-between gap-4 hover:bg-slate-50/40 transition-colors">
-                        <div className="space-y-0.5 pr-2">
-                          <p className="text-xs font-semibold text-slate-900">
-                            Internal domain fence
-                          </p>
-                          <p className="text-[11px] text-slate-500 leading-relaxed">
-                            Do not auto-dispatch recaps if external participants or guests from outside your organization are present.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={prefRestrictInternal}
-                          onClick={() => {
-                            setPrefRestrictInternal(!prefRestrictInternal);
-                            toast.success(prefRestrictInternal ? "Internal domain fence relaxed" : "Internal domain fence enforced");
-                          }}
-                          className={cn(
-                            "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
-                            prefRestrictInternal ? "bg-indigo-600" : "bg-slate-200"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out",
-                              prefRestrictInternal ? "translate-x-4" : "translate-x-0"
-                            )}
-                          />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ── 4. UPCOMING CALENDAR SCHEDULE ── */}
-                  {/* ── 4. CONDITIONAL: CALENDAR SCHEDULE ── */}
                   {selectedConnector.category === "calendar" && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-xl bg-slate-50/90 border border-slate-300 shadow-xs hover:border-slate-400 transition-all gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-indigo-500 text-white font-semibold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                          {(selectedCalStatus?.account_email || (selectedConnector.provider === "JIRA" ? (jiraStatus?.account_email || userEmail) : selectedConnector.provider === "LINEAR" ? (linearStatus?.organization || linearStatus?.viewer_name || "Linear") : userEmail)).charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900 truncate">
+                              {selectedCalStatus?.account_email || (selectedConnector.provider === "JIRA" ? (jiraStatus?.account_email || userEmail) : selectedConnector.provider === "LINEAR" ? `${linearStatus?.organization || "Softude"} (${linearStatus?.team_name || linearStatus?.team_key || "SOF"})` : getConnectorSyncSubtitle(selectedConnector).replace("Synced: ", ""))}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-500 flex items-center gap-1.5 truncate">
+                            <span>Continuous Sync</span>
+                            <span>&bull;</span>
+                            <span>Last checked {selectedCalStatus?.last_synced_at || jiraStatus?.last_synced_at || linearStatus?.last_synced_at ? relativeTime((selectedCalStatus?.last_synced_at || jiraStatus?.last_synced_at || linearStatus?.last_synced_at)!) : "just now"}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleOpenConnect(selectedConnector)}
+                        className="text-xs font-semibold text-slate-700 hover:text-slate-900 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 transition-all shrink-0 cursor-pointer self-start sm:self-auto border border-slate-300 hover:border-slate-400 shadow-2xs"
+                      >
+                        Switch Account
+                      </button>
+                    </div>
+                  )}
+
+                  {/* ── 3. CONDITIONAL: CALENDAR SCHEDULE ── */}
+                  {selectedConnector.category === "calendar" && (
+                    <div className="space-y-3 pt-1">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-300">
                         <div className="flex items-center gap-2">
-                          <Calendar size={14} className="text-indigo-600" />
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Upcoming Calendar Schedule
-                          </h4>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-semibold">
+                          <div className="p-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600">
+                            <Calendar size={14} />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-slate-900">
+                              Upcoming Calendar Schedule
+                            </h4>
+                            <p className="text-[11px] text-slate-500">
+                              Direct 1-click bot attendance control per scheduled meeting
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-300 font-semibold">
                             {calendarEvents.length} Meetings
                           </span>
                         </div>
-                        <span className="text-[11px] text-slate-400">
-                          Primary Calendar Feed
-                        </span>
                       </div>
 
-                      <div className="border border-slate-200/90 rounded-xl divide-y divide-slate-100 bg-white overflow-hidden shadow-2xs">
+                      <div className="border border-slate-300 rounded-xl divide-y divide-slate-200 bg-white overflow-hidden shadow-xs hover:shadow-sm transition-shadow">
                         {calendarEvents.length === 0 ? (
                           <div className="py-12 px-4 text-center space-y-3">
-                            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-200/60 shadow-2xs">
+                            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center mx-auto border border-slate-300 shadow-2xs">
                               <Calendar size={18} />
                             </div>
                             <div>
@@ -1637,7 +1778,7 @@ export default function IntegrationsPage() {
                                 syncCalendarsMutation.mutate();
                               }}
                               disabled={syncCalendarsMutation.isPending}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition-colors cursor-pointer disabled:opacity-60"
                             >
                               <RefreshCw size={12} className={syncCalendarsMutation.isPending ? "animate-spin" : ""} />
                               <span>Check for New Events</span>
@@ -1645,10 +1786,10 @@ export default function IntegrationsPage() {
                           </div>
                         ) : (
                           calendarEvents.map((evt) => (
-                            <div key={evt.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/60 transition-colors">
+                            <div key={evt.id} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/80 transition-colors">
                               <div className="flex items-start gap-3 min-w-0">
                                 <div className="w-16 text-center shrink-0">
-                                  <span className="block text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50/80 rounded py-0.5 border border-indigo-100/60">
+                                  <span className="block text-[10px] font-mono text-indigo-700 font-bold bg-indigo-50/80 rounded py-0.5 border border-indigo-200">
                                     {evt.start_time.split(",")[0] || "Today"}
                                   </span>
                                   <span className="block text-[10px] text-slate-500 font-medium mt-1">
@@ -1688,10 +1829,10 @@ export default function IntegrationsPage() {
                                     })
                                   }
                                   className={cn(
-                                    "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs",
+                                    "px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs hover:scale-102 active:scale-98",
                                     evt.auto_join
-                                      ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 border border-emerald-200/80"
-                                      : "bg-slate-100 text-slate-600 hover:bg-slate-200/80 border border-slate-200"
+                                      ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-300"
+                                      : "bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300"
                                   )}
                                 >
                                   <span
@@ -1710,24 +1851,29 @@ export default function IntegrationsPage() {
                     </div>
                   )}
 
+
                   {/* ── 4B. CONDITIONAL: RESEND EMAIL DISPATCHER ── */}
                   {selectedConnector.provider === "RESEND" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
+                    <div className="space-y-4 pt-1">
+                      <div className="flex items-center justify-between pb-3 border-b border-slate-300">
                         <div className="flex items-center gap-2">
-                          <Mail size={14} className="text-indigo-600" />
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Executive Email Dispatcher &amp; Live Test
-                          </h4>
+                          <div className="p-1.5 rounded-lg bg-indigo-50 border border-indigo-200 text-indigo-600">
+                            <Mail size={14} />
+                          </div>
+                          <div>
+                            <h4 className="text-xs font-bold text-slate-900">
+                              Executive Email Dispatcher
+                            </h4>
+                            <p className="text-[11px] text-slate-500">
+                              Send executive recaps and decision briefs directly via Resend API
+                            </p>
+                          </div>
                         </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                          LIVE API
-                        </span>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                         {/* Dispatch Form (5 cols) */}
-                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-300 shadow-xs hover:border-slate-400 transition-all p-4 space-y-3">
                           <div>
                             <label className="text-xs font-semibold text-slate-700 block mb-1">
                               Recipient Email Address
@@ -1795,8 +1941,8 @@ export default function IntegrationsPage() {
                         </div>
 
                         {/* Preview Box (7 cols) */}
-                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden flex flex-col">
+                          <div className="px-3.5 py-2.5 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between text-xs">
                             <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
                               <Eye size={12} className="text-indigo-600" />
                               <span>Live HTML Email Preview</span>
@@ -1841,115 +1987,349 @@ export default function IntegrationsPage() {
 
                   {/* ── 4C. CONDITIONAL: SLACK INTELLIGENCE BOT ── */}
                   {selectedConnector.provider === "SLACK" && (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <MessageSquare size={14} className="text-purple-600" />
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Slack Team Notifications &amp; Channel Stream
-                          </h4>
-                        </div>
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                          BOT ACTIVE
-                        </span>
-                      </div>
+                    <div className="space-y-6">
+                      {!slackStatus?.is_connected ? (
+                        /* DISCONNECTED: Clean, Focused 1-Click Authorization Card */
+                        <div className="rounded-2xl border border-slate-200 bg-white p-8 sm:p-10 text-center shadow-xs max-w-2xl mx-auto space-y-6 my-4">
+                          <div className="w-16 h-16 rounded-2xl bg-[#4A154B] text-white flex items-center justify-center text-3xl mx-auto shadow-sm">
+                            💬
+                          </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3">
-                          <div>
-                            <label className="text-xs font-semibold text-slate-700 block mb-1">
-                              Target Broadcast Channel
-                            </label>
-                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
-                              <span className="text-slate-400">#</span>
-                              <span>general-intelligence</span>
-                            </div>
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              Knowra bot posts summaries and action item alerts here.
+                          <div className="space-y-2">
+                            <h3 className="text-xl font-bold text-slate-900 tracking-tight">
+                              Connect Slack Workspace
+                            </h3>
+                            <p className="text-sm text-slate-600 max-w-md mx-auto leading-relaxed">
+                              Connect Knowra with one click to automatically broadcast executive meeting recaps, key decisions, and action item mentions into your enterprise Slack channels.
                             </p>
                           </div>
 
-                          <div className="space-y-2 pt-1">
-                            <label className="text-xs font-semibold text-slate-700 block">
-                              Notification Triggers
-                            </label>
-                            <div className="space-y-1.5 text-[11px] text-slate-600">
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" defaultChecked className="rounded text-indigo-600" />
-                                <span>Meeting executive briefings</span>
-                              </label>
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" defaultChecked className="rounded text-indigo-600" />
-                                <span>Direct @mentions for action item owners</span>
-                              </label>
-                              <label className="flex items-center gap-2 cursor-pointer">
-                                <input type="checkbox" defaultChecked className="rounded text-indigo-600" />
-                                <span>Audio highlight snippets (MP3 preview)</span>
-                              </label>
-                            </div>
+                          {/* 1-Click Connect Button */}
+                          <div>
+                            <button
+                              type="button"
+                              onClick={handleAuthorizeSlack}
+                              disabled={isSlackOAuthLoading}
+                              className="inline-flex items-center justify-center gap-2.5 h-12 px-8 bg-[#4A154B] hover:bg-[#3b113c] text-white text-sm font-semibold rounded-xl shadow-xs hover:shadow transition-all cursor-pointer disabled:opacity-70 group"
+                            >
+                              {isSlackOAuthLoading ? (
+                                <>
+                                  <RefreshCw size={16} className="animate-spin" />
+                                  <span>Opening Slack Authorization...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ExternalLink size={16} className="group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+                                  <span>Connect with Slack</span>
+                                </>
+                              )}
+                            </button>
                           </div>
 
-                          <button
-                            onClick={() => {
-                              const found = integrations.find((i) => i.provider === "SLACK");
-                              if (found) testIntegrationMutation.mutate(found.id);
-                              else toast.info("Slack bot is active and listening for meeting events.");
-                            }}
-                            disabled={testIntegrationMutation.isPending}
-                            className="w-full h-9 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {testIntegrationMutation.isPending ? (
-                              <RefreshCw size={12} className="animate-spin" />
-                            ) : (
-                              <Zap size={12} />
+                          {/* Redirect URL and App Console Info */}
+                          <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
+                            <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
+                              <span className="text-slate-600 font-medium">Redirect URL:</span>
+                              <code className="bg-slate-50 px-2 py-0.5 rounded border border-slate-200 text-[#4A154B] font-mono text-[11px]">
+                                http://localhost:8000/api/v1/integrations/slack/callback
+                              </code>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  navigator.clipboard.writeText("http://localhost:8000/api/v1/integrations/slack/callback");
+                                  toast.success("Copied Slack Redirect URL to clipboard!");
+                                }}
+                                className="text-[#4A154B] hover:underline font-semibold cursor-pointer text-[11px]"
+                              >
+                                Copy
+                              </button>
+                            </div>
+
+                            <a
+                              href="https://api.slack.com/apps"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[#4A154B] hover:underline font-medium"
+                            >
+                              <span>Slack App Console</span>
+                              <ExternalLink size={11} />
+                            </a>
+                          </div>
+
+                          {/* Collapsible Alternative: Manual Bot Token Setup */}
+                          <div className="pt-3 border-t border-slate-100 text-left">
+                            <button
+                              type="button"
+                              onClick={() => setShowManualSlackConfig(!showManualSlackConfig)}
+                              className="flex items-center justify-between w-full text-xs font-medium text-slate-500 hover:text-slate-800 transition-colors py-1 cursor-pointer"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <Key size={13} className="text-slate-400" />
+                                <span>Or connect manually with Bot Token (Alternative)</span>
+                              </span>
+                              <ChevronDown
+                                size={14}
+                                className={cn("transition-transform text-slate-400", showManualSlackConfig && "rotate-180")}
+                              />
+                            </button>
+
+                            {showManualSlackConfig && (
+                              <div className="mt-3 p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                                <p className="text-[11px] text-slate-500">
+                                  Prefer not to use OAuth? Paste your Slack Bot User OAuth Token (<code className="font-mono text-slate-700 bg-white px-1 py-0.5 rounded border border-slate-200">xoxb-...</code>) or Webhook URL.
+                                </p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                                      Bot User OAuth Token
+                                    </label>
+                                    <input
+                                      type="password"
+                                      placeholder="xoxb-your-token"
+                                      value={slackBotTokenInput}
+                                      onChange={(e) => setSlackBotTokenInput(e.target.value)}
+                                      className="w-full text-xs font-mono h-8 px-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                                      Incoming Webhook URL (Optional)
+                                    </label>
+                                    <input
+                                      type="text"
+                                      placeholder="https://hooks.slack.com/services/..."
+                                      value={slackWebhookInput}
+                                      onChange={(e) => setSlackWebhookInput(e.target.value)}
+                                      className="w-full text-xs font-mono h-8 px-2.5 bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="flex items-center justify-between pt-1">
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                                    <span>Default Channel:</span>
+                                    <input
+                                      type="text"
+                                      value={slackChannelInput}
+                                      onChange={(e) => setSlackChannelInput(e.target.value)}
+                                      placeholder="#general"
+                                      className="text-xs font-mono h-7 px-2 w-28 bg-white border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      connectSlackMutation.mutate({
+                                        bot_token: slackBotTokenInput || undefined,
+                                        webhook_url: slackWebhookInput || undefined,
+                                        channel_id: slackChannelInput || undefined,
+                                      });
+                                    }}
+                                    disabled={connectSlackMutation.isPending || (!slackBotTokenInput && !slackWebhookInput)}
+                                    className="h-8 px-3.5 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold rounded-lg shadow-2xs transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                                  >
+                                    {connectSlackMutation.isPending ? (
+                                      <RefreshCw size={11} className="animate-spin" />
+                                    ) : (
+                                      <Check size={11} />
+                                    )}
+                                    <span>Save &amp; Connect Token</span>
+                                  </button>
+                                </div>
+                              </div>
                             )}
-                            <span>Send Test Slack Notification</span>
-                          </button>
+                          </div>
                         </div>
+                      ) : (
+                        /* CONNECTED: Clean Workspace Management & Live Dispatch Controls */
+                        <div className="space-y-4 pt-1">
+                          {/* Connected Workspace Banner */}
+                          <div className="p-4 rounded-xl bg-gradient-to-r from-purple-50/80 via-white to-slate-50 border border-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-[#4A154B] text-white flex items-center justify-center text-lg font-bold shadow-2xs shrink-0">
+                                💬
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-sm font-bold text-slate-900">
+                                    {slackStatus?.team_name || "Slack Workspace"}
+                                  </h4>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-300 px-2 py-0.5 rounded-full">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                    Connected
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-500 mt-0.5">
+                                  Default broadcast channel: <span className="font-mono font-medium text-slate-700">{slackStatus?.default_channel || "#general"}</span>
+                                  {slackStatus?.bot_user_id ? ` • Bot ID: ${slackStatus.bot_user_id}` : ""}
+                                </p>
+                              </div>
+                            </div>
 
-                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-                          <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
-                            <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
-                              <Eye size={12} className="text-purple-600" />
-                              <span>Live Slack Channel Preview</span>
-                            </span>
-                            <span className="text-[10px] text-slate-400 font-mono">#general-intelligence</span>
+                            <div className="flex items-center gap-2 self-start sm:self-auto">
+                              <button
+                                type="button"
+                                onClick={handleAuthorizeSlack}
+                                disabled={isSlackOAuthLoading}
+                                className="text-xs text-purple-700 hover:text-purple-900 font-semibold px-2.5 py-1 bg-white hover:bg-purple-50 rounded-lg border border-purple-300 transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                              >
+                                <ExternalLink size={11} />
+                                <span>Re-authorize</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => disconnectSlackMutation.mutate()}
+                                disabled={disconnectSlackMutation.isPending}
+                                className="text-xs text-rose-600 hover:text-rose-700 font-semibold px-2.5 py-1 bg-white hover:bg-rose-50 rounded-lg border border-rose-300 transition-colors cursor-pointer shadow-2xs"
+                              >
+                                Disconnect
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[300px]">
-                            <div className="bg-white rounded-lg border border-slate-200/80 p-3 space-y-2 shadow-2xs">
-                              <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 rounded-md bg-[#4A154B] text-white flex items-center justify-center text-xs font-bold">
-                                  K
+                          {/* 2-Column Controls: Dispatch Configuration (Left) & Block Kit Preview (Right) */}
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                            {/* Broadcast Settings */}
+                            <div className="md:col-span-5 bg-white rounded-xl border border-slate-300 shadow-xs hover:border-slate-400 transition-all p-4 space-y-3.5">
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-xs font-semibold text-slate-700 block">
+                                    Target Broadcast Channel
+                                  </label>
+                                  {isLoadingSlackChannels && (
+                                    <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                                      <RefreshCw size={9} className="animate-spin" /> fetching...
+                                    </span>
+                                  )}
                                 </div>
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="text-xs font-bold text-slate-900">Knowra Bot</span>
-                                    <span className="text-[9px] px-1 bg-slate-100 text-slate-600 rounded font-semibold uppercase">APP</span>
-                                    <span className="text-[10px] text-slate-400">10:42 AM</span>
+
+                                {slackChannels.length > 0 ? (
+                                  <select
+                                    value={slackChannelInput}
+                                    onChange={(e) => setSlackChannelInput(e.target.value)}
+                                    className="w-full text-xs h-8 px-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-slate-800 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                  >
+                                    {slackChannels.map((c) => (
+                                      <option key={c.id} value={`#${c.name}`}>
+                                        #{c.name} {c.is_private ? "(private)" : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-800">
+                                    <Hash size={13} className="text-slate-400" />
+                                    <input
+                                      type="text"
+                                      value={slackChannelInput}
+                                      onChange={(e) => setSlackChannelInput(e.target.value)}
+                                      placeholder="general"
+                                      className="bg-transparent border-none outline-none text-xs font-mono w-full"
+                                    />
                                   </div>
-                                </div>
+                                )}
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                  Knowra bot posts meeting briefs and assigned action items to this channel.
+                                </p>
                               </div>
 
-                              <div className="pl-9 space-y-2 text-xs">
-                                <div className="border-l-2 border-purple-500 pl-2.5 py-0.5 space-y-1">
-                                  <p className="font-bold text-slate-900 text-xs">
-                                    ⚡ Executive Meeting Brief: Q3 Strategic Architecture Review
-                                  </p>
-                                  <p className="text-[11px] text-slate-600">
-                                    <span className="font-semibold">Key Decision:</span> Ratified PostgreSQL 16 &amp; pgvector partitioning schema for multi-tenant isolation.
-                                  </p>
-                                  <div className="text-[11px] text-slate-600 space-y-0.5">
-                                    <p className="font-semibold text-slate-800">Action Items:</p>
-                                    <p>• <span className="text-indigo-600 font-medium">@sujal.nage</span>: Benchmark HNSW indexing speed with 1M vectors</p>
-                                    <p>• <span className="text-indigo-600 font-medium">@platform-eng</span>: Finalize zero-downtime database migration script</p>
+                              <div>
+                                <label className="text-xs font-semibold text-slate-700 block mb-1">
+                                  Test Notification Message
+                                </label>
+                                <textarea
+                                  rows={3}
+                                  value={slackTestMessage}
+                                  onChange={(e) => setSlackTestMessage(e.target.value)}
+                                  placeholder="Enter message to broadcast..."
+                                  className="w-full text-[11px] p-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-purple-500 text-slate-700 font-sans"
+                                />
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  postSlackMessageMutation.mutate({
+                                    channel: slackChannelInput || undefined,
+                                    text: slackTestMessage,
+                                    title: "⚡ Executive Meeting Briefing",
+                                  });
+                                }}
+                                disabled={postSlackMessageMutation.isPending}
+                                className="w-full h-9 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-2xs transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                {postSlackMessageMutation.isPending ? (
+                                  <RefreshCw size={12} className="animate-spin" />
+                                ) : (
+                                  <Send size={12} />
+                                )}
+                                <span>Send Test Notification</span>
+                              </button>
+                            </div>
+
+                            {/* Live Preview Card */}
+                            <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
+                              <div className="px-3 py-2 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                                <span className="font-semibold text-slate-700 flex items-center gap-1 text-[11px]">
+                                  <Eye size={12} className="text-purple-600" />
+                                  <span>Live Slack Channel Preview</span>
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {slackChannelInput.startsWith("#") ? slackChannelInput : `#${slackChannelInput}`}
+                                </span>
+                              </div>
+
+                              <div className="p-3.5 bg-slate-50/40 flex-1 overflow-y-auto max-h-[340px]">
+                                <div className="bg-white rounded-lg border border-slate-200/80 p-3.5 space-y-2.5 shadow-2xs">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-8 h-8 rounded-lg bg-[#4A154B] text-white flex items-center justify-center text-xs font-bold shadow-2xs">
+                                      K
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-bold text-slate-900">Knowra Bot</span>
+                                        <span className="text-[9px] px-1 bg-slate-100 text-slate-600 rounded font-semibold uppercase">APP</span>
+                                        <span className="text-[10px] text-slate-400">Just now</span>
+                                      </div>
+                                      <p className="text-[10px] text-slate-400">
+                                        {slackStatus?.team_name || "Enterprise Workspace"}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="pl-10 space-y-2.5 text-xs">
+                                    <div className="border-l-[3px] border-[#4A154B] pl-3 py-1 space-y-2 bg-slate-50/50 rounded-r-md">
+                                      <p className="font-bold text-slate-900 text-xs">
+                                        ⚡ Executive Meeting Briefing: Live Dispatch
+                                      </p>
+                                      <p className="text-[11px] text-slate-700 leading-relaxed font-sans">
+                                        {slackTestMessage}
+                                      </p>
+                                      <div className="text-[11px] text-slate-600 space-y-1 pt-1 border-t border-slate-200/60">
+                                        <p className="font-semibold text-slate-800 text-[10px] uppercase tracking-wider">
+                                          Key Action Items &amp; Ownership:
+                                        </p>
+                                        <p className="flex items-center gap-1 text-[11px]">
+                                          <span className="text-purple-600 font-semibold bg-purple-50 px-1 rounded">@sujal.nage</span>
+                                          <span>Verify Celery integration task dispatch</span>
+                                        </p>
+                                        <p className="flex items-center gap-1 text-[11px]">
+                                          <span className="text-purple-600 font-semibold bg-purple-50 px-1 rounded">@lead-eng</span>
+                                          <span>Finalize OAuth 2.0 redirect URL in Slack App settings</span>
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-2 pt-1 text-[10px] text-slate-400 font-mono">
+                                      <span>Generated by Knowra Multi-Agent Core</span>
+                                      <span>•</span>
+                                      <span>TLS 1.3 Verified</span>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
                             </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
 
@@ -1957,17 +2337,19 @@ export default function IntegrationsPage() {
                   {selectedConnector.provider === "JIRA" && (
                     <div className="space-y-4">
                       {/* Section Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-300 gap-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-5 h-5 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold border border-blue-200">
+                          <div className="w-6 h-6 rounded-md bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold border border-blue-200">
                             🔵
                           </div>
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Atlassian Jira Software &amp; Live Sprint Issues
-                          </h4>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                            LIVE v3 REST API
-                          </span>
+                          <div>
+                            <h4 className="text-xs font-bold text-slate-900">
+                              Atlassian Jira Software
+                            </h4>
+                            <p className="text-[11px] text-slate-500">
+                              Push detected meeting action items into your Jira sprint board
+                            </p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -1977,7 +2359,7 @@ export default function IntegrationsPage() {
                               toast.success("Refreshed live Jira sprint issues");
                             }}
                             disabled={isLoadingJiraIssues}
-                            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                            className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
                           >
                             <RefreshCw size={11} className={isLoadingJiraIssues ? "animate-spin" : ""} />
                             <span>Refresh Issues</span>
@@ -1987,7 +2369,7 @@ export default function IntegrationsPage() {
                               href={jiraStatus.instance_url}
                               target="_blank"
                               rel="noreferrer"
-                              className="px-2.5 py-1 rounded-lg border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-medium shadow-2xs flex items-center gap-1 transition-colors"
+                              className="px-2.5 py-1 rounded-lg border border-blue-300 bg-blue-50/80 hover:bg-blue-100 text-blue-700 text-xs font-semibold shadow-2xs flex items-center gap-1 transition-colors"
                             >
                               <span>Open Jira Cloud</span>
                               <ExternalLink size={10} />
@@ -1999,19 +2381,84 @@ export default function IntegrationsPage() {
                       {/* 2-Column Layout: Create Issue from Action Item (Left 5) & Live Sprint Issues Board (Right 7) */}
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                         {/* Left Form: Create Action Item into Jira Ticket */}
-                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3.5">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-300 shadow-xs hover:border-slate-400 transition-all p-4 space-y-3.5">
                           <div>
                             <div className="flex items-center justify-between">
                               <label className="text-xs font-bold text-slate-800 block">
                                 Create Action Item in Jira
                               </label>
                               <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 font-semibold">
-                                Project: {jiraStatus?.project_key || "KNOWRA"}
+                                Project: {jiraStatus?.project_name ? `${jiraStatus.project_name} (${jiraStatus.project_key})` : (jiraStatus?.project_key || "SCRUM")}
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-500 mt-0.5">
                               Convert detected meeting commitments into real Jira sprint tickets in ADF format.
                             </p>
+                          </div>
+
+                          {/* Dropdown to select detected action items from meetings */}
+                          <div className="p-2.5 rounded-lg bg-blue-50/70 border border-blue-100 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <label className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5">
+                                <span>⚡ Select Meeting Action Item</span>
+                              </label>
+                              <span className="text-[10px] font-mono text-blue-700 bg-blue-100/70 px-1.5 py-0.5 rounded font-semibold">
+                                {realMeetingActions.length} detected
+                              </span>
+                            </div>
+                            <select
+                              value={selectedJiraActionId}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setSelectedJiraActionId(val);
+                                const selected = realMeetingActions.find((a) => a.id === val);
+                                if (selected) {
+                                  setJiraNewSummary(selected.title);
+                                  const descParts: string[] = [];
+                                  if (selected.description) descParts.push(selected.description);
+                                  if (selected.meeting_title) descParts.push(`Meeting: ${selected.meeting_title}`);
+                                  if (selected.assignee) descParts.push(`Assignee: ${selected.assignee}`);
+                                  descParts.push(`Extracted from Knowra meeting intelligence. Status: ${selected.status || "OPEN"}`);
+                                  setJiraNewDescription(descParts.join("\n"));
+
+                                  const p = (selected.priority || "").toUpperCase();
+                                  if (p === "CRITICAL" || p === "URGENT") setJiraNewPriority("Highest");
+                                  else if (p === "HIGH") setJiraNewPriority("High");
+                                  else if (p === "LOW") setJiraNewPriority("Low");
+                                  else setJiraNewPriority("Medium");
+                                }
+                              }}
+                              className="w-full h-8 px-2 text-xs bg-white border border-blue-200 rounded-md focus:outline-none focus:border-blue-600 text-slate-800 font-medium"
+                            >
+                              <option value="">
+                                {realMeetingActions.length > 0
+                                  ? "-- Choose an action item to auto-fill --"
+                                  : "-- No detected meeting action items --"}
+                              </option>
+                              {realMeetingActions.map((act) => (
+                                <option key={act.id} value={act.id}>
+                                  [{act.priority || "MEDIUM"}] {act.title}
+                                </option>
+                              ))}
+                            </select>
+                            {selectedJiraActionId && (
+                              <div className="flex items-center justify-between pt-0.5">
+                                <span className="text-[10px] text-blue-600 truncate max-w-[200px]">
+                                  Selected &amp; auto-filled
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedJiraActionId("");
+                                    setJiraNewSummary("");
+                                    setJiraNewDescription("");
+                                  }}
+                                  className="text-[10px] text-blue-700 hover:text-blue-900 underline font-medium cursor-pointer"
+                                >
+                                  Clear selection
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           <div>
@@ -2022,7 +2469,7 @@ export default function IntegrationsPage() {
                               type="text"
                               value={jiraNewSummary}
                               onChange={(e) => setJiraNewSummary(e.target.value)}
-                              placeholder="e.g. Implement vector index partitioning schema"
+                              placeholder="e.g. Select from dropdown above or enter custom summary"
                               className="w-full h-8 px-3 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600 focus:bg-white transition-all font-medium"
                             />
                           </div>
@@ -2099,16 +2546,11 @@ export default function IntegrationsPage() {
                               {createJiraIssueMutation.isPending ? "Creating in Jira..." : "Create Issue in Jira"}
                             </span>
                           </button>
-
-                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                            <span>OAuth: AES-256 Fernet</span>
-                            <span>Payload: ADF v3 JSON</span>
-                          </div>
                         </div>
 
                         {/* Right Board: Live Sprint Issues Stream */}
-                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col">
-                          <div className="px-3.5 py-2.5 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between text-xs">
+                        <div className="md:col-span-7 bg-white rounded-xl border border-slate-300 shadow-xs overflow-hidden flex flex-col">
+                          <div className="px-3.5 py-2.5 border-b border-slate-200 bg-slate-50/80 flex items-center justify-between text-xs">
                             <span className="font-semibold text-slate-700 flex items-center gap-1.5 text-[11px]">
                               <Kanban size={13} className="text-blue-600" />
                               <span>Live Sprint Board</span>
@@ -2133,7 +2575,7 @@ export default function IntegrationsPage() {
                                   🔵
                                 </div>
                                 <p className="text-xs font-bold text-slate-800">
-                                  No active sprint issues found in {jiraStatus?.project_key || "KNOWRA"}
+                                  No active sprint issues found in {jiraStatus?.project_name ? `${jiraStatus.project_name} (${jiraStatus.project_key})` : (jiraStatus?.project_key || "SCRUM")}
                                 </p>
                                 <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
                                   Use the form on the left to push meeting action items or decisions directly into your Jira backlog.
@@ -2213,17 +2655,19 @@ export default function IntegrationsPage() {
                   {selectedConnector.provider === "LINEAR" && (
                     <div className="space-y-4">
                       {/* Section Header */}
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-300 gap-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-5 h-5 rounded-md bg-violet-50 text-violet-700 flex items-center justify-center text-xs font-bold border border-violet-200">
+                          <div className="w-6 h-6 rounded-md bg-violet-50 text-violet-700 flex items-center justify-center text-xs font-bold border border-violet-200">
                             🔺
                           </div>
-                          <h4 className="text-xs font-bold text-slate-900">
-                            Linear Engineering Sync &amp; Live Cycle Issues
-                          </h4>
-                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-                            LIVE GRAPHQL API
-                          </span>
+                          <div>
+                            <h4 className="text-xs font-bold text-slate-900">
+                              Linear Engineering Sync
+                            </h4>
+                            <p className="text-[11px] text-slate-500">
+                              Convert detected technical decisions into real Linear cycle issues
+                            </p>
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -2233,7 +2677,7 @@ export default function IntegrationsPage() {
                               toast.success("Refreshed live Linear cycle issues");
                             }}
                             disabled={isLoadingLinearIssues}
-                            className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
+                            className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-60"
                           >
                             <RefreshCw size={11} className={isLoadingLinearIssues ? "animate-spin" : ""} />
                             <span>Refresh Issues</span>
@@ -2242,7 +2686,7 @@ export default function IntegrationsPage() {
                             href="https://linear.app"
                             target="_blank"
                             rel="noreferrer"
-                            className="px-2.5 py-1 rounded-lg border border-violet-200 bg-violet-50/80 hover:bg-violet-100 text-violet-700 text-xs font-medium shadow-2xs flex items-center gap-1 transition-colors"
+                            className="px-2.5 py-1 rounded-lg border border-violet-300 bg-violet-50/80 hover:bg-violet-100 text-violet-700 text-xs font-semibold shadow-2xs flex items-center gap-1 transition-colors"
                           >
                             <span>Open Linear</span>
                             <ExternalLink size={10} />
@@ -2253,7 +2697,7 @@ export default function IntegrationsPage() {
                       {/* 2-Column Layout: Create Issue from Action Item (Left 5) & Live Linear Issues Stream (Right 7) */}
                       <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
                         {/* Left Form: Create Action Item into Linear Issue */}
-                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-200 shadow-2xs p-4 space-y-3.5">
+                        <div className="md:col-span-5 bg-white rounded-xl border border-slate-300 shadow-xs hover:border-slate-400 transition-all p-4 space-y-3.5">
                           <div>
                             <div className="flex items-center justify-between">
                               <label className="text-xs font-bold text-slate-800 block">
@@ -2397,11 +2841,6 @@ export default function IntegrationsPage() {
                               {createLinearIssueMutation.isPending ? "Creating in Linear..." : "Create Issue in Linear"}
                             </span>
                           </button>
-
-                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                            <span>OAuth: Scoped Bearer</span>
-                            <span>API: Linear GraphQL v1</span>
-                          </div>
                         </div>
 
                         {/* Right Board: Live Linear Cycle Issues Stream */}
@@ -2515,27 +2954,7 @@ export default function IntegrationsPage() {
                 </div>
               )}
 
-              {/* ── 5. SUBTLE COMPLIANCE FOOTER ── */}
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
-                <span>
-                  {selectedConnector.provider === "LINEAR"
-                    ? "Linear GraphQL API v1 & Scoped Personal Token Security"
-                    : selectedConnector.provider === "JIRA"
-                    ? "Atlassian Jira REST API v3 & Enterprise OAuth 2.0 Policy"
-                    : selectedConnector.provider === "SLACK"
-                    ? "Slack Webhook & Bot Token Scopes"
-                    : "Google API Services Limited Use & OAuth 2.0 Compliance"}
-                </span>
-                <a
-                  href={selectedConnector.docUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors"
-                >
-                  <span>Open {selectedConnector.name}</span>
-                  <ExternalLink size={11} />
-                </a>
-              </div>
+
             </div>
           </div>
         )}
@@ -2794,6 +3213,13 @@ export default function IntegrationsPage() {
                     <Kanban size={13} className="text-white" />
                   </div>
                   <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Linear</span>
+                </>
+              ) : authConnector.provider === "SLACK" ? (
+                <>
+                  <div className="w-5 h-5 rounded-md bg-[#4A154B] text-white flex items-center justify-center font-bold text-xs shadow-2xs">
+                    💬
+                  </div>
+                  <span className="text-[14px] font-normal text-[#3c4043]">Sign in with Slack</span>
                 </>
               ) : (
                 <>

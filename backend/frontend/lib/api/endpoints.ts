@@ -112,6 +112,13 @@ export const INTEGRATIONS = {
   linearIssues: (maxResults: number = 20) => `/integrations/linear/issues?max_results=${maxResults}`,
   linearCreateIssue: () => "/integrations/linear/create-issue",
   linearDisconnect: () => "/integrations/linear/disconnect",
+  slackConfigStatus: () => "/integrations/slack/config-status",
+  slackAuthUrl: () => "/integrations/slack/auth-url",
+  slackConnect: () => "/integrations/slack/connect",
+  slackStatus: () => "/integrations/slack/status",
+  slackChannels: () => "/integrations/slack/channels",
+  slackPostMessage: () => "/integrations/slack/post-message",
+  slackDisconnect: () => "/integrations/slack/disconnect",
 };
 
 // ─── Actions ─────────────────────────────────────────────────────────────────

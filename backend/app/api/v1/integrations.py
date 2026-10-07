@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -34,6 +34,7 @@ from app.integrations.zoom_service import zoom_service
 from app.integrations.outlook_service import outlook_service
 from app.integrations.jira_service import jira_service
 from app.integrations.linear_service import linear_service
+from app.integrations.slack_service import slack_service
 from app.integrations.models import Integration, IntegrationEvent
 from app.integrations.schemas import (
     IntegrationCreate,
@@ -51,6 +52,8 @@ from app.integrations.schemas import (
     JiraCreateIssueRequest,
     LinearConnectRequest,
     LinearCreateIssueRequest,
+    SlackConnectRequest,
+    SlackPostMessageRequest,
 )
 from app.schemas.auth import CurrentUserContext
 from app.security.dependencies import get_current_user
@@ -1103,10 +1106,23 @@ def get_jira_config_status(
     return {
         "is_configured": is_configured,
         "client_id_preview": (settings.JIRA_CLIENT_ID[:8] + "...") if settings.JIRA_CLIENT_ID else None,
-        "instance_url": settings.JIRA_INSTANCE_URL or "https://softude.atlassian.net",
-        "default_project_key": settings.JIRA_DEFAULT_PROJECT_KEY or "KNOWRA",
+        "instance_url": settings.JIRA_INSTANCE_URL or "https://knowra-team.atlassian.net",
+        "default_project_key": settings.JIRA_DEFAULT_PROJECT_KEY or "SCRUM",
+        "api_email": getattr(settings, "JIRA_API_EMAIL", "") or "",
         "redirect_uri": redirect_uri,
     }
+
+
+@router.get(
+    "/jira/callback",
+    summary="OAuth callback redirect handler for Atlassian Jira",
+)
+def jira_oauth_callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+) -> RedirectResponse:
+    frontend_url = (settings.FRONTEND_APP_URL or "http://localhost:3000").rstrip("/")
+    return RedirectResponse(url=f"{frontend_url}/integrations?jira=connected")
 
 
 @router.post(
@@ -1120,14 +1136,15 @@ def connect_jira(
 ) -> Dict[str, Any]:
     try:
         # If instance_url, api_token, or project_key are omitted, pull from settings or enterprise defaults
-        instance_url = (payload.instance_url or "").strip() or settings.JIRA_INSTANCE_URL or "https://softude.atlassian.net"
+        instance_url = (payload.instance_url or "").strip() or settings.JIRA_INSTANCE_URL or "https://knowra-team.atlassian.net"
         api_token = (payload.api_token or "").strip() or settings.JIRA_API_TOKEN or "jira_demo_token_knowra_live"
-        project_key = (payload.project_key or "").strip() or settings.JIRA_DEFAULT_PROJECT_KEY or "KNOWRA"
+        project_key = (payload.project_key or "").strip() or settings.JIRA_DEFAULT_PROJECT_KEY or "SCRUM"
+        email = (payload.email or "").strip() or getattr(settings, "JIRA_API_EMAIL", "") or current_user.email
 
         return jira_service.save_connection(
             tenant_id=current_user.organization_id,
             instance_url=instance_url,
-            email=payload.email,
+            email=email,
             api_token=api_token,
             project_key=project_key,
             db=db,
@@ -1160,6 +1177,10 @@ def get_jira_projects(
 ) -> List[Dict[str, Any]]:
     creds = jira_service.get_credentials(current_user.organization_id, db)
     if not creds:
+        # If not connected yet in DB but configured in backend settings, fetch live projects from settings
+        if settings.JIRA_API_TOKEN and (getattr(settings, "JIRA_API_EMAIL", "") or settings.JIRA_INSTANCE_URL):
+            email = getattr(settings, "JIRA_API_EMAIL", "") or "sujal.nage@softude.com"
+            return jira_service.fetch_projects(settings.JIRA_INSTANCE_URL, email, settings.JIRA_API_TOKEN)
         return []
     return jira_service.fetch_projects(creds["instance_url"], creds["email"], creds["api_token"])
 
@@ -1193,6 +1214,7 @@ def create_jira_issue(
             db=db,
             issue_type=payload.issue_type or "Task",
             priority=payload.priority or "Medium",
+            project_key=payload.project_key,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -1323,6 +1345,317 @@ def disconnect_linear(
 ) -> Dict[str, Any]:
     success = linear_service.disconnect(current_user.organization_id, db)
     return {"success": success, "message": "Linear integration disconnected."}
+
+
+# ─── Slack Team Notifications Endpoints ──────────────────────────────────────────
+
+@router.get(
+    "/slack/config-status",
+    summary="Get Slack OAuth / app configuration details from backend environment",
+)
+def get_slack_config_status(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    base = (settings.OAUTH_REDIRECT_BASE_URL or "http://localhost:8000").rstrip("/")
+    for sub in ("/api/v1/auth", "/api/v1", "/auth"):
+        if base.endswith(sub):
+            base = base[:-len(sub)]
+    redirect_uri = f"{base}/api/v1/integrations/slack/callback"
+
+    clean_secret = slack_service.get_clean_client_secret()
+    client_id = (settings.SLACK_CLIENT_ID or "").strip()
+    oauth_configured = bool(client_id and clean_secret)
+    has_bot_token = bool(settings.SLACK_BOT_TOKEN)
+    has_webhook = bool(settings.SLACK_WEBHOOK_URL)
+
+    return {
+        "is_configured": oauth_configured or has_bot_token or has_webhook,
+        "oauth_configured": oauth_configured,
+        "client_id": client_id or None,
+        "client_id_preview": (client_id[:8] + "...") if client_id else None,
+        "has_bot_token": has_bot_token,
+        "has_webhook": has_webhook,
+        "default_channel": settings.SLACK_DEFAULT_CHANNEL or "#general-intelligence",
+        "redirect_uri": redirect_uri,
+    }
+
+
+@router.get(
+    "/slack/auth-url",
+    summary="Generate live Slack OAuth 2.0 v2 authorization URL for workspace install",
+)
+def get_slack_auth_url(
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    base = (settings.OAUTH_REDIRECT_BASE_URL or "http://localhost:8000").rstrip("/")
+    for sub in ("/api/v1/auth", "/api/v1", "/auth"):
+        if base.endswith(sub):
+            base = base[:-len(sub)]
+    redirect_uri = f"{base}/api/v1/integrations/slack/callback"
+
+    try:
+        url = slack_service.get_oauth_url(redirect_uri, state=str(current_user.organization_id))
+        return {
+            "is_configured": True,
+            "auth_url": url,
+            "redirect_uri": redirect_uri,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.get(
+    "/slack/callback",
+    summary="OAuth callback redirect handler for Slack installation",
+)
+def slack_oauth_callback(
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+) -> Any:
+    frontend_url = (settings.FRONTEND_APP_URL or "http://localhost:3000").rstrip("/")
+    if error or not code:
+        err_msg = error or "Authorization was cancelled by user."
+        err_html = f"""<!DOCTYPE html>
+<html>
+<head><title>Slack Authorization</title></head>
+<body style="font-family: -apple-system, sans-serif; text-align: center; padding: 40px; background: #fff1f2; color: #9f1239;">
+  <h3>Connection Cancelled</h3>
+  <p>{err_msg}</p>
+  <script>
+    if (window.opener && !window.opener.closed) {{
+      window.opener.postMessage({{ type: "SLACK_ERROR", error: "{err_msg}" }}, "*");
+      setTimeout(function() {{ window.close(); }}, 1200);
+    }} else {{
+      setTimeout(function() {{ window.location.href = "{frontend_url}/integrations?error={urllib.parse.quote(err_msg)}"; }}, 1200);
+    }}
+  </script>
+</body>
+</html>"""
+        return HTMLResponse(content=err_html)
+
+    base = (settings.OAUTH_REDIRECT_BASE_URL or "http://localhost:8000").rstrip("/")
+    for sub in ("/api/v1/auth", "/api/v1", "/auth"):
+        if base.endswith(sub):
+            base = base[:-len(sub)]
+    redirect_uri = f"{base}/api/v1/integrations/slack/callback"
+
+    try:
+        data = slack_service.exchange_code(code, redirect_uri)
+        bot_token = data.get("access_token")
+        team = data.get("team") or {}
+        incoming_webhook = data.get("incoming_webhook") or {}
+        channel = incoming_webhook.get("channel") or settings.SLACK_DEFAULT_CHANNEL or "#general-intelligence"
+        webhook_url = incoming_webhook.get("url")
+        team_name = team.get("name") or "Slack Workspace"
+
+        # Resolve tenant ID from state, fallback to first Organization
+        tenant_id = None
+        if state:
+            try:
+                tenant_id = uuid.UUID(state)
+            except Exception:
+                pass
+
+        if not tenant_id:
+            from app.models.organization import Organization
+            org = db.query(Organization).first()
+            if org:
+                tenant_id = org.id
+
+        if tenant_id:
+            slack_service.save_connection(
+                tenant_id=tenant_id,
+                db=db,
+                channel=channel,
+                webhook_url=webhook_url,
+                bot_token=bot_token,
+                team_name=team_name,
+                team_id=team.get("id"),
+            )
+
+        success_html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <title>Slack Connected - Knowra</title>
+  <style>
+    body {{
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #f8fafc;
+      color: #0f172a;
+    }}
+    .box {{
+      background: white;
+      padding: 36px 32px;
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      text-align: center;
+      max-width: 380px;
+      border: 1px solid #e2e8f0;
+    }}
+    .badge {{
+      display: inline-block;
+      width: 48px;
+      height: 48px;
+      background: #4A154B;
+      color: white;
+      border-radius: 12px;
+      font-size: 24px;
+      line-height: 48px;
+      margin-bottom: 16px;
+    }}
+    h3 {{ margin: 0 0 8px; font-size: 18px; font-weight: 700; }}
+    p {{ margin: 0 0 16px; color: #64748b; font-size: 13px; line-height: 1.5; }}
+    .bar {{
+      height: 3px;
+      background: #4A154B;
+      border-radius: 2px;
+      width: 60px;
+      margin: 0 auto;
+      animation: pulse 1s infinite alternate;
+    }}
+    @keyframes pulse {{ from {{ opacity: 0.4; }} to {{ opacity: 1; }} }}
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="badge">💬</div>
+    <h3>Slack Connected!</h3>
+    <p>Workspace <strong>{team_name}</strong> is now connected to Knowra.<br/>Closing popup window...</p>
+    <div class="bar"></div>
+  </div>
+  <script>
+    try {{
+      if (window.opener && !window.opener.closed) {{
+        window.opener.postMessage({{ type: "SLACK_CONNECTED", team: "{team_name}" }}, "*");
+        setTimeout(function() {{ window.close(); }}, 700);
+      }} else {{
+        setTimeout(function() {{ window.location.href = "{frontend_url}/integrations?connected=SLACK&email={urllib.parse.quote(team_name)}"; }}, 700);
+      }}
+    }} catch (e) {{
+      window.location.href = "{frontend_url}/integrations?connected=SLACK&email={urllib.parse.quote(team_name)}";
+    }}
+  </script>
+</body>
+</html>"""
+        return HTMLResponse(content=success_html)
+    except Exception as exc:
+        logger.exception("Slack OAuth callback failed")
+        exc_msg = str(exc)
+        fail_html = f"""<!DOCTYPE html>
+<html>
+<head><title>Slack Error</title></head>
+<body style="font-family: sans-serif; text-align: center; padding: 40px; background: #fff1f2;">
+  <h3 style="color: #9f1239;">Failed to Connect Slack</h3>
+  <p style="color: #475569;">{exc_msg}</p>
+  <script>
+    if (window.opener && !window.opener.closed) {{
+      window.opener.postMessage({{ type: "SLACK_ERROR", error: "{exc_msg}" }}, "*");
+      setTimeout(function() {{ window.close(); }}, 1500);
+    }} else {{
+      setTimeout(function() {{ window.location.href = "{frontend_url}/integrations?error={urllib.parse.quote(exc_msg)}"; }}, 1500);
+    }}
+  </script>
+</body>
+</html>"""
+        return HTMLResponse(content=fail_html)
+
+
+@router.post(
+    "/slack/connect",
+    summary="Connect Slack workspace with Webhook URL or Bot Token",
+)
+def connect_slack(
+    payload: SlackConnectRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        return slack_service.save_connection(
+            tenant_id=current_user.organization_id,
+            db=db,
+            channel=payload.channel,
+            webhook_url=payload.webhook_url,
+            bot_token=payload.bot_token,
+            team_name=payload.team_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Slack connect error")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to connect Slack: {str(e)}")
+
+
+@router.get(
+    "/slack/status",
+    summary="Get Slack connection status",
+)
+def get_slack_status(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    return slack_service.get_status(tenant_id=current_user.organization_id, db=db)
+
+
+@router.get(
+    "/slack/channels",
+    summary="Get accessible Slack channels",
+)
+def get_slack_channels(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> List[Dict[str, Any]]:
+    return slack_service.fetch_channels(tenant_id=current_user.organization_id, db=db)
+
+
+@router.post(
+    "/slack/post-message",
+    summary="Post rich notification or meeting recap to Slack channel",
+)
+def post_slack_message(
+    payload: SlackPostMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    try:
+        blocks = None
+        if payload.meeting_title:
+            blocks = slack_service.build_meeting_blocks(
+                title=payload.meeting_title,
+                summary=payload.summary,
+                decisions=payload.decisions,
+                action_items=payload.action_items,
+            )
+        return slack_service.post_message(
+            tenant_id=current_user.organization_id,
+            db=db,
+            channel=payload.channel,
+            text=payload.message or (f"⚡ Knowra Meeting Intelligence: {payload.meeting_title}" if payload.meeting_title else "Knowra Slack Test Ping"),
+            blocks=blocks,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Slack post message error")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to send Slack message: {str(e)}")
+
+
+@router.delete(
+    "/slack/disconnect",
+    summary="Disconnect Slack integration",
+)
+def disconnect_slack(
+    db: Session = Depends(get_db),
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> Dict[str, Any]:
+    success = slack_service.disconnect(current_user.organization_id, db)
+    return {"success": success, "message": "Slack integration disconnected."}
 
 
 @router.get(

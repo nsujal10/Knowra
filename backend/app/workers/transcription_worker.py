@@ -134,7 +134,12 @@ def execute_transcription_task(self, job_id: str, tenant_id: str, media_id: str)
             db.commit()
             execute_diarization_task.delay(str(diar_job.id), str(tenant_id), str(media_id))
         except Exception as diar_err:
-            log.warning("Could not queue diarization task", error=str(diar_err))
+            log.warning("Could not queue diarization task, falling back to direct intelligence extraction", error=str(diar_err))
+            try:
+                from app.workers.intelligence_tasks import extract_intelligence_task
+                extract_intelligence_task.delay(str(tenant_id), str(media.meeting_id))
+            except Exception as intel_err:
+                log.warning("Could not queue fallback intelligence task", error=str(intel_err))
         
         # Calculate RTF (Real-Time Factor)
         processing_time = time.time() - start_time

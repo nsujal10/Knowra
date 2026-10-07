@@ -171,6 +171,17 @@ class MeetingIntelligenceService:
             )
             validated_bundle = validator.validate_bundle(bundle, strict=False)
 
+            # If no action items were found in the bundle, guarantee dedicated extraction pass
+            if not validated_bundle.action_items:
+                try:
+                    logger.info("Main bundle had 0 action items, attempting dedicated action extraction", meeting_id=str(meeting_id))
+                    fallback_actions = gateway.extract_actions(context_str, segments_meta)
+                    if fallback_actions:
+                        validated_bundle.action_items = validator.validate_action_items(fallback_actions, strict=False)
+                        logger.info("Dedicated action extraction yielded items", count=len(validated_bundle.action_items))
+                except Exception as act_err:
+                    logger.warning("Dedicated action extraction fallback failed", error=str(act_err))
+
             # 7. Persist Topics
             for t in validated_bundle.topics:
                 self.db.add(Topic(

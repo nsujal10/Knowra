@@ -429,16 +429,6 @@ export default function GlobalDecisionsPage() {
                         {decision.impact_level} IMPACT
                       </span>
                     )}
-
-                    {decision.meeting_title && (
-                      <Link
-                        href={`/meetings/${decision.meeting_id}?tab=recap`}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-slate-50 text-slate-600 border border-slate-200 hover:text-indigo-600 hover:border-indigo-200 transition-colors"
-                      >
-                        <Video size={11} className="text-slate-400" />
-                        <span className="max-w-[220px] truncate">{decision.meeting_title}</span>
-                      </Link>
-                    )}
                   </div>
 
                   <div className="text-slate-400 text-xs flex items-center gap-1 font-mono shrink-0">

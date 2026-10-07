@@ -1004,7 +1004,7 @@ export default function GraphPage() {
   const [notification, setNotification] = useState<string | null>(null);
 
   // Copilot Drawer State
-  const [isCopilotOpen, setIsCopilotOpen] = useState(true);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [sessions, setSessions] = useState<GraphChatSession[]>(DEFAULT_GRAPH_SESSIONS);
@@ -1355,24 +1355,6 @@ export default function GraphPage() {
               <span>
                 {syncMutation.isPending ? "Syncing..." : "Sync Graph"}
               </span>
-            </button>
-
-            <button
-              onClick={() => setIsCopilotOpen((prev) => !prev)}
-              className={cn(
-                "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer shadow-2xs",
-                isCopilotOpen
-                  ? "bg-indigo-600 text-white border-indigo-600 shadow-indigo-100"
-                  : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
-              )}
-            >
-              <Sparkles size={13} />
-              <span>AI Copilot</span>
-              {activeSession.messages.length > 1 && (
-                <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-500 text-white font-mono">
-                  {activeSession.messages.length - 1}
-                </span>
-              )}
             </button>
           </div>
         }
@@ -1855,6 +1837,40 @@ export default function GraphPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── 5. FLOATING BOT COPILOT BUTTON (BOTTOM RIGHT) ────────────────────── */}
+      <div className="fixed bottom-6 right-6 z-40 group">
+        <button
+          onClick={() => setIsCopilotOpen((prev) => !prev)}
+          className={cn(
+            "relative flex items-center justify-center w-13 h-13 rounded-full text-white shadow-lg transition-all duration-300 cursor-pointer",
+            isCopilotOpen
+              ? "bg-slate-900 hover:bg-slate-800 shadow-slate-900/30"
+              : "bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 hover:scale-105 shadow-indigo-500/30 hover:shadow-indigo-500/50"
+          )}
+          title={isCopilotOpen ? "Close Graph Copilot" : "Open Graph Copilot"}
+          aria-label="Toggle Graph Copilot"
+        >
+          {isCopilotOpen ? (
+            <X size={20} className="transition-transform duration-200" />
+          ) : (
+            <>
+              <Bot size={24} className="transition-transform duration-200 group-hover:scale-110" />
+              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-indigo-500 border-2 border-white"></span>
+              </span>
+            </>
+          )}
+        </button>
+
+        {!isCopilotOpen && (
+          <div className="absolute right-15 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-medium shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+            Ask Graph Copilot
+            <div className="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
           </div>
         )}
       </div>

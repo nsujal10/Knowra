@@ -40,7 +40,7 @@ def sync_commitments_to_action_items(db: Session, tenant_id: Optional[UUID] = No
 
         existing = db.query(ActionItem).filter(
             ActionItem.tenant_id == c.tenant_id,
-            ActionItem.fingerprint_hash == fp,
+            (ActionItem.fingerprint_hash == fp) | (ActionItem.id == c.id),
         ).first()
 
         if existing:

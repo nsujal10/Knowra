@@ -143,7 +143,7 @@ class JiraConnectRequest(BaseModel):
     email: str = Field(..., description="Atlassian account email")
     instance_url: Optional[str] = Field(default="", description="Atlassian instance domain, e.g. softude.atlassian.net")
     api_token: Optional[str] = Field(default="", description="Atlassian API token")
-    project_key: Optional[str] = Field(default="KNOWRA", description="Default Jira project key")
+    project_key: Optional[str] = Field(default="SCRUM", description="Default Jira project key")
 
 
 class JiraCreateIssueRequest(BaseModel):
@@ -151,6 +151,7 @@ class JiraCreateIssueRequest(BaseModel):
     description: Optional[str] = Field(None, description="Issue description")
     issue_type: Optional[str] = Field("Task", description="Task, Story, Bug, etc.")
     priority: Optional[str] = Field("Medium", description="High, Medium, Low")
+    project_key: Optional[str] = Field(None, description="Target Jira project key, e.g. SCRUM")
 
 
 class LinearConnectRequest(BaseModel):
@@ -164,4 +165,20 @@ class LinearCreateIssueRequest(BaseModel):
     description: Optional[str] = Field(None, description="Issue description")
     team_key: Optional[str] = Field(None, description="Team key e.g. ENG")
     priority: Optional[int] = Field(2, description="Priority: 0=None, 1=Urgent, 2=High, 3=Medium, 4=Low")
+
+
+class SlackConnectRequest(BaseModel):
+    channel: Optional[str] = Field(default="#general-intelligence", description="Target broadcast channel e.g. #general-intelligence")
+    webhook_url: Optional[str] = Field(default=None, description="Slack incoming webhook URL")
+    bot_token: Optional[str] = Field(default=None, description="Slack Bot User OAuth Token (xoxb-...)")
+    team_name: Optional[str] = Field(default=None, description="Slack Workspace name")
+
+
+class SlackPostMessageRequest(BaseModel):
+    channel: Optional[str] = Field(default=None, description="Target channel or override")
+    message: Optional[str] = Field(default=None, description="Message text")
+    meeting_title: Optional[str] = Field(default=None, description="Meeting title for structured recap")
+    summary: Optional[str] = Field(default=None, description="Executive summary")
+    decisions: Optional[List[str]] = Field(default=None, description="List of confirmed decisions")
+    action_items: Optional[List[Dict[str, Any]]] = Field(default=None, description="List of action items with owners")
 

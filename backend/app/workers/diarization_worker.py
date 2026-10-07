@@ -149,11 +149,12 @@ def execute_diarization_task(self, job_id: str, tenant_id: str, media_id: str):
                 job.error_message = str(e)
                 db.commit()
             media = db.query(MediaAsset).filter(MediaAsset.id == UUID(media_id)).first()
-            if media:
-                meeting = db.query(Meeting).filter(Meeting.id == media.meeting_id).first()
-                if meeting and self.request.retries >= self.max_retries:
-                    meeting.status = "FAILED"
-                    db.commit()
+            if media and self.request.retries >= self.max_retries:
+                # Fallback: trigger intelligence extraction anyway from transcript
+                try:
+                    _trigger_intelligence(db, UUID(tenant_id), media.meeting_id)
+                except Exception:
+                    pass
         except Exception:
             pass
         if self.request.retries >= self.max_retries:

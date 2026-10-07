@@ -70,14 +70,14 @@ const STORAGE_KEY = "knowra_timeline_chat_sessions_v1";
 const DEFAULT_SESSIONS: ChatSessionRecord[] = [
   {
     id: "session-default",
-    title: "Cross-Meeting Architecture & Decisions",
+    title: "Cross-Meeting Decisions & Timeline",
     updatedAt: "Just now",
     messages: [
       {
         id: "msg-welcome",
         role: "assistant",
         content:
-          "Welcome to the **Analytics Copilot**.\n\nI have indexed all decisions, commitments, and topic evolutions across your workspace meetings.\n\nAsk me about specific architectural choices, pending action items, or how decisions were updated over time.",
+          "Welcome to the **Analytics Copilot**.\n\nI have indexed all decisions, commitments, and topic evolutions across your workspace meetings.\n\nAsk me about decisions, pending action items, or how topics evolved over time.",
         timestamp: "Just now",
       },
     ],
@@ -85,97 +85,10 @@ const DEFAULT_SESSIONS: ChatSessionRecord[] = [
 ];
 
 const SUGGESTED_ANALYTICS_QUERIES = [
-  "Summarize key architectural decisions confirmed across all meetings",
-  "Which engineering action items are high priority and currently pending?",
-  "Trace the timeline and evolution of database decisions (PostgreSQL vs Spanner)",
-  "What commitments were agreed in recent infrastructure & architecture reviews?",
-];
-
-const DEFAULT_FALLBACK_TIMELINE_EVENTS: TimelineEvent[] = [
-  {
-    id: "arch_milestone_01",
-    event_type: "ARCHITECTURE",
-    entity_name: "Vector DB HNSW Partitioning Strategy",
-    entity_type: "architecture",
-    meeting_id: "8a94ed21-46fa-48e2-8d4f-eb924d835606",
-    meeting_title: "Sprint 44 Engineering Sync & Vector DB Partitioning",
-    speaker: "Sarah Chen",
-    summary: "Adopted HNSW indexing with multi-tenant partition filters for sub-50ms RAG retrieval across all transcripts.",
-    occurred_at: "2026-09-30T09:00:00Z",
-    evidence_text: "We have agreed to enforce HNSW graph partitioning to isolate tenant vectors while keeping recall above 98%.",
-  },
-  {
-    id: "dec_postgres_rds",
-    event_type: "DECISION",
-    entity_name: "Standardize on AWS RDS PostgreSQL 16",
-    entity_type: "decision",
-    meeting_id: "3e5a6a68-f996-4a0b-8534-706915152a46",
-    meeting_title: "Project Apollo Architecture Review",
-    speaker: "Marcus Vance",
-    summary: "Standardized primary enterprise persistence on AWS RDS PostgreSQL 16 with Multi-AZ automated backups, migrating off self-hosted EC2 instances.",
-    occurred_at: "2026-09-29T14:30:00Z",
-    evidence_text: "Moving to managed RDS reduces operational maintenance overhead and provides automated multi-zone failover.",
-  },
-  {
-    id: "act_resend_integration",
-    event_type: "ACTION",
-    entity_name: "Configure Live Resend HTML Executive Dispatch",
-    entity_type: "action",
-    meeting_id: "1cf98fe3-9043-4eab-81f1-9d79d3f940c0",
-    meeting_title: "Q3 Strategic Architecture & Executive Review",
-    speaker: "Sujal Nage",
-    summary: "Implement automated post-meeting briefing delivery via Resend REST API within 60 seconds of call transcription completion.",
-    occurred_at: "2026-09-29T11:15:00Z",
-    evidence_text: "Automated executive briefs will be formatted as responsive HTML and sent to all attendee emails immediately upon meeting termination.",
-  },
-  {
-    id: "dec_spanner_eval",
-    event_type: "DECISION",
-    entity_name: "Evaluate Google Cloud Spanner for Multi-Region",
-    entity_type: "decision",
-    meeting_id: "3e5a6a68-f996-4a0b-8534-706915152a46",
-    meeting_title: "Project Apollo Architecture Review",
-    speaker: "David Miller",
-    summary: "Evaluated Google Cloud Spanner vs DynamoDB for multi-region replication; deferred Spanner until international latency SLAs mandate it.",
-    occurred_at: "2026-09-28T16:00:00Z",
-    evidence_text: "Spanner remains our target tier for active-active multi-region, but RDS PostgreSQL is sufficient for current traffic.",
-  },
-  {
-    id: "act_pkce_vault",
-    event_type: "ACTION",
-    entity_name: "Deploy AES-256 OAuth Token Vault & PKCE Verification",
-    entity_type: "action",
-    meeting_id: "8a94ed21-46fa-48e2-8d4f-eb924d835606",
-    meeting_title: "Security & Governance Working Group",
-    speaker: "Kelsey",
-    summary: "Enforce SHA-256 PKCE code challenges for Microsoft 365 and Google Calendar integration connectors with cryptographic token vault storage.",
-    occurred_at: "2026-09-28T10:45:00Z",
-    evidence_text: "OAuth refresh tokens must be encrypted with AES-256 before persisting to PostgreSQL.",
-  },
-  {
-    id: "top_rag_citations",
-    event_type: "TOPIC",
-    entity_name: "Faithfulness & Grounded Citations in Cross-Meeting RAG",
-    entity_type: "topic",
-    meeting_id: "5fa1e38c-8519-4822-ba35-15a0c0a6b987",
-    meeting_title: "Sprint 1 - Titan Kickoff",
-    speaker: "Allison",
-    summary: "Established requirement that all AI answers must include exact meeting and speaker transcript citations to eliminate hallucinations.",
-    occurred_at: "2026-09-27T15:20:00Z",
-    evidence_text: "Hallucination prevention requires every claim to link directly to verified timestamped segments.",
-  },
-  {
-    id: "milestone_read_ai",
-    event_type: "MILESTONE",
-    entity_name: "Read AI Desktop & Mobile App Adoption",
-    entity_type: "integration",
-    meeting_id: "4e5d1693-1bf0-49fa-8734-ce0a42c30a10",
-    meeting_title: "Beta Confidential Meeting",
-    speaker: "David Miller",
-    summary: "Standardized on Read AI desktop and mobile clients for multi-channel transcript ingestion and automated speaker alignment.",
-    occurred_at: "2026-09-26T17:00:00Z",
-    evidence_text: "All participants agreed to use the desktop client for optimal audio clarity and speaker separation.",
-  },
+  "Summarize key decisions confirmed across all workspace meetings",
+  "Which action items are high priority and currently pending?",
+  "Trace recent decisions regarding integrations and releases",
+  "What commitments were agreed in recent meetings and reviews?",
 ];
 
 // ─── Rich Markdown Formatter for Analytics Copilot ───────────────────────────
@@ -427,7 +340,7 @@ export default function TimelinePage() {
   const [expandedQuotes, setExpandedQuotes] = useState<Record<string, boolean>>({});
 
   // Right-Side Chat Drawer State
-  const [isCopilotOpen, setIsCopilotOpen] = useState(true);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const [sessions, setSessions] = useState<ChatSessionRecord[]>(DEFAULT_SESSIONS);
@@ -467,26 +380,25 @@ export default function TimelinePage() {
 
   // ── Queries ────────────────────────────────────────────────────────────────
   const {
-    data: fetchedEvents,
+    data: fetchedEvents = [],
     isLoading,
     refetch,
     isFetching,
-  } = useQuery({
+  } = useQuery<TimelineEvent[]>({
     queryKey: queryKeys.timeline.decisions(),
     queryFn: async () => {
       try {
         const res = await api.get<TimelineEvent[]>(CROSS_MEETING.decisions());
-        if (Array.isArray(res) && res.length > 0) return res;
+        if (Array.isArray(res)) return res;
       } catch (err) {
-        console.warn("Falling back to pre-seeded timeline events:", err);
+        console.warn("Failed to fetch timeline events from server:", err);
       }
-      return DEFAULT_FALLBACK_TIMELINE_EVENTS;
+      return [];
     },
   });
 
   const events = useMemo(() => {
-    if (fetchedEvents && fetchedEvents.length > 0) return fetchedEvents;
-    return DEFAULT_FALLBACK_TIMELINE_EVENTS;
+    return Array.isArray(fetchedEvents) ? fetchedEvents : [];
   }, [fetchedEvents]);
 
   // ── Mutations ──────────────────────────────────────────────────────────────
@@ -670,7 +582,7 @@ export default function TimelinePage() {
         id: `a-${Date.now()}`,
         role: "assistant",
         content:
-          "Based on the **208 decisions** and **421 actions** analyzed in Knowra: Key architectural priorities include PostgreSQL EC2 to RDS migration, vector DB HNSW partitioning for low-latency RAG, and automated Resend briefing dispatches.",
+          "Unable to query the cross-meeting intelligence engine at this moment. Please check your connection and try again.",
         timestamp: "Just now",
       };
 
@@ -728,19 +640,6 @@ export default function TimelinePage() {
                 className={isFetching || syncMutation.isPending ? "animate-spin" : ""}
               />
               <span>Sync Events</span>
-            </button>
-
-            <button
-              onClick={() => setIsCopilotOpen(!isCopilotOpen)}
-              className={cn(
-                "flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition-all cursor-pointer",
-                isCopilotOpen
-                  ? "bg-slate-900 text-white hover:bg-slate-800"
-                  : "bg-indigo-600 hover:bg-indigo-700 text-white"
-              )}
-            >
-              <Sparkles size={13} className="text-indigo-300" />
-              <span>{isCopilotOpen ? "Hide Copilot" : "AI Copilot"}</span>
             </button>
           </div>
         }
@@ -948,7 +847,7 @@ export default function TimelinePage() {
             <div className="bg-white rounded-2xl border border-slate-200 p-16 text-center space-y-3">
               <RefreshCw size={24} className="animate-spin text-indigo-600 mx-auto" />
               <p className="text-xs text-slate-500 font-medium">
-                Assembling chronological timeline from 276 meetings and 208 decisions...
+                Assembling chronological timeline from workspace meetings and decisions...
               </p>
             </div>
           ) : filteredEvents.length === 0 ? (
@@ -1344,6 +1243,40 @@ export default function TimelinePage() {
                 <span>Groq LLM • Cross-Meeting RAG</span>
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── 4. FLOATING BOT COPILOT BUTTON (BOTTOM RIGHT) ────────────────────── */}
+      <div className="fixed bottom-6 right-6 z-40 group">
+        <button
+          onClick={() => setIsCopilotOpen((prev) => !prev)}
+          className={cn(
+            "relative flex items-center justify-center w-13 h-13 rounded-full text-white shadow-lg transition-all duration-300 cursor-pointer",
+            isCopilotOpen
+              ? "bg-slate-900 hover:bg-slate-800 shadow-slate-900/30"
+              : "bg-gradient-to-tr from-indigo-600 via-indigo-500 to-purple-600 hover:scale-105 shadow-indigo-500/30 hover:shadow-indigo-500/50"
+          )}
+          title={isCopilotOpen ? "Close Analytics Copilot" : "Open Analytics Copilot"}
+          aria-label="Toggle Analytics Copilot"
+        >
+          {isCopilotOpen ? (
+            <X size={20} className="transition-transform duration-200" />
+          ) : (
+            <>
+              <Bot size={24} className="transition-transform duration-200 group-hover:scale-110" />
+              <span className="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-indigo-500 border-2 border-white"></span>
+              </span>
+            </>
+          )}
+        </button>
+
+        {!isCopilotOpen && (
+          <div className="absolute right-15 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-medium shadow-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none">
+            Ask Analytics Copilot
+            <div className="absolute right-[-4px] top-1/2 -translate-y-1/2 w-2 h-2 bg-slate-900 rotate-45" />
           </div>
         )}
       </div>

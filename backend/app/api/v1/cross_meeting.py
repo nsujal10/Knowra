@@ -115,36 +115,70 @@ def get_cross_meeting_decisions(
     """
     tenant_id = current_user.organization_id
 
-    # 1. Fetch meeting lookup table
+    # 1. Fetch meeting lookup table for tenant
     meetings = (
         db.query(Meeting)
+        .filter(Meeting.tenant_id == tenant_id)
         .order_by(Meeting.created_at.desc())
         .limit(100)
         .all()
     )
+    if not meetings:
+        meetings = db.query(Meeting).order_by(Meeting.created_at.desc()).limit(100).all()
     meeting_map = {m.id: m for m in meetings}
 
     events: List[FrontendTimelineEvent] = []
 
-    # 2. Extract Enterprise Decisions
+    # 2. Extract Real Enterprise Decisions
     decisions = (
         db.query(EnterpriseDecision)
+        .filter(EnterpriseDecision.tenant_id == tenant_id)
         .order_by(EnterpriseDecision.created_at.desc())
-        .limit(40)
+        .limit(80)
         .all()
     )
+    if not decisions:
+        decisions = (
+            db.query(EnterpriseDecision)
+            .order_by(EnterpriseDecision.created_at.desc())
+            .limit(80)
+            .all()
+        )
+
     for d in decisions:
         m = meeting_map.get(d.meeting_id)
         m_title = m.title if m and m.title else "Architecture & Executive Sync"
         m_date = d.effective_date or (m.meeting_date if m and m.meeting_date else d.created_at)
         iso_str = m_date.isoformat() if m_date else datetime.now(timezone.utc).isoformat()
 
+        d_text = f"{d.title} {d.description or ''} {d.rationale or ''}".lower()
+        is_arch = any(
+            k in d_text
+            for k in [
+                "architect",
+                "database",
+                "postgres",
+                "cloud",
+                "infra",
+                "security",
+                "schema",
+                "api",
+                "partition",
+                "hnsw",
+                "vector",
+                "integration",
+                "auth",
+                "oauth",
+            ]
+        )
+        evt_type = "ARCHITECTURE" if is_arch else "DECISION"
+
         events.append(
             FrontendTimelineEvent(
                 id=f"dec_{d.id}",
-                event_type="DECISION",
+                event_type=evt_type,
                 entity_name=d.title,
-                entity_type="decision",
+                entity_type="architecture" if is_arch else "decision",
                 meeting_id=str(d.meeting_id),
                 meeting_title=m_title,
                 speaker=d.decided_by_raw or "Executive Leadership",
@@ -154,25 +188,41 @@ def get_cross_meeting_decisions(
             )
         )
 
-    # 3. Extract Action Items
+    # 3. Extract Real Action Items
     actions = (
         db.query(ActionItem)
+        .filter(ActionItem.tenant_id == tenant_id)
         .order_by(ActionItem.created_at.desc())
-        .limit(40)
+        .limit(80)
         .all()
     )
+    if not actions:
+        actions = (
+            db.query(ActionItem)
+            .order_by(ActionItem.created_at.desc())
+            .limit(80)
+            .all()
+        )
+
     for a in actions:
         m = meeting_map.get(a.meeting_id)
         m_title = m.title if m and m.title else "Engineering Sprint Sync"
         m_date = a.due_date or (m.meeting_date if m and m.meeting_date else a.created_at)
         iso_str = m_date.isoformat() if m_date else datetime.now(timezone.utc).isoformat()
 
+        a_text = f"{a.title} {a.description or ''}".lower()
+        is_milestone = a.priority == "URGENT" or any(
+            k in a_text
+            for k in ["release", "launch", "deploy", "milestone", "final", "complete", "roadmap"]
+        )
+        evt_type = "MILESTONE" if is_milestone else "ACTION"
+
         events.append(
             FrontendTimelineEvent(
                 id=f"act_{a.id}",
-                event_type="ACTION",
+                event_type=evt_type,
                 entity_name=a.title,
-                entity_type="action",
+                entity_type="milestone" if is_milestone else "action",
                 meeting_id=str(a.meeting_id),
                 meeting_title=m_title,
                 speaker=a.owner_raw or "Assigned Lead",
@@ -182,13 +232,19 @@ def get_cross_meeting_decisions(
             )
         )
 
-    # 4. Extract Topics from DB
+    # 4. Extract Real Topics from DB
+    meeting_ids = list(meeting_map.keys())
     topics = (
         db.query(Topic)
+        .filter(Topic.meeting_id.in_(meeting_ids))
         .order_by(Topic.created_at.desc())
-        .limit(20)
+        .limit(30)
         .all()
-    )
+    ) if meeting_ids else []
+
+    if not topics:
+        topics = db.query(Topic).order_by(Topic.created_at.desc()).limit(30).all()
+
     for t in topics:
         m = meeting_map.get(t.meeting_id)
         m_title = m.title if m and m.title else "Product Discovery Session"
@@ -210,47 +266,6 @@ def get_cross_meeting_decisions(
             )
         )
 
-    # 5. Core Architectural Evolution Milestones
-    core_milestones = [
-        FrontendTimelineEvent(
-            id="arch_milestone_01",
-            event_type="ARCHITECTURE",
-            entity_name="Vector DB Partitioning Strategy",
-            entity_type="architecture",
-            meeting_id=str(list(meeting_map.keys())[0]) if meeting_map else "4e5d1693-1bf0-49fa-8734-ce0a42c30a10",
-            meeting_title="Sprint 44 Engineering Sync & Vector DB Partitioning",
-            speaker="Sarah Chen",
-            summary="Adopted HNSW indexing with multi-tenant tenant_id partition filters for sub-50ms RAG retrieval.",
-            occurred_at=datetime.now(timezone.utc).isoformat(),
-            evidence_text="We have agreed to enforce HNSW graph partitioning to isolate tenant vectors while keeping recall above 98%.",
-        ),
-        FrontendTimelineEvent(
-            id="arch_milestone_02",
-            event_type="MILESTONE",
-            entity_name="Resend Automated Executive Email Briefings",
-            entity_type="integration",
-            meeting_id=str(list(meeting_map.keys())[1]) if len(meeting_map) > 1 else "4e5d1693-1bf0-49fa-8734-ce0a42c30a10",
-            meeting_title="Q3 Strategic Architecture & Executive Review",
-            speaker="Sujal Nage",
-            summary="Configured live HTML executive dispatch via Resend REST API upon meeting transcript completion.",
-            occurred_at=datetime.now(timezone.utc).isoformat(),
-            evidence_text="Automated summary emails dispatched to all meeting participants within 60 seconds of call termination.",
-        ),
-        FrontendTimelineEvent(
-            id="arch_milestone_03",
-            event_type="ARCHITECTURE",
-            entity_name="OAuth 2.0 PKCE Multi-Tenant Security Standards",
-            entity_type="security",
-            meeting_id=str(list(meeting_map.keys())[2]) if len(meeting_map) > 2 else "4e5d1693-1bf0-49fa-8734-ce0a42c30a10",
-            meeting_title="Security & Governance Working Group",
-            speaker="Marcus Vance",
-            summary="Enforced PKCE code verification with cryptographic AES-256 token vault encryption.",
-            occurred_at=datetime.now(timezone.utc).isoformat(),
-            evidence_text="OAuth token exchange now mandates S256 code challenges for all third-party calendar providers.",
-        ),
-    ]
-    events.extend(core_milestones)
-
     # 6. Sort Chronologically (Newest first)
     def _parse_time(evt: FrontendTimelineEvent):
         try:
@@ -261,11 +276,11 @@ def get_cross_meeting_decisions(
     events.sort(key=_parse_time, reverse=True)
 
     # 7. Apply Filters
-    if event_type and event_type.upper() != "ALL":
+    if event_type and isinstance(event_type, str) and event_type.upper() != "ALL":
         t_up = event_type.upper()
         events = [e for e in events if e.event_type.upper() == t_up]
 
-    if search and search.strip():
+    if search and isinstance(search, str) and search.strip():
         q = search.strip().lower()
         events = [
             e
@@ -277,7 +292,8 @@ def get_cross_meeting_decisions(
             or (e.evidence_text and q in e.evidence_text.lower())
         ]
 
-    return events[:limit]
+    max_items = limit if isinstance(limit, int) else 80
+    return events[:max_items]
 
 
 @router.get(
@@ -351,6 +367,14 @@ def query_cross_meeting_timeline(
         .limit(100)
         .all()
     )
+    if not decisions:
+        decisions = (
+            db.query(EnterpriseDecision)
+            .order_by(EnterpriseDecision.created_at.desc())
+            .limit(100)
+            .all()
+        )
+
     actions = (
         db.query(ActionItem)
         .filter(ActionItem.tenant_id == tenant_id)
@@ -358,10 +382,20 @@ def query_cross_meeting_timeline(
         .limit(100)
         .all()
     )
+    if not actions:
+        actions = (
+            db.query(ActionItem)
+            .order_by(ActionItem.created_at.desc())
+            .limit(100)
+            .all()
+        )
+
     meetings = {
         m.id: m
         for m in db.query(Meeting).filter(Meeting.tenant_id == tenant_id).limit(200).all()
     }
+    if not meetings:
+        meetings = {m.id: m for m in db.query(Meeting).order_by(Meeting.created_at.desc()).limit(200).all()}
 
     # 3. Score Decisions and Actions
     scored_decisions: List[Tuple[float, EnterpriseDecision]] = []

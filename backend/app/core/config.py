@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:3000"
     FRONTEND_APP_URL: str = "http://localhost:3000"
     SSO_ENFORCE_BUSINESS_DOMAINS: bool = False
+    RESTRICT_DOMAIN: str = "softude.com"
     # Zoom OAuth Settings
     ZOOM_CLIENT_ID: str = ""
     ZOOM_CLIENT_SECRET: str = ""
@@ -56,13 +57,17 @@ class Settings(BaseSettings):
     SLACK_CLIENT_ID: str = ""
     SLACK_CLIENT_SECRET: str = ""
     SLACK_SIGNING_SECRET: str = ""
+    SLACK_BOT_TOKEN: str = ""
+    SLACK_WEBHOOK_URL: str = ""
+    SLACK_DEFAULT_CHANNEL: str = "#general-intelligence"
 
     # Atlassian Jira Settings
     JIRA_CLIENT_ID: str = ""
     JIRA_CLIENT_SECRET: str = ""
-    JIRA_INSTANCE_URL: str = "https://softude.atlassian.net"
+    JIRA_INSTANCE_URL: str = "https://knowra-team.atlassian.net"
+    JIRA_API_EMAIL: str = "sujal.nage@softude.com"
     JIRA_API_TOKEN: str = ""
-    JIRA_DEFAULT_PROJECT_KEY: str = "KNOWRA"
+    JIRA_DEFAULT_PROJECT_KEY: str = "SCRUM"
 
     # Linear Engineering Sync Settings
     LINEAR_API_KEY: str = ""
@@ -73,6 +78,10 @@ class Settings(BaseSettings):
     # Meeting Baas Bot Settings
     MEETING_BAAS_API_KEY: str = ""
     MEETING_BAAS_WEBHOOK_URL: str = ""
+
+    # Resend API Settings
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "briefings@knowra.ai"
 
     # SMTP Outbound Email Settings
     SMTP_HOST: str = ""
